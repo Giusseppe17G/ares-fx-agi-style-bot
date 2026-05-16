@@ -488,6 +488,7 @@ def test_validation_report_consolidates_results(tmp_path: Path) -> None:
     (root / "broker_costs").mkdir()
     (root / "benchmarks").mkdir()
     (root / "competitive_scorecard").mkdir()
+    (root / "research").mkdir()
     (root / "backtests" / "summary.json").write_text('{"total_trades":300,"profit_factor":1.5,"expectancy_r":0.1,"max_drawdown_pct":-5}', encoding="utf-8")
     for folder in ("walk_forward", "monte_carlo", "stress"):
         (root / folder / "summary.json").write_text('{"classification":"APPROVED_FOR_SHADOW_OBSERVATION"}', encoding="utf-8")
@@ -495,6 +496,9 @@ def test_validation_report_consolidates_results(tmp_path: Path) -> None:
     (root / "broker_costs" / "broker_cost_profile.json").write_text('{"classification":"OK"}', encoding="utf-8")
     (root / "benchmarks" / "summary.json").write_text('{"classification":"APPROVED_FOR_SHADOW_OBSERVATION"}', encoding="utf-8")
     (root / "competitive_scorecard" / "competitive_scorecard.json").write_text('{"classification":"COMPETITIVE_CANDIDATE"}', encoding="utf-8")
+    (root / "research" / "research_summary.json").write_text('{"classification":"APPROVED_FOR_SHADOW_OBSERVATION"}', encoding="utf-8")
+    (root / "research" / "recommended_strategy_mix.json").write_text('[{"symbol":"EURUSD"}]', encoding="utf-8")
+    (root / "research" / "candidate_registry.json").write_text('[{"candidate_id":"cand_1"}]', encoding="utf-8")
 
     report = build_master_validation_report(reports_root=root, output_dir=root / "validation")
 

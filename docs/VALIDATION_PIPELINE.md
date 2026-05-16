@@ -57,7 +57,13 @@ $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode benchmark
 $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode competitive-scorecard --reports-root data\reports --output-dir data\reports\competitive_scorecard
 ```
 
-8. Build master validation report:
+8. Run strategy research:
+
+```powershell
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode research --symbols EURUSD,GBPUSD,USDJPY --data-dir data\historical --reports-root data\reports --output-dir data\reports\research --max-candidates 100
+```
+
+9. Build master validation report:
 
 ```powershell
 $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode validation-report --reports-root data\reports --output-dir data\reports\validation
@@ -79,6 +85,7 @@ Demo execution remains blocked when:
 - Data quality is rejected or broker cost profile is missing.
 - Strategy does not beat simple baselines after realistic costs.
 - Competitive scorecard is not acceptable.
+- Strategy research has no approved/watchlist candidates.
 - Walk-forward test is negative or too sparse.
 - Monte Carlo shows excessive risk of ruin.
 - Stress test collapses under spread `x2`.

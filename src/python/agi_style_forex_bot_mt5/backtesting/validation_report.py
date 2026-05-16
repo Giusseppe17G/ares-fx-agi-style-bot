@@ -34,6 +34,9 @@ def build_master_validation_report(
         "stress": _read_json(root / "stress" / "summary.json"),
         "benchmark": _read_json(root / "benchmarks" / "summary.json"),
         "competitive_scorecard": _read_json(root / "competitive_scorecard" / "competitive_scorecard.json"),
+        "research": _read_json(root / "research" / "research_summary.json"),
+        "recommended_strategy_mix": _read_json(root / "research" / "recommended_strategy_mix.json"),
+        "candidate_registry": _read_json(root / "research" / "candidate_registry.json"),
     }
     final_decision, reasons = _final_decision(summaries)
     report = {
@@ -84,6 +87,9 @@ def _existing_summary_paths(root: Path) -> list[Path]:
             root / "broker_costs" / "broker_cost_profile.json",
             root / "benchmarks" / "summary.json",
             root / "competitive_scorecard" / "competitive_scorecard.json",
+            root / "research" / "research_summary.json",
+            root / "research" / "recommended_strategy_mix.json",
+            root / "research" / "candidate_registry.json",
         )
         if path.exists()
     ]
@@ -115,6 +121,11 @@ def _section_classification(section: str, summary: Mapping[str, Any]) -> str:
         if value in {"NEEDS_OPTIMIZATION", "WEAK_EDGE"}:
             return "WATCHLIST"
         return "REJECTED"
+    if section == "research":
+        value = str(summary.get("classification") or "REJECTED")
+        return value if value in {"APPROVED_FOR_SHADOW_OBSERVATION", "WATCHLIST"} else "REJECTED"
+    if section in {"recommended_strategy_mix", "candidate_registry"}:
+        return "APPROVED_FOR_SHADOW_OBSERVATION" if summary else "REJECTED"
     if section == "benchmark":
         value = str(summary.get("classification") or "REJECTED")
         return "WATCHLIST" if value == "WATCHLIST" else value

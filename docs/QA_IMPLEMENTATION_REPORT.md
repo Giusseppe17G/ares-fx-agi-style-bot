@@ -220,6 +220,37 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 
+## Phase 7 Strategy Research Update
+
+Status: PASS.
+
+Integrated in Phase 7:
+
+- Added `research` package with versioned `StrategyCandidate`, controlled parameter spaces, objective functions, `OverfitGuard`, candidate registry, regime selector, symbol strategy selector, research runner, and report writer.
+- Added CLI mode `--mode research`.
+- Research mode writes `research_summary.json`, `research_summary.csv`, `candidate_registry.json`, `recommended_strategy_mix.json`, `rejected_candidates.csv`, and `report.html`.
+- Validation report now reads research summary, candidate registry, and recommended strategy mix.
+- Added docs: `STRATEGY_RESEARCH.md`, `REGIME_STRATEGY_SELECTION.md`, and `OVERFIT_GUARD.md`.
+
+Additional Phase 7 tests:
+
+- StrategyCandidate serializes to JSON.
+- ParameterSpace generation is reproducible.
+- CandidateRegistry avoids duplicates.
+- Composite objective penalizes few trades and high drawdown.
+- OverfitGuard detects train-positive/test-negative and top-trade concentration.
+- RegimeStrategySelector returns weights and blocks closed/no-tick regimes.
+- SymbolStrategySelector generates recommended strategy mix.
+- Research runner produces reports.
+- CLI accepts `--mode research` and returns `execution_attempted=false`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+
 ## Phase 6 Data Pipeline And Competitive Benchmark Update
 
 Status: PASS.

@@ -24,6 +24,7 @@ from .contracts import AccountState, MarketSnapshot, utc_now
 from .data_pipeline import build_broker_cost_profile, build_dataset_manifest, cost_for_symbol
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
+from .research import run_research
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
 
 
@@ -107,6 +108,7 @@ def main(argv: list[str] | None = None) -> int:
             "build-cost-profile",
             "benchmark",
             "competitive-scorecard",
+            "research",
         ],
         default="shadow",
     )
@@ -127,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trades", type=Path, default=None, help="Trades CSV for monte-carlo.")
     parser.add_argument("--simulations", type=int, default=1000, help="Monte Carlo simulation count.")
     parser.add_argument("--seed", type=int, default=0, help="Reproducible random seed.")
+    parser.add_argument("--max-candidates", type=int, default=100, help="Maximum research candidates.")
     parser.add_argument("--train-days", type=int, default=90)
     parser.add_argument("--validation-days", type=int, default=30)
     parser.add_argument("--test-days", type=int, default=30)
@@ -267,6 +270,17 @@ def main(argv: list[str] | None = None) -> int:
             summary = build_competitive_scorecard(
                 reports_root=args.reports_root,
                 output_dir=args.output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "research":
+            summary = run_research(
+                symbols=selected_symbols,
+                data_dir=args.data_dir,
+                reports_root=args.reports_root,
+                output_dir=args.output_dir,
+                max_candidates=args.max_candidates,
             )
             print(_json_dumps(summary))
             return 0
