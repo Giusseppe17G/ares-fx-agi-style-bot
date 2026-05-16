@@ -268,14 +268,17 @@ Exit codes:
 - `1`: WARNING.
 - `2`: CRITICAL.
 
-## 14. Diagnostics Placeholder
+## 14. MT5 Diagnose Mode
 
-`scripts\run_mt5_diagnose.ps1` prepares the future `--mode mt5-diagnose` command. Until Fase 3B adds that CLI mode, the script exits with code `2` after documenting the dependency. Once the CLI exposes `mt5-diagnose`, the same script runs:
+Use this when `mt5-data` rejects symbols because the tick is stale or symbol mapping is unclear:
 
 ```powershell
-$env:PYTHONPATH="src/python"
-.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode mt5-diagnose --log-dir data\logs\mt5-diagnose-ec2 --sqlite data\sqlite\mt5-diagnose-ec2.sqlite3
+.\scripts\run_mt5_diagnose.ps1
 ```
+
+The script runs `--mode mt5-diagnose`, audits `MT5_DIAGNOSTIC`, prints `tick.time`, `tick.time_msc`, UTC interpretations, tick age, broker symbol mapping, `market_is_probably_closed`, and MT5 `last_error()`. It does not generate signals, create shadow orders, or call `order_send`.
+
+If `reject_code=MARKET_CLOSED_OR_NO_TICKS`, verify MT5 is connected, the symbol is visible in Market Watch, and the Forex session is open. A weekend or no fresh broker ticks should remain rejected; do not increase `MAX_TICK_AGE_SECONDS` just to bypass this.
 
 ## 15. Operational Checklist
 

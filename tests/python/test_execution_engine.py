@@ -18,6 +18,7 @@ from agi_style_forex_bot_mt5.execution import (
     RETCODE_DONE,
     RETCODE_PRICE_CHANGED,
     TradeManager,
+    is_market_probably_closed,
 )
 
 
@@ -238,7 +239,8 @@ def test_stale_tick_is_rejected() -> None:
     )
 
     assert result.sent is False
-    assert result.retcode_description == "MARKET_DATA_INVALID"
+    expected = "MARKET_CLOSED_OR_NO_TICKS" if is_market_probably_closed(utc_now(), "EURUSD") else "MARKET_DATA_INVALID"
+    assert result.retcode_description == expected
     assert "order_send" not in fake.calls
 
 

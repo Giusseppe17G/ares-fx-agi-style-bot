@@ -7,7 +7,8 @@
 - Initializes the MetaTrader5 Python adapter.
 - Reads `account_info`.
 - Reads `symbol_info` and `symbol_info_tick`.
-- Reads bars for `M5`, `M15`, and `H1` with `copy_rates_from_pos`.
+- Resolves canonical symbols such as `EURUSD` to broker symbols such as `EURUSDm`, `EURUSD.r`, `EURUSD.raw`, `EURUSDpro`, or `EURUSD.` when exposed by `symbols_get()`.
+- Reads bars for `M5`, `M15`, and `H1` with `copy_rates_from_pos`, then falls back to `copy_rates_range` when the first read is empty.
 - Validates symbol properties, tick freshness, and market data quality.
 - Computes indicators, features, and regime labels.
 - Runs the strategy ensemble in shadow mode.
@@ -36,7 +37,13 @@ $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode mt5-data 
 Optional symbols:
 
 ```powershell
-$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode mt5-data --symbols EURUSD,GBPUSD --bars 300 --log-dir data\logs\mt5-data-smoke --sqlite data\sqlite\mt5-data-smoke.sqlite3
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode mt5-data --symbols EURUSD,GBPUSD,USDJPY --bars 300 --log-dir data\logs\mt5-data-smoke --sqlite data\sqlite\mt5-data-smoke.sqlite3
+```
+
+Default symbols are:
+
+```text
+EURUSD, GBPUSD, USDJPY, USDCAD, USDCHF, AUDUSD, EURJPY, NZDUSD
 ```
 
 Optional Telegram:
@@ -66,6 +73,51 @@ The final JSON always includes:
 ```
 
 If MT5 is unavailable, the mode fails closed with `mt5_connected=false` and `execution_attempted=false`.
+
+## MT5 Diagnose Mode
+
+Use `mt5-diagnose` when a symbol is rejected before signals, especially with `reject_reason="tick is stale"`:
+
+```powershell
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode mt5-diagnose --log-dir data\logs\mt5-diagnose --sqlite data\sqlite\mt5-diagnose.sqlite3
+```
+
+This mode connects to MT5, reads account/symbol/tick data, audits `MT5_DIAGNOSTIC`, and prints per-symbol diagnostics. It does not generate signals, does not create shadow orders, does not call `order_check`, and does not call `order_send`.
+
+Each diagnostic includes:
+
+- `canonical_symbol` and `broker_symbol`.
+- `bid`, `ask`, and `spread_points`.
+- Raw `tick.time` and `tick.time_msc`.
+- UTC interpretations: `tick_time_utc`, `tick_time_msc_utc`, and `now_utc`.
+- `tick_age_seconds`, `tick_age_seconds_from_time`, and `tick_age_seconds_from_time_msc`.
+- `mt5.last_error()`.
+- `market_is_probably_closed`.
+- `status`, `reject_code`, and `reject_reason`.
+
+## Diagnosing `tick is stale`
+
+`tick_age_seconds` is the difference between `now_utc` and the selected MT5 tick timestamp. The bot prefers `tick.time_msc` when it is present and valid, because it avoids precision loss and reduces false stale readings. It uses `tick.time` only as a fallback.
+
+When a stale tick happens:
+
+- Check that MT5 is connected and logged into the demo account.
+- Open Market Watch and make sure the broker symbol is visible.
+- Confirm the symbol name: some brokers expose `EURUSDm`, `EURUSD.r`, `EURUSD.raw`, `EURUSDpro`, or `EURUSD.`.
+- Check whether Forex is closed. Weekend closure is normally Friday late UTC through Sunday before the open.
+- Compare `tick_age_seconds_from_time` vs `tick_age_seconds_from_time_msc`. If only one is stale, it may be a timestamp-source issue.
+- Verify `execution_attempted=false` in the CLI summary and JSONL.
+
+If the market is probably closed or the symbol has no fresh ticks, the bot rejects with:
+
+```json
+{
+  "reject_code": "MARKET_CLOSED_OR_NO_TICKS",
+  "reject_reason": "market appears closed or symbol has no fresh ticks"
+}
+```
+
+That is not a critical bot error; it is a safe read-only rejection.
 
 ## Verifying No `order_send`
 

@@ -19,6 +19,9 @@ from agi_style_forex_bot_mt5.execution.mt5_connector import (
     RETCODE_PRICE_OFF,
     RETCODE_REQUOTE,
     RETCODE_TOO_MANY_REQUESTS,
+    SymbolResolution,
+    TickFreshness,
+    is_market_probably_closed,
 )
 from agi_style_forex_bot_mt5.execution.slippage_monitor import (
     SlippageMeasurement,
@@ -43,6 +46,8 @@ __all__ = [
     "RETCODE_PRICE_OFF",
     "RETCODE_REQUOTE",
     "RETCODE_TOO_MANY_REQUESTS",
+    "SymbolResolution",
+    "TickFreshness",
     "SlippageMeasurement",
     "SlippageMonitor",
     "ShadowExecutionEngine",
@@ -51,4 +56,5 @@ __all__ = [
     "SpreadFilter",
     "StopManagementDecision",
     "TradeManager",
+    "is_market_probably_closed",
 ]

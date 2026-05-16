@@ -183,6 +183,39 @@ Commands run:
 Remaining risks:
 
 - `mt5-data` validates read-only integration, not broker execution or fills.
-- `copy_rates_range` is not yet used by the CLI path; `copy_rates_from_pos` is the current data source.
 - Multi-symbol risk correlation can be expanded once real symbol sets are configured.
 - MQL5-side JSON exchange remains future work.
+
+## Phase 3B MT5 Tick Diagnostics Update
+
+Status: PASS.
+
+Integrated in Phase 3B:
+
+- Added `--mode mt5-diagnose` to the CLI.
+- Added `MT5DiagnoseBot`, which connects to MT5, reads account/symbol/tick diagnostics, audits `MT5_DIAGNOSTIC`, and never generates signals or orders.
+- Tick freshness now uses UTC consistently and prefers valid `tick.time_msc`, with `tick.time` as fallback.
+- Tick diagnostics include raw timestamps, UTC interpretations, both age calculations, `now_utc`, bid/ask, spread, MT5 `last_error()`, and `market_is_probably_closed`.
+- Stale Forex ticks during likely market closure are rejected as `MARKET_CLOSED_OR_NO_TICKS` instead of critical bot errors.
+- Symbol resolution now keeps `canonical_symbol` separate from `broker_symbol` and supports common suffixes such as `EURUSDm`, `EURUSD.r`, `EURUSD.raw`, `EURUSDpro`, and `EURUSD.`.
+- `mt5-data` and `mt5-diagnose` default to the configured major FX basket: `EURUSD, GBPUSD, USDJPY, USDCAD, USDCHF, AUDUSD, EURJPY, NZDUSD`.
+- Empty `copy_rates_from_pos` reads now audit `MT5_RATES_EMPTY` and try `copy_rates_range` before rejecting market data.
+
+Additional Phase 3B tests:
+
+- CLI accepts `--mode mt5-diagnose`.
+- `tick.time` and `tick.time_msc` freshness calculations.
+- Weekend stale tick uses `MARKET_CLOSED_OR_NO_TICKS`.
+- Fresh tick produces an accepted snapshot.
+- `time_msc` prevents a false stale rejection when `time` is skewed.
+- Diagnostic output includes tick UTC fields and `execution_attempted=false`.
+- Multi-symbol runs continue after one rejected symbol.
+- Symbol mapper detects `EURUSDm`.
+- `scripts/run_mt5_diagnose.ps1` points at the real CLI mode.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.

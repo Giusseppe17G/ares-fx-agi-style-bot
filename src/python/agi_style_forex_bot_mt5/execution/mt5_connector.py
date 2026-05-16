@@ -81,6 +81,67 @@ class AdapterCheck:
         return AdapterCheck(False, code, reason, payload)
 
 
+@dataclass(frozen=True)
+class SymbolResolution:
+    """Canonical/broker symbol mapping for broker-specific suffixes."""
+
+    canonical_symbol: str
+    broker_symbol: str
+
+
+@dataclass(frozen=True)
+class TickFreshness:
+    """UTC-normalized tick time diagnostics."""
+
+    tick_time_raw: int | float | None
+    tick_time_msc_raw: int | float | None
+    tick_time_utc: datetime | None
+    tick_time_msc_utc: datetime | None
+    selected_time_utc: datetime | None
+    selected_source: str
+    tick_age_seconds: float | None
+    tick_age_seconds_from_time: float | None
+    tick_age_seconds_from_time_msc: float | None
+    now_utc: datetime
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return JSON-safe tick diagnostics for audit events."""
+
+        return {
+            "tick_time_raw": self.tick_time_raw,
+            "tick_time_msc_raw": self.tick_time_msc_raw,
+            "tick_time_utc": self.tick_time_utc.isoformat() if self.tick_time_utc else None,
+            "tick_time_msc_utc": self.tick_time_msc_utc.isoformat() if self.tick_time_msc_utc else None,
+            "selected_tick_time_source": self.selected_source,
+            "selected_tick_time_utc": self.selected_time_utc.isoformat() if self.selected_time_utc else None,
+            "tick_age_seconds": self.tick_age_seconds,
+            "tick_age_seconds_from_time": self.tick_age_seconds_from_time,
+            "tick_age_seconds_from_time_msc": self.tick_age_seconds_from_time_msc,
+            "now_utc": self.now_utc.isoformat(),
+        }
+
+
+def is_market_probably_closed(now_utc: datetime, symbol: str) -> bool:
+    """Return true during common Forex weekend closure windows."""
+
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    now_utc = now_utc.astimezone(timezone.utc)
+    symbol_text = "".join(ch for ch in symbol.upper() if ch.isalpha())
+    is_forex_like = len(symbol_text) >= 6 and symbol_text[:3].isalpha() and symbol_text[3:6].isalpha()
+    if not is_forex_like:
+        return False
+    weekday = now_utc.weekday()
+    hour = now_utc.hour
+    if weekday == 5:
+        return True
+    if weekday == 6 and hour < 22:
+        return True
+    if weekday == 4 and hour >= 22:
+        return True
+    return False
+
+
 class MT5Connector:
     """Encapsulate all calls to the MetaTrader5 Python module."""
 
@@ -112,6 +173,17 @@ class MT5Connector:
         if isinstance(value, int):
             return value
         return 0
+
+    def last_error_payload(self) -> Any:
+        """Return the raw MT5 last_error payload for diagnostics."""
+
+        last_error = getattr(self.mt5, "last_error", None)
+        if not callable(last_error):
+            return 0
+        value = last_error()
+        if isinstance(value, tuple):
+            return list(value)
+        return value
 
     def retcode_description(self, retcode: int) -> str:
         """Return human-readable retcode text."""
@@ -212,16 +284,85 @@ class MT5Connector:
             return "demo" in trade_mode.lower()
         return int(trade_mode) == 0 if isinstance(trade_mode, int) else False
 
-    def ensure_symbol_snapshot(self, symbol: str) -> tuple[AdapterCheck, MarketSnapshot | None]:
+    def resolve_symbol(self, canonical_symbol: str) -> tuple[AdapterCheck, SymbolResolution | None]:
+        """Resolve a canonical symbol to the broker symbol exposed by MT5."""
+
+        canonical = canonical_symbol.strip().upper()
+        if not canonical:
+            return AdapterCheck.reject("SYMBOL_NOT_ALLOWED", "canonical symbol is empty"), None
+        direct_info = self.mt5.symbol_info(canonical)
+        if direct_info is not None:
+            name = str(getattr(direct_info, "name", canonical) or canonical)
+            return AdapterCheck.ok(
+                "symbol resolved",
+                canonical_symbol=canonical,
+                broker_symbol=name,
+                match_type="exact",
+            ), SymbolResolution(canonical_symbol=canonical, broker_symbol=name)
+
+        candidates = self._symbol_candidates(canonical)
+        candidate_lookup = {candidate.upper() for candidate in candidates}
+        symbols_get = getattr(self.mt5, "symbols_get", None)
+        if callable(symbols_get):
+            try:
+                found = symbols_get(f"*{canonical}*")
+            except TypeError:
+                found = symbols_get()
+            except Exception:
+                found = ()
+            for item in found or ():
+                name = str(getattr(item, "name", "") or "")
+                if not name:
+                    continue
+                if name.upper() in candidate_lookup:
+                    return AdapterCheck.ok(
+                        "symbol resolved",
+                        canonical_symbol=canonical,
+                        broker_symbol=name,
+                        match_type="symbols_get",
+                    ), SymbolResolution(canonical_symbol=canonical, broker_symbol=name)
+
+        for candidate in candidates:
+            if self.mt5.symbol_info(candidate) is not None:
+                return AdapterCheck.ok(
+                    "symbol resolved",
+                    canonical_symbol=canonical,
+                    broker_symbol=candidate,
+                    match_type="candidate",
+                ), SymbolResolution(canonical_symbol=canonical, broker_symbol=candidate)
+
+        return AdapterCheck.reject(
+            "SYMBOL_NOT_ALLOWED",
+            "symbol information unavailable",
+            canonical_symbol=canonical,
+            broker_symbol=None,
+            last_error=self.last_error_code(),
+        ), None
+
+    def _symbol_candidates(self, canonical_symbol: str) -> tuple[str, ...]:
+        suffixes = ("", "m", ".r", ".raw", "pro", ".")
+        return tuple(f"{canonical_symbol}{suffix}" for suffix in suffixes)
+
+    def ensure_symbol_snapshot(
+        self,
+        symbol: str,
+        *,
+        canonical_symbol: str | None = None,
+        now_utc: datetime | None = None,
+    ) -> tuple[AdapterCheck, MarketSnapshot | None]:
         """Select a symbol, validate fresh tick/properties, and return a snapshot."""
 
+        canonical = (canonical_symbol or symbol).strip().upper()
+        now = (now_utc or utc_now()).astimezone(timezone.utc)
         symbol_info = self.mt5.symbol_info(symbol)
         if symbol_info is None:
             return (
                 AdapterCheck.reject(
                     "SYMBOL_NOT_ALLOWED",
                     "symbol information unavailable",
-                    symbol=symbol,
+                    symbol=canonical,
+                    canonical_symbol=canonical,
+                    broker_symbol=symbol,
                     last_error=self.last_error_code(),
                 ),
                 None,
@@ -233,7 +374,9 @@ class MT5Connector:
                     AdapterCheck.reject(
                         "SYMBOL_NOT_ALLOWED",
                         "symbol could not be selected",
-                        symbol=symbol,
+                        symbol=canonical,
+                        canonical_symbol=canonical,
+                        broker_symbol=symbol,
                         last_error=self.last_error_code(),
                     ),
                     None,
@@ -244,7 +387,9 @@ class MT5Connector:
                     AdapterCheck.reject(
                         "SYMBOL_NOT_ALLOWED",
                         "symbol information unavailable after selection",
-                        symbol=symbol,
+                        symbol=canonical,
+                        canonical_symbol=canonical,
+                        broker_symbol=symbol,
                     ),
                     None,
                 )
@@ -254,7 +399,9 @@ class MT5Connector:
                 AdapterCheck.reject(
                     "SYMBOL_TRADE_DISABLED",
                     "symbol trading is disabled",
-                    symbol=symbol,
+                    symbol=canonical,
+                    canonical_symbol=canonical,
+                    broker_symbol=symbol,
                 ),
                 None,
             )
@@ -265,7 +412,9 @@ class MT5Connector:
                 AdapterCheck.reject(
                     "MARKET_DATA_INVALID",
                     "tick unavailable",
-                    symbol=symbol,
+                    symbol=canonical,
+                    canonical_symbol=canonical,
+                    broker_symbol=symbol,
                     last_error=self.last_error_code(),
                 ),
                 None,
@@ -278,7 +427,9 @@ class MT5Connector:
                 AdapterCheck.reject(
                     "MARKET_DATA_INVALID",
                     "tick prices or point are invalid",
-                    symbol=symbol,
+                    symbol=canonical,
+                    canonical_symbol=canonical,
+                    broker_symbol=symbol,
                     bid=bid,
                     ask=ask,
                     point=point,
@@ -286,23 +437,44 @@ class MT5Connector:
                 None,
             )
 
-        timestamp = self._tick_timestamp(tick)
-        tick_age = (utc_now() - timestamp).total_seconds()
-        if tick_age > self.config.max_tick_age_seconds:
+        freshness = self.tick_freshness(tick, now_utc=now)
+        tick_age = freshness.tick_age_seconds
+        base_payload = {
+            "symbol": canonical,
+            "canonical_symbol": canonical,
+            "broker_symbol": symbol,
+            "bid": bid,
+            "ask": ask,
+            "spread_points": (ask - bid) / point,
+            "mt5_last_error": self.last_error_payload(),
+            "market_is_probably_closed": is_market_probably_closed(now, canonical),
+            "max_tick_age_seconds": self.config.max_tick_age_seconds,
+            **freshness.to_payload(),
+        }
+        if freshness.selected_time_utc is None or tick_age is None:
             return (
                 AdapterCheck.reject(
                     "MARKET_DATA_INVALID",
-                    "tick is stale",
-                    symbol=symbol,
-                    tick_age_seconds=tick_age,
+                    "tick timestamp is unavailable or invalid",
+                    **base_payload,
+                ),
+                None,
+            )
+        if tick_age > self.config.max_tick_age_seconds:
+            market_closed = is_market_probably_closed(now, canonical)
+            return (
+                AdapterCheck.reject(
+                    "MARKET_CLOSED_OR_NO_TICKS" if market_closed else "MARKET_DATA_INVALID",
+                    "market appears closed or symbol has no fresh ticks" if market_closed else "tick is stale",
+                    **base_payload,
                 ),
                 None,
             )
 
         snapshot = MarketSnapshot(
-            symbol=symbol,
+            symbol=canonical,
             timeframe="EXECUTION",
-            timestamp_utc=timestamp,
+            timestamp_utc=freshness.selected_time_utc,
             bid=bid,
             ask=ask,
             spread_points=(ask - bid) / point,
@@ -323,17 +495,67 @@ class MT5Connector:
                 AdapterCheck.reject(
                     "MARKET_DATA_INVALID",
                     str(exc),
-                    symbol=symbol,
+                    symbol=canonical,
+                    canonical_symbol=canonical,
+                    broker_symbol=symbol,
                 ),
                 None,
             )
-        return (AdapterCheck.ok("symbol snapshot accepted", symbol=symbol), snapshot)
+        return (
+            AdapterCheck.ok(
+                "symbol snapshot accepted",
+                **base_payload,
+            ),
+            snapshot,
+        )
 
     def _tick_timestamp(self, tick: Any) -> datetime:
-        time_msc = getattr(tick, "time_msc", None)
-        if time_msc:
-            return datetime.fromtimestamp(float(time_msc) / 1000.0, timezone.utc)
-        return datetime.fromtimestamp(float(getattr(tick, "time", 0)), timezone.utc)
+        freshness = self.tick_freshness(tick)
+        if freshness.selected_time_utc is None:
+            raise ValueError("tick timestamp is unavailable or invalid")
+        return freshness.selected_time_utc
+
+    def tick_freshness(self, tick: Any, *, now_utc: datetime | None = None) -> TickFreshness:
+        """Calculate tick age in UTC, preferring valid millisecond timestamps."""
+
+        now = (now_utc or utc_now()).astimezone(timezone.utc)
+        raw_time = getattr(tick, "time", None)
+        raw_time_msc = getattr(tick, "time_msc", None)
+        time_utc = self._unix_timestamp(raw_time, divisor=1.0)
+        time_msc_utc = self._unix_timestamp(raw_time_msc, divisor=1000.0)
+        selected = time_msc_utc or time_utc
+        selected_source = "time_msc" if time_msc_utc is not None else ("time" if time_utc is not None else "none")
+        age_from_time = (now - time_utc).total_seconds() if time_utc is not None else None
+        age_from_time_msc = (now - time_msc_utc).total_seconds() if time_msc_utc is not None else None
+        age = (now - selected).total_seconds() if selected is not None else None
+        return TickFreshness(
+            tick_time_raw=raw_time,
+            tick_time_msc_raw=raw_time_msc,
+            tick_time_utc=time_utc,
+            tick_time_msc_utc=time_msc_utc,
+            selected_time_utc=selected,
+            selected_source=selected_source,
+            tick_age_seconds=age,
+            tick_age_seconds_from_time=age_from_time,
+            tick_age_seconds_from_time_msc=age_from_time_msc,
+            now_utc=now,
+        )
+
+    def _unix_timestamp(self, raw_value: Any, *, divisor: float) -> datetime | None:
+        if raw_value in (None, ""):
+            return None
+        try:
+            value = float(raw_value) / divisor
+        except (TypeError, ValueError):
+            return None
+        if value <= 0:
+            return None
+        if value < 946684800 or value > 4102444800:
+            return None
+        try:
+            return datetime.fromtimestamp(value, timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
 
     def _symbol_trading_enabled(self, symbol_info: Any) -> bool:
         trade_mode = getattr(symbol_info, "trade_mode", None)

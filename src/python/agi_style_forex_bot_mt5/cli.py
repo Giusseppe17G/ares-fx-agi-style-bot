@@ -10,7 +10,7 @@ from pathlib import Path
 from .bot import ShadowDemoBot
 from .config import load_config
 from .contracts import AccountState, MarketSnapshot, utc_now
-from .mt5_data_bot import MT5DataOnlyBot, summary_to_json
+from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
 
 
@@ -77,10 +77,14 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description="Run AGI_STYLE_FOREX_BOT_MT5 safely.")
     parser.add_argument("--config", type=Path, default=None, help="Path to config INI.")
-    parser.add_argument("--mode", choices=["shadow", "demo", "mt5-data"], default="shadow")
+    parser.add_argument("--mode", choices=["shadow", "demo", "mt5-data", "mt5-diagnose"], default="shadow")
     parser.add_argument("--log-dir", type=Path, default=Path("data/logs"))
     parser.add_argument("--sqlite", type=Path, default=None, help="Optional telemetry SQLite path.")
-    parser.add_argument("--symbols", default="EURUSD", help="Comma-separated symbols for mt5-data.")
+    parser.add_argument(
+        "--symbols",
+        default=",".join(DEFAULT_FOREX_SYMBOLS),
+        help="Comma-separated symbols for mt5-data or mt5-diagnose.",
+    )
     parser.add_argument("--bars", type=int, default=260, help="Bars per timeframe for mt5-data.")
     parser.add_argument(
         "--telegram",
@@ -90,12 +94,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
-    if args.mode == "mt5-data" and args.sqlite is None:
-        parser.error("--mode mt5-data requires --sqlite for durable shadow-order audit")
+    if args.mode in {"mt5-data", "mt5-diagnose"} and args.sqlite is None:
+        parser.error(f"--mode {args.mode} requires --sqlite for durable audit")
     database = TelemetryDatabase(args.sqlite) if args.sqlite else None
     try:
-        if args.mode == "mt5-data":
-            bot = MT5DataOnlyBot(
+        if args.mode in {"mt5-data", "mt5-diagnose"}:
+            bot_cls = MT5DiagnoseBot if args.mode == "mt5-diagnose" else MT5DataOnlyBot
+            bot = bot_cls(
                 config=config,
                 symbols=tuple(item.strip() for item in args.symbols.split(",") if item.strip()),
                 bars=args.bars,
