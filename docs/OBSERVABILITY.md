@@ -25,6 +25,7 @@ Safety invariants:
 - ML approvals/rejections and average probability.
 - Portfolio risk percentage and available risk budget.
 - Currency exposure and concentration flags.
+- DB health, audit integrity, backup age, replay availability and Telegram outbox backlog.
 
 ## Heartbeat
 
@@ -76,6 +77,12 @@ Implemented rules include:
 - `DYNAMIC_RISK_REDUCED`
 - `STRATEGY_CONCENTRATION_HIGH`
 - `REGIME_CONCENTRATION_HIGH`
+- `DB_INTEGRITY_FAILED`
+- `AUDIT_EVENT_GAP`
+- `TELEGRAM_OUTBOX_BACKLOG`
+- `BACKUP_STALE`
+- `RECOVERY_FAILED`
+- `JSONL_ROTATION_FAILED`
 
 Every alert includes severity, code, message, recommended action and `execution_attempted=false`.
 
@@ -100,6 +107,19 @@ Status, heartbeat context, and daily summaries can include:
 - `concentration_flags`
 
 These metrics are advisory for shadow/paper mode only and never authorize broker execution.
+
+## Persistence Metrics
+
+Status can include:
+
+- `db_health_status`
+- `last_backup_utc`
+- `audit_integrity_status`
+- `telegram_outbox_pending`
+- `event_gap_count`
+- `replay_possible`
+
+If these degrade, forward-shadow should remain fail-closed until persistence is repaired or replayed from backup.
 
 ## CLI
 

@@ -6,8 +6,10 @@ import json
 import shutil
 from collections import Counter
 from datetime import date
+from pathlib import Path
 from typing import Any
 
+from agi_style_forex_bot_mt5.persistence import validate_event_integrity
 from agi_style_forex_bot_mt5.portfolio import build_portfolio_state
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 
@@ -57,6 +59,8 @@ class MetricsCollector:
             and str(trade.get("exit_time_utc"))[:10] == date.today().isoformat()
         )
         portfolio_state = build_portfolio_state(self.database).to_dict()
+        integrity = validate_event_integrity(database=self.database)
+        outbox_pending = sum(1 for row in self.database.fetch_all("telegram_outbox") if row["status"] in {"PENDING", "FAILED"})
         return {
             "mode": "forward-shadow",
             "bot_uptime_seconds": 0,
@@ -93,6 +97,12 @@ class MetricsCollector:
             "dynamic_risk_reduced": dynamic_risk_reduced,
             "strategy_concentration_high": strategy_concentration_high,
             "regime_concentration_high": regime_concentration_high,
+            "db_health_status": "OK",
+            "last_backup_utc": _last_backup_utc(),
+            "audit_integrity_status": integrity["status"],
+            "telegram_outbox_pending": outbox_pending,
+            "event_gap_count": integrity["event_gap_count"],
+            "replay_possible": integrity["replay_possible"],
             "execution_attempted": False,
         }
 
@@ -178,3 +188,16 @@ def _latest_model_id(rows: list[Any]) -> str:
 def _latest_model_status(rows: list[Any]) -> str:
     payloads = _prediction_payloads(rows)
     return str(payloads[-1].get("ml_status") or "ML_DISABLED") if payloads else "ML_DISABLED"
+
+
+def _last_backup_utc() -> str | None:
+    backup_dir = Path("data/backups")
+    if not backup_dir.exists():
+        return None
+    files = [path for path in backup_dir.iterdir() if path.is_file()]
+    if not files:
+        return None
+    newest = max(files, key=lambda path: path.stat().st_mtime)
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(newest.stat().st_mtime, timezone.utc).isoformat()

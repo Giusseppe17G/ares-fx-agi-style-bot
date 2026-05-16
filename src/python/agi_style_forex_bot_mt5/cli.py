@@ -28,6 +28,15 @@ from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .ml import build_ml_dataset, build_ml_report, train_ml_filter
 from .observability import DailySummary, build_health_status, build_status
 from .paper_trading import ForwardShadowBot, forward_summary_to_json
+from .persistence import (
+    check_db_health,
+    compact_jsonl_logs,
+    create_backup,
+    flush_telegram_outbox,
+    replay_audit,
+    run_db_migrations,
+    validate_event_integrity,
+)
 from .portfolio import build_correlation_report, build_exposure_report, build_portfolio_status
 from .research import run_research
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
@@ -126,6 +135,12 @@ def main(argv: list[str] | None = None) -> int:
             "portfolio-status",
             "exposure-report",
             "correlation-report",
+            "db-migrate",
+            "db-health",
+            "backup",
+            "audit-replay",
+            "telegram-outbox-flush",
+            "compact-logs",
         ],
         default="shadow",
     )
@@ -146,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trades", type=Path, default=None, help="Trades CSV for monte-carlo.")
     parser.add_argument("--dataset", type=Path, default=None, help="ML dataset CSV for train-ml-filter.")
     parser.add_argument("--model-dir", type=Path, default=Path("data/models/ml_filter"), help="ML model registry directory.")
+    parser.add_argument("--backup-dir", type=Path, default=Path("data/backups"), help="Local backup directory.")
     parser.add_argument("--simulations", type=int, default=1000, help="Monte Carlo simulation count.")
     parser.add_argument("--seed", type=int, default=0, help="Reproducible random seed.")
     parser.add_argument("--max-candidates", type=int, default=100, help="Maximum research candidates.")
@@ -177,11 +193,50 @@ def main(argv: list[str] | None = None) -> int:
         "build-ml-dataset",
         "portfolio-status",
         "exposure-report",
+        "db-migrate",
+        "db-health",
+        "backup",
+        "audit-replay",
+        "telegram-outbox-flush",
     } and args.sqlite is None:
         parser.error(f"--mode {args.mode} requires --sqlite for durable audit")
-    database = TelemetryDatabase(args.sqlite) if args.sqlite else None
+    direct_persistence_modes = {"db-migrate", "db-health", "backup", "compact-logs"}
+    database = None if args.mode in direct_persistence_modes else (TelemetryDatabase(args.sqlite) if args.sqlite else None)
     try:
         selected_symbols = _selected_symbols(args.symbol, args.symbols)
+        if args.mode == "db-migrate":
+            summary = run_db_migrations(sqlite_path=args.sqlite, backup_dir=args.backup_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "db-health":
+            summary = check_db_health(sqlite_path=args.sqlite, report_dir=_persistence_report_dir(args.report_dir))
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "backup":
+            summary = create_backup(sqlite_path=args.sqlite, log_dir=args.log_dir, backup_dir=args.backup_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "compact-logs":
+            summary = compact_jsonl_logs(log_dir=args.log_dir, backup_dir=args.backup_dir, max_file_mb=config.max_jsonl_file_mb)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "audit-replay":
+            assert database is not None
+            summary = replay_audit(database=database, output_dir=_persistence_report_dir(args.report_dir))
+            integrity = validate_event_integrity(database=database)
+            print(_json_dumps({**summary, "event_integrity": integrity}))
+            return 0
+
+        if args.mode == "telegram-outbox-flush":
+            assert database is not None
+            summary = flush_telegram_outbox(database=database)
+            print(_json_dumps(summary))
+            return 0
+
         if args.mode == "backtest":
             cost_profile = _load_optional_json(args.reports_root / "broker_costs" / "broker_cost_profile.json")
             spread_points = cost_for_symbol(cost_profile, selected_symbols[0], fallback=args.spread_points)
@@ -509,6 +564,12 @@ def _portfolio_output_dir(output_dir: Path, reports_root: Path) -> Path:
     if output_dir == Path("data/historical"):
         return reports_root / "portfolio"
     return output_dir
+
+
+def _persistence_report_dir(report_dir: Path) -> Path:
+    if report_dir == Path("data/reports/backtests"):
+        return Path("data/reports/persistence")
+    return report_dir
 
 
 if __name__ == "__main__":

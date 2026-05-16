@@ -16,6 +16,7 @@ from agi_style_forex_bot_mt5.ml import MLFilter
 from agi_style_forex_bot_mt5.ml.prediction_audit import audit_ml_prediction
 from agi_style_forex_bot_mt5.observability import AlertRuleEngine, DailySummary, HeartbeatWriter, MetricsCollector
 from agi_style_forex_bot_mt5.portfolio import DynamicRiskAllocator, PortfolioGuard, SignalRanker
+from agi_style_forex_bot_mt5.persistence import RecoveryManager
 from agi_style_forex_bot_mt5.risk import RiskRuntimeState
 from agi_style_forex_bot_mt5.strategy import evaluate_ensemble
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase, TelegramNotifier
@@ -83,6 +84,7 @@ class ForwardShadowBot:
         self.signal_ranker = SignalRanker()
         self.portfolio_guard = PortfolioGuard()
         self.dynamic_risk_allocator = DynamicRiskAllocator()
+        self.recovery_manager = RecoveryManager(database=database, audit_logger=audit_logger, run_id=self.run_id)
 
     def run(self) -> ForwardShadowSummary:
         opened = 0
@@ -92,6 +94,10 @@ class ForwardShadowBot:
         commands_processed = 0
         heartbeat_written = False
         self._audit("FORWARD_SHADOW_STARTED", Severity.INFO, {"execution_attempted": False}, notify=True)
+        recovery = self.recovery_manager.recover()
+        if recovery.get("status") != "OK":
+            self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"reason": "recovery failed", "recovery": recovery, "execution_attempted": False}, notify=True)
+            return ForwardShadowSummary("forward-shadow", False, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, self.database.get_shadow_paused(), False)
         if not self._connect():
             self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"execution_attempted": False}, notify=True)
             return ForwardShadowSummary("forward-shadow", False, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, self.database.get_shadow_paused(), False)

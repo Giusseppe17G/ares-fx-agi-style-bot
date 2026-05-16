@@ -1,0 +1,9 @@
+{
+  "backup_files": [
+    "data\\backups\\tg-20260516T221725Z.sqlite3"
+  ],
+  "execution_attempted": false,
+  "mode": "backup",
+  "report_path": "data\\backups\\backup_report.json",
+  "status": "OK"
+}

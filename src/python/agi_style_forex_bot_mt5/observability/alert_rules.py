@@ -139,6 +139,30 @@ class AlertRuleEngine:
             alerts.append(
                 self._alert(now, "WARNING", "REGIME_CONCENTRATION_HIGH", "Regime concentration is high", "Reduce exposure to a single market regime until conditions diversify.", metrics)
             )
+        if str(metrics.get("db_health_status", "OK")) != "OK":
+            alerts.append(
+                self._alert(now, "CRITICAL", "DB_INTEGRITY_FAILED", "Database health or integrity failed", "Stop forward-shadow until SQLite health is repaired from backup.", metrics)
+            )
+        if int(metrics.get("event_gap_count", 0) or 0) > 0:
+            alerts.append(
+                self._alert(now, "WARNING", "AUDIT_EVENT_GAP", "Audit heartbeat gaps detected", "Run audit-replay and inspect restart or connectivity windows.", metrics)
+            )
+        if int(metrics.get("telegram_outbox_pending", 0) or 0) >= 10:
+            alerts.append(
+                self._alert(now, "WARNING", "TELEGRAM_OUTBOX_BACKLOG", "Telegram outbox backlog is high", "Run telegram-outbox-flush and verify Telegram connectivity.", metrics)
+            )
+        if "last_backup_utc" in metrics and not metrics.get("last_backup_utc"):
+            alerts.append(
+                self._alert(now, "INFO", "BACKUP_STALE", "No recent local backup is recorded", "Run backup and verify data/backups retention.", metrics)
+            )
+        if bool(metrics.get("recovery_failed", False)):
+            alerts.append(
+                self._alert(now, "CRITICAL", "RECOVERY_FAILED", "Recovery failed", "Keep bot fail-closed and inspect db-health/audit-replay reports.", metrics)
+            )
+        if bool(metrics.get("jsonl_rotation_failed", False)):
+            alerts.append(
+                self._alert(now, "WARNING", "JSONL_ROTATION_FAILED", "JSONL rotation failed", "Check disk permissions and backup availability.", metrics)
+            )
         return tuple(alerts)
 
     def persist(self, alerts: Iterable[OperationalAlert]) -> int:

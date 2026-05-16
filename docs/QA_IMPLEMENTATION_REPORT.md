@@ -122,6 +122,40 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 
+## Phase 13 Persistence Hardening Update
+
+Status: PASS. Full suite result: 164 collected, 164 passed.
+
+Integrated in Phase 13:
+
+- Added `persistence` package with canonical audit events, migrations, DB health, backup manager, audit replay, event integrity, JSONL compaction, Telegram outbox flushing, recovery manager, and persistence reports.
+- Added CLI modes: `db-migrate`, `db-health`, `backup`, `audit-replay`, `telegram-outbox-flush`, and `compact-logs`.
+- Integrated recovery startup checks into `forward-shadow` with `RECOVERY_STARTED`, `RECOVERY_COMPLETED`, and `RECOVERY_FAILED` events.
+- Added observability metrics and alerts for DB integrity, audit gaps, Telegram outbox backlog, stale backups, recovery failure, and JSONL rotation failure.
+- Added Telegram commands: `/db`, `/backup`, `/replay`, and `/outbox`.
+- Added docs: `PERSISTENCE_AND_RECOVERY.md`, `AUDIT_REPLAY.md`, and `BACKUP_AND_RESTORE.md`.
+
+Additional Phase 13 tests:
+
+- Migrations are idempotent.
+- DB health detects missing tables.
+- Backup creates files and excludes `.env`.
+- Audit replay reconstructs paper trades.
+- Event integrity detects duplicate idempotency keys and heartbeat gaps.
+- Telegram outbox flush does not duplicate sent messages.
+- JSONL compactor rotates oversized logs after backup.
+- Recovery manager loads open paper trades.
+- Forward-shadow calls recovery manager.
+- CLI accepts all persistence modes.
+- Telegram `/db` and `/backup` work safely.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+
 ## Phase 12 Portfolio Intelligence Update
 
 Status: PASS. Full suite result: 155 collected, 155 passed.

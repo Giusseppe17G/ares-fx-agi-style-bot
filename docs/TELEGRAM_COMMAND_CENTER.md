@@ -37,6 +37,10 @@ Do not commit Telegram tokens, chat IDs, or secrets.
 - `/exposure`
 - `/correlation`
 - `/risk`
+- `/db`
+- `/backup`
+- `/replay`
+- `/outbox`
 
 ## Pause And Resume
 
@@ -59,3 +63,15 @@ Neither command can enable broker execution.
 `/portfolio`, `/exposure`, `/correlation`, and `/risk` are read-only. They summarize portfolio risk, currency exposure, correlation report availability, and risk budget state.
 
 They cannot enable demo/live execution, cannot change `DEMO_ONLY`, cannot change `LIVE_TRADING_APPROVED`, and cannot call `order_send`.
+
+## Persistence Commands
+
+`/db` returns SQLite health.
+
+`/backup` creates a local safe backup of SQLite. It does not copy `.env` or secrets.
+
+`/replay` generates an audit replay report.
+
+`/outbox` attempts a safe Telegram outbox flush without duplicating delivered messages.
+
+These commands are operational only and cannot enable trading.

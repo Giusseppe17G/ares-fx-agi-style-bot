@@ -66,6 +66,41 @@ py -m agi_style_forex_bot_mt5.cli --mode readiness-report --reports-root data\re
 
 If readiness returns `NEEDS_BROKER_FIX` or `NOT_READY`, keep the system in shadow observation and review spreads, stale ticks, stops/freeze levels, volume restrictions and MT5 read latency.
 
+## Persistence And Recovery
+
+Run DB health:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode db-health --sqlite data\sqlite\forward-shadow.sqlite3 --report-dir data\reports\persistence
+```
+
+Create a local backup:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode backup --sqlite data\sqlite\forward-shadow.sqlite3 --log-dir data\logs\forward-shadow --backup-dir data\backups
+```
+
+Replay a session:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode audit-replay --sqlite data\sqlite\forward-shadow.sqlite3 --report-dir data\reports\persistence
+```
+
+Flush Telegram outbox:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode telegram-outbox-flush --sqlite data\sqlite\forward-shadow.sqlite3
+```
+
+Compact JSONL logs:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode compact-logs --log-dir data\logs\forward-shadow --backup-dir data\backups
+```
+
+If recovery emits `RECOVERY_FAILED`, keep the bot stopped and inspect `db-health`, `audit-replay`, backups, and JSONL logs before restarting.
+
 ## Safety
 
 Operational controls are shadow-only:

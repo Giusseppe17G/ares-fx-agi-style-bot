@@ -13,6 +13,7 @@ from agi_style_forex_bot_mt5.contracts import Environment, Event, Severity
 from agi_style_forex_bot_mt5.broker_quality import build_readiness_report
 from agi_style_forex_bot_mt5.observability.daily_summary import DailySummary
 from agi_style_forex_bot_mt5.observability.operational_status import build_health_status, build_status
+from agi_style_forex_bot_mt5.persistence import check_db_health, create_backup, flush_telegram_outbox, replay_audit
 from agi_style_forex_bot_mt5.portfolio import build_portfolio_state
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase
 from agi_style_forex_bot_mt5.telemetry.logger_setup import redact_text, utc_now_iso
@@ -52,6 +53,10 @@ class TelegramCommandCenter:
         "/exposure",
         "/correlation",
         "/risk",
+        "/db",
+        "/backup",
+        "/replay",
+        "/outbox",
     }
 
     def __init__(
@@ -182,6 +187,14 @@ class TelegramCommandCenter:
             return TelegramCommandResult(command, True, str(exposure)[:1000], "OK")
         if command == "/correlation":
             return TelegramCommandResult(command, True, "correlation_status=READ_ONLY_REPORT_AVAILABLE via --mode correlation-report", "OK")
+        if command == "/db":
+            return TelegramCommandResult(command, True, str(check_db_health(sqlite_path=self.database.path))[:1000], "OK")
+        if command == "/backup":
+            return TelegramCommandResult(command, True, str(create_backup(sqlite_path=self.database.path, log_dir=None))[:1000], "OK")
+        if command == "/replay":
+            return TelegramCommandResult(command, True, str(replay_audit(database=self.database))[:1000], "OK")
+        if command == "/outbox":
+            return TelegramCommandResult(command, True, str(flush_telegram_outbox(database=self.database))[:1000], "OK")
         return TelegramCommandResult(command, True, self._help(), "OK")
 
     def _help(self) -> str:
