@@ -122,6 +122,40 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 
+## Phase 16 Strategy Quality Upgrade
+
+Status: PASS. Full suite result: 185 collected, 185 passed.
+
+Integrated in Phase 16:
+
+- Added `market_structure` package with swing points, structure, liquidity zones, session levels, volatility context, price action features, and reports.
+- Upgraded core strategies to version `0.2.0` with market-structure, session, volatility, liquidity and cost-aware blocking rules.
+- Added explainable setup scoring with component scores and setup quality labels.
+- Added CLI modes: `strategy-diagnose` and `structure-report`.
+- Forward-shadow now audits strategy context when available.
+- Research reports now include `ablation_results.csv` and `strategy_version_comparison.csv`.
+- Backtest reports now include setup-quality/blocking-reason placeholder breakdowns for compatibility.
+- Added docs: `STRATEGY_QUALITY_UPGRADE.md`, `MARKET_STRUCTURE.md`, and `SETUP_SCORING.md`.
+
+Additional Phase 16 tests:
+
+- Swing high/low detection.
+- BOS/CHOCH context.
+- Liquidity sweep with reclaim.
+- Session level ranges.
+- Strategy context blockers.
+- Component score metadata.
+- Research ablation artifacts.
+- CLI accepts `strategy-diagnose` and `structure-report`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 15 Full Validation Pipeline Update
 
 Status: PASS. Full suite result: 179 collected, 179 passed.

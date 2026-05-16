@@ -80,6 +80,14 @@ Example cycle summary:
 
 Each cycle now writes a persistent heartbeat, evaluates operational alert rules, respects `shadow_paused`, and can process safe Telegram commands when Telegram is enabled.
 
+Phase 16 also audits strategy context when present:
+
+- `MARKET_STRUCTURE_DETECTED`
+- `LIQUIDITY_SWEEP_DETECTED`
+- `SESSION_LEVEL_CONTEXT`
+- `STRATEGY_COMPONENT_SCORE`
+- `STRATEGY_BLOCKED_BY_CONTEXT`
+
 Use:
 
 ```powershell

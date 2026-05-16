@@ -31,6 +31,21 @@ $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode research 
 - `data/reports/research/candidate_registry.json`
 - `data/reports/research/recommended_strategy_mix.json`
 - `data/reports/research/rejected_candidates.csv`
+- `data/reports/research/ablation_results.csv`
+- `data/reports/research/strategy_version_comparison.csv`
 - `data/reports/research/report.html`
 
 Candidates are not execution permission. Missing OOS, Monte Carlo, stress, or competitive evidence must remain `WATCHLIST` or `REJECTED`.
+
+## Phase 16 Ablations
+
+Research artifacts now reserve explicit comparisons for:
+
+- Legacy reference strategy version.
+- Market-structure upgraded strategy version.
+- Without market-structure filters.
+- Without cost scoring.
+- Without session filters.
+- Without liquidity filters.
+
+These reports help identify whether added context improves robustness or merely filters too aggressively.

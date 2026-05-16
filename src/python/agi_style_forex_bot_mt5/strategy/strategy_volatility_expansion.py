@@ -6,11 +6,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..contracts import MarketSnapshot
-from .scoring_engine import choose_direction, feature_float, none_signal, score_conditions, spread_is_unsafe
+from .scoring_engine import choose_direction, feature_float, none_signal, score_conditions, spread_is_unsafe, strategy_metadata
 
 
 STRATEGY_NAME = "volatility_expansion"
-STRATEGY_VERSION = "0.1.0"
+STRATEGY_VERSION = "0.2.0"
 
 
 def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
@@ -31,6 +31,10 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
     atr_mean_points = feature_float(features, "atr_mean_points", 0)
     trend_slope = feature_float(features, "trend_slope", 0)
     expansion_ratio = atr_points / atr_mean_points if atr_mean_points > 0 else 0
+    if expansion_ratio < 1.15 and not bool(features.get("expansion_candle", False)):
+        return none_signal(STRATEGY_NAME, "volatility expansion not confirmed", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
+    if feature_float(features, "spread_percentile", 50) >= 90:
+        return none_signal(STRATEGY_NAME, "spread expanded too much for volatility setup", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
 
     buy_score, buy_reasons = score_conditions(
         base=8,
@@ -60,5 +64,5 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
         threshold=64,
         min_margin=8,
         strategy_name=STRATEGY_NAME,
-        metadata={"version": STRATEGY_VERSION, "expansion_ratio": expansion_ratio},
+        metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME, extra={"expansion_ratio": expansion_ratio}),
     )

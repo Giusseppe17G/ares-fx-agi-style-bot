@@ -26,7 +26,7 @@ from .scoring_engine import (
 
 
 STRATEGY_NAME = "strategy_ensemble"
-STRATEGY_VERSION = "0.1.0"
+STRATEGY_VERSION = "0.2.0"
 
 StrategyEvaluator = Callable[[MarketSnapshot, Mapping[str, Any]], StrategySignal]
 
@@ -138,6 +138,7 @@ def evaluate(
 
     metadata = {
         "version": STRATEGY_VERSION,
+        "strategy_version": STRATEGY_VERSION,
         "mode": promotion.effective_mode,
         "regime": regime.value,
         "promotion_gate": _decision_payload(promotion),
@@ -150,13 +151,17 @@ def evaluate(
         },
     }
     if buy_score < cfg.threshold and sell_score < cfg.threshold:
-        return none_signal(STRATEGY_NAME, "ensemble score below threshold", metadata=metadata)
+        return none_signal(STRATEGY_NAME, "ensemble score below threshold", metadata={**metadata, "blocking_reasons": ("ensemble score below threshold",)})
     if abs(buy_score - sell_score) < cfg.min_margin:
-        return none_signal(STRATEGY_NAME, "ensemble directional conflict", metadata=metadata)
+        return none_signal(STRATEGY_NAME, "ensemble directional conflict", metadata={**metadata, "blocking_reasons": ("ensemble directional conflict",)})
 
     action = SignalAction.BUY if buy_score > sell_score else SignalAction.SELL
     score = buy_score if action == SignalAction.BUY else sell_score
     reasons = _ensemble_reasons(child_signals, action)
+    component_scores = _merge_component_scores(child_signals, action)
+    metadata["component_scores"] = component_scores
+    metadata["setup_quality"] = _setup_quality(score)
+    metadata["blocking_reasons"] = ()
     return StrategySignal(
         action=action,
         score=score,
@@ -218,3 +223,20 @@ def _decision_payload(decision: PromotionDecision) -> Mapping[str, Any]:
         "reasons": decision.reasons,
         "checks": dict(decision.checks),
     }
+
+
+def _merge_component_scores(signals: Sequence[StrategySignal], action: SignalAction) -> Mapping[str, float]:
+    values: dict[str, list[float]] = {}
+    for signal in signals:
+        if signal.action != action:
+            continue
+        components = signal.metadata.get("component_scores", {})
+        if not isinstance(components, Mapping):
+            continue
+        for key, value in components.items():
+            values.setdefault(str(key), []).append(float(value))
+    return {key: sum(items) / len(items) for key, items in values.items() if items}
+
+
+def _setup_quality(score: float) -> str:
+    return "A" if score >= 82 else "B" if score >= 70 else "C" if score >= 58 else "D"

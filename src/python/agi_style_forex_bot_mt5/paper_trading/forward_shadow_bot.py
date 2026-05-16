@@ -232,7 +232,17 @@ class ForwardShadowBot:
                 if bars_by_tf is None:
                     continue
                 features = helper._features_from_bars(bars_by_tf["M5"], snapshot)
+                if "market_structure" in features:
+                    self._audit("MARKET_STRUCTURE_DETECTED", Severity.INFO, dict(features.get("market_structure") or {}), symbol=resolution.canonical_symbol)
+                if "liquidity" in features and str(dict(features.get("liquidity") or {}).get("sweep_direction", "NONE")) != "NONE":
+                    self._audit("LIQUIDITY_SWEEP_DETECTED", Severity.INFO, dict(features.get("liquidity") or {}), symbol=resolution.canonical_symbol)
+                if "session_levels" in features:
+                    self._audit("SESSION_LEVEL_CONTEXT", Severity.INFO, dict(features.get("session_levels") or {}), symbol=resolution.canonical_symbol)
                 strategy_signal = evaluate_ensemble(snapshot, features, mode="shadow")
+                if "component_scores" in strategy_signal.metadata:
+                    self._audit("STRATEGY_COMPONENT_SCORE", Severity.INFO, {"component_scores": dict(strategy_signal.metadata.get("component_scores", {})), "setup_quality": strategy_signal.metadata.get("setup_quality"), "execution_attempted": False}, symbol=resolution.canonical_symbol)
+                if strategy_signal.action == SignalAction.NONE and strategy_signal.metadata.get("blocking_reasons"):
+                    self._audit("STRATEGY_BLOCKED_BY_CONTEXT", Severity.INFO, {"blocking_reasons": strategy_signal.metadata.get("blocking_reasons"), "execution_attempted": False}, symbol=resolution.canonical_symbol)
                 self._audit(
                     "SIGNAL_DETECTED",
                     Severity.INFO,

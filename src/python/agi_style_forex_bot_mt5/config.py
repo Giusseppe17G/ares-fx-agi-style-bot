@@ -53,6 +53,13 @@ class BotConfig:
     max_jsonl_file_mb: int = 50
     telegram_outbox_retention_days: int = 30
     shadow_mode: bool = True
+    use_market_structure_filters: bool = True
+    use_session_levels: bool = True
+    use_liquidity_sweep_filters: bool = True
+    use_cost_aware_scoring: bool = True
+    use_advanced_setup_scoring: bool = True
+    min_setup_score_by_strategy: str = ""
+    min_setup_score_by_regime: str = ""
 
     def validate_safety(self) -> None:
         """Raise ValueError when config weakens mandatory safety defaults."""
@@ -109,6 +116,13 @@ def load_config(path: str | Path | None = None) -> BotConfig:
         log_retention_days=int(values.get("LOG_RETENTION_DAYS", 90)),
         max_jsonl_file_mb=int(values.get("MAX_JSONL_FILE_MB", 50)),
         telegram_outbox_retention_days=int(values.get("TELEGRAM_OUTBOX_RETENTION_DAYS", 30)),
+        use_market_structure_filters=bool(values.get("USE_MARKET_STRUCTURE_FILTERS", True)),
+        use_session_levels=bool(values.get("USE_SESSION_LEVELS", True)),
+        use_liquidity_sweep_filters=bool(values.get("USE_LIQUIDITY_SWEEP_FILTERS", True)),
+        use_cost_aware_scoring=bool(values.get("USE_COST_AWARE_SCORING", True)),
+        use_advanced_setup_scoring=bool(values.get("USE_ADVANCED_SETUP_SCORING", True)),
+        min_setup_score_by_strategy=str(values.get("MIN_SETUP_SCORE_BY_STRATEGY", "")),
+        min_setup_score_by_regime=str(values.get("MIN_SETUP_SCORE_BY_REGIME", "")),
     )
     cfg.validate_safety()
     return cfg

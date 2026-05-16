@@ -113,7 +113,7 @@ def choose_direction(
             score=0,
             reasons=("score below threshold",),
             strategy_name=strategy_name,
-            metadata=metadata or {},
+            metadata={**dict(metadata or {}), "blocking_reasons": ("score below threshold",), "required_data_missing": False},
         )
     if abs(buy_score - sell_score) < min_margin:
         return StrategySignal(
@@ -121,7 +121,7 @@ def choose_direction(
             score=0,
             reasons=("directional conflict",),
             strategy_name=strategy_name,
-            metadata=metadata or {},
+            metadata={**dict(metadata or {}), "blocking_reasons": ("directional conflict",), "required_data_missing": False},
         )
     if buy_score > sell_score:
         return StrategySignal(
@@ -129,14 +129,14 @@ def choose_direction(
             score=buy_score,
             reasons=tuple(buy_reasons),
             strategy_name=strategy_name,
-            metadata=metadata or {},
+            metadata={**dict(metadata or {}), "blocking_reasons": (), "required_data_missing": False},
         )
     return StrategySignal(
         action=SignalAction.SELL,
         score=sell_score,
         reasons=tuple(sell_reasons),
         strategy_name=strategy_name,
-        metadata=metadata or {},
+        metadata={**dict(metadata or {}), "blocking_reasons": (), "required_data_missing": False},
     )
 
 
@@ -148,8 +148,148 @@ def none_signal(strategy_name: str, reason: str, metadata: Mapping[str, Any] | N
         score=0,
         reasons=(reason,),
         strategy_name=strategy_name,
-        metadata=metadata or {},
+        metadata={**dict(metadata or {}), "blocking_reasons": (reason,), "required_data_missing": "missing" in reason.lower() or "insufficient" in reason.lower()},
     )
+
+
+@dataclass(frozen=True)
+class SetupScore:
+    """Advanced setup quality score with component breakdown."""
+
+    final_score: float
+    component_scores: Mapping[str, float]
+    reasons: tuple[str, ...]
+    blocking_reasons: tuple[str, ...]
+    suggested_strategy_name: str
+    setup_quality: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "final_score": self.final_score,
+            "component_scores": dict(self.component_scores),
+            "reasons": self.reasons,
+            "blocking_reasons": self.blocking_reasons,
+            "suggested_strategy_name": self.suggested_strategy_name,
+            "setup_quality": self.setup_quality,
+        }
+
+
+def score_setup_quality(
+    *,
+    strategy_name: str,
+    features: FeatureMap,
+    snapshot: MarketSnapshot | None = None,
+    direction: str = "",
+) -> SetupScore:
+    """Score setup quality across regime, structure, momentum, costs and context."""
+
+    regime = detected_regime(features)
+    session = feature_text(features, "session", "")
+    spread = feature_float(features, "spread_points", snapshot.spread_points if snapshot else 0.0)
+    max_spread = feature_float(features, "max_strategy_spread_points", 25.0)
+    component_scores = {
+        "regime_fit": _regime_component(strategy_name, regime),
+        "structure_fit": _structure_component(features, direction),
+        "momentum_fit": _momentum_component(features, direction),
+        "volatility_fit": _volatility_component(features),
+        "cost_fit": clamp_score(100.0 - (spread / max(max_spread, 1.0) * 100.0)),
+        "session_fit": 80.0 if session in {"LONDON", "NEW_YORK", "NY", "LONDON_NY_OVERLAP", "OVERLAP"} else 55.0 if session else 45.0,
+        "liquidity_fit": _liquidity_component(features, direction),
+        "risk_reward_fit": feature_float(features, "risk_reward_score", 70.0),
+        "broker_fit": feature_float(features, "broker_readiness_score", 80.0),
+        "portfolio_fit": feature_float(features, "portfolio_fit", 75.0),
+    }
+    final = clamp_score(sum(component_scores.values()) / len(component_scores))
+    blocking: list[str] = []
+    if component_scores["cost_fit"] < 30:
+        blocking.append("cost fit below threshold")
+    if component_scores["regime_fit"] < 35:
+        blocking.append("regime fit below threshold")
+    quality = "A" if final >= 82 else "B" if final >= 70 else "C" if final >= 58 else "D"
+    reasons = tuple(f"{key}={round(value, 1)}" for key, value in component_scores.items() if value >= 70)
+    return SetupScore(final, component_scores, reasons, tuple(blocking), strategy_name, quality)
+
+
+def strategy_metadata(
+    *,
+    strategy_version: str,
+    features: FeatureMap,
+    snapshot: MarketSnapshot,
+    strategy_name: str,
+    direction: str = "",
+    extra: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    setup = score_setup_quality(strategy_name=strategy_name, features=features, snapshot=snapshot, direction=direction)
+    return {
+        "version": strategy_version,
+        "strategy_version": strategy_version,
+        "component_scores": setup.component_scores,
+        "setup_quality_score": setup.final_score,
+        "setup_quality": setup.setup_quality,
+        "blocking_reasons": setup.blocking_reasons,
+        "required_data_missing": False,
+        "regime": feature_text(features, "regime", detected_regime(features).value),
+        "session": feature_text(features, "session", ""),
+        "spread_points": feature_float(features, "spread_points", snapshot.spread_points),
+        **dict(extra or {}),
+    }
+
+
+def _regime_component(strategy_name: str, regime: Regime) -> float:
+    preferred = {
+        "trend_pullback": {Regime.TREND_UP, Regime.TREND_DOWN},
+        "mean_reversion": {Regime.RANGE},
+        "breakout_compression": {Regime.LOW_VOLATILITY, Regime.RANGE},
+        "liquidity_sweep": {Regime.RANGE, Regime.HIGH_VOLATILITY},
+        "session_momentum": {Regime.TREND_UP, Regime.TREND_DOWN},
+        "volatility_expansion": {Regime.HIGH_VOLATILITY, Regime.TREND_UP, Regime.TREND_DOWN},
+    }
+    if regime in preferred.get(strategy_name, set()):
+        return 90.0
+    if regime in {Regime.SPREAD_DANGER, Regime.LIQUIDITY_THIN}:
+        return 0.0
+    return 55.0
+
+
+def _structure_component(features: FeatureMap, direction: str) -> float:
+    structure = feature_text(features, "trend_structure", "")
+    bos = feature_text(features, "break_of_structure", "")
+    direction = direction.upper()
+    if direction == "BUY" and (structure == "UP" or bos == "BULLISH"):
+        return 90.0
+    if direction == "SELL" and (structure == "DOWN" or bos == "BEARISH"):
+        return 90.0
+    if not direction:
+        return 65.0
+    return 45.0
+
+
+def _momentum_component(features: FeatureMap, direction: str) -> float:
+    momentum = feature_float(features, "momentum_points", feature_float(features, "momentum", 0.0))
+    if direction.upper() == "BUY" and momentum > 0:
+        return 85.0
+    if direction.upper() == "SELL" and momentum < 0:
+        return 85.0
+    if abs(momentum) < 1e-9:
+        return 55.0
+    return 40.0
+
+
+def _volatility_component(features: FeatureMap) -> float:
+    percentile = feature_float(features, "atr_percentile", 50.0)
+    if 25 <= percentile <= 80:
+        return 80.0
+    if percentile > 90:
+        return 45.0
+    return 60.0
+
+
+def _liquidity_component(features: FeatureMap, direction: str) -> float:
+    if direction.upper() == "BUY" and (feature_bool(features, "reclaimed_low") or feature_bool(features, "swept_prev_low")):
+        return 90.0
+    if direction.upper() == "SELL" and (feature_bool(features, "reclaimed_high") or feature_bool(features, "swept_prev_high")):
+        return 90.0
+    return 60.0
 
 
 @dataclass(frozen=True)

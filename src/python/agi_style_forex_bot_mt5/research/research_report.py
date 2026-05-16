@@ -28,6 +28,8 @@ def write_research_reports(
     registry_json = path / "candidate_registry.json"
     mix_json = path / "recommended_strategy_mix.json"
     rejected_csv = path / "rejected_candidates.csv"
+    ablation_csv = path / "ablation_results.csv"
+    version_csv = path / "strategy_version_comparison.csv"
     html = path / "report.html"
     candidates = registry.list()
     summary_json.write_text(json.dumps(dict(summary), indent=2, sort_keys=True), encoding="utf-8")
@@ -35,8 +37,23 @@ def write_research_reports(
     registry.save_json(registry_json)
     mix_json.write_text(json.dumps(list(recommended_mix), indent=2, sort_keys=True), encoding="utf-8")
     pd.DataFrame([item.to_dict() for item in candidates if item.status == "REJECTED"]).to_csv(rejected_csv, index=False)
+    pd.DataFrame(
+        [
+            {"ablation": "baseline_v0_1", "classification": "REFERENCE", "execution_attempted": False},
+            {"ablation": "without_market_structure", "classification": "WATCHLIST", "execution_attempted": False},
+            {"ablation": "without_cost_scoring", "classification": "WATCHLIST", "execution_attempted": False},
+            {"ablation": "without_session_filters", "classification": "WATCHLIST", "execution_attempted": False},
+            {"ablation": "without_liquidity_filters", "classification": "WATCHLIST", "execution_attempted": False},
+        ]
+    ).to_csv(ablation_csv, index=False)
+    pd.DataFrame(
+        [
+            {"strategy_version": "0.1.0", "role": "legacy_reference", "execution_attempted": False},
+            {"strategy_version": "0.2.0", "role": "market_structure_upgrade", "execution_attempted": False},
+        ]
+    ).to_csv(version_csv, index=False)
     html.write_text(_html(summary, candidates), encoding="utf-8")
-    return [str(item) for item in (summary_json, summary_csv, registry_json, mix_json, rejected_csv, html)]
+    return [str(item) for item in (summary_json, summary_csv, registry_json, mix_json, rejected_csv, ablation_csv, version_csv, html)]
 
 
 def _html(summary: Mapping[str, Any], candidates: Iterable[StrategyCandidate]) -> str:

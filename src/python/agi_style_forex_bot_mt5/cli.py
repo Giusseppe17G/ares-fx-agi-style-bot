@@ -24,6 +24,7 @@ from .config import load_config
 from .contracts import AccountState, MarketSnapshot, utc_now
 from .data_pipeline import build_broker_cost_profile, build_dataset_manifest, cost_for_symbol
 from .execution_simulation import compare_paper_vs_backtest, run_simulation_calibration
+from .market_structure import run_strategy_diagnose, write_structure_report
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .ml import build_ml_dataset, build_ml_report, train_ml_filter
@@ -146,6 +147,8 @@ def main(argv: list[str] | None = None) -> int:
             "simulation-calibration",
             "paper-vs-backtest",
             "full-validation",
+            "strategy-diagnose",
+            "structure-report",
         ],
         default="shadow",
     )
@@ -257,6 +260,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "paper-vs-backtest":
             assert database is not None
             summary = compare_paper_vs_backtest(database=database, reports_root=args.reports_root, output_dir=args.output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "strategy-diagnose":
+            symbol = selected_symbols[0]
+            summary = run_strategy_diagnose(symbol=symbol, data_dir=args.data_dir, report_dir=args.report_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "structure-report":
+            summary = write_structure_report(symbols=selected_symbols, data_dir=args.data_dir, report_dir=args.report_dir)
             print(_json_dumps(summary))
             return 0
 

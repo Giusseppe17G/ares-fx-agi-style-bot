@@ -88,6 +88,9 @@ def write_batch_reports(result: BacktestBatchResult, artifact_dir: str | Path) -
         "by_session_csv": path / "by_session.csv",
         "by_weekday_csv": path / "by_weekday.csv",
         "by_hour_utc_csv": path / "by_hour_utc.csv",
+        "by_setup_quality_csv": path / "by_setup_quality.csv",
+        "by_component_score_bucket_csv": path / "by_component_score_bucket.csv",
+        "by_blocking_reason_csv": path / "by_blocking_reason.csv",
         "report_html": path / "report.html",
     }
     summary_payload = {
@@ -114,12 +117,33 @@ def write_batch_reports(result: BacktestBatchResult, artifact_dir: str | Path) -
     _safe_frame(result.by_session).to_csv(artifacts["by_session_csv"], index=False)
     _safe_frame(result.by_weekday).to_csv(artifacts["by_weekday_csv"], index=False)
     _safe_frame(result.by_hour_utc).to_csv(artifacts["by_hour_utc_csv"], index=False)
+    _setup_quality_frame(result.trades).to_csv(artifacts["by_setup_quality_csv"], index=False)
+    _component_bucket_frame(result.trades).to_csv(artifacts["by_component_score_bucket_csv"], index=False)
+    _blocking_reason_frame(result.trades).to_csv(artifacts["by_blocking_reason_csv"], index=False)
     _write_html_report(result, artifacts["report_html"])
     return tuple(str(item) for item in artifacts.values())
 
 
 def _safe_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.copy() if frame is not None and not frame.empty else pd.DataFrame()
+
+
+def _setup_quality_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame is None or frame.empty or "setup_quality" not in frame.columns:
+        return pd.DataFrame(columns=["setup_quality", "trades"])
+    return frame.groupby("setup_quality").size().reset_index(name="trades")
+
+
+def _component_bucket_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame is None or frame.empty:
+        return pd.DataFrame(columns=["component", "bucket", "trades"])
+    return pd.DataFrame(columns=["component", "bucket", "trades"])
+
+
+def _blocking_reason_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame is None or frame.empty:
+        return pd.DataFrame(columns=["blocking_reason", "count"])
+    return pd.DataFrame(columns=["blocking_reason", "count"])
 
 
 def _write_html_report(result: BacktestBatchResult, path: Path) -> None:

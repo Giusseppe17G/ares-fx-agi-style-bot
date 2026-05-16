@@ -13,11 +13,12 @@ from .scoring_engine import (
     none_signal,
     score_conditions,
     spread_is_unsafe,
+    strategy_metadata,
 )
 
 
 STRATEGY_NAME = "session_momentum"
-STRATEGY_VERSION = "0.1.0"
+STRATEGY_VERSION = "0.2.0"
 LIQUID_SESSIONS = {"LONDON", "NEW_YORK", "NY", "LONDON_NY_OVERLAP", "OVERLAP"}
 
 
@@ -37,6 +38,15 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
     min_range_points = feature_float(features, "min_session_range_points", 8)
     trend_slope = feature_float(features, "trend_slope", 0)
     body_ratio = feature_float(features, "body_ratio", 0)
+    if session not in LIQUID_SESSIONS:
+        return none_signal(STRATEGY_NAME, "session momentum requires London/NY session", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
+    if feature_float(features, "spread_percentile", 50) >= 90:
+        return none_signal(STRATEGY_NAME, "abnormal spread blocks session momentum", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
+    h1_bias = feature_text(features, "h1_bias", "")
+    if h1_bias == "DOWN" and momentum_points > 0:
+        return none_signal(STRATEGY_NAME, "H1 bias opposes buy momentum", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
+    if h1_bias == "UP" and momentum_points < 0:
+        return none_signal(STRATEGY_NAME, "H1 bias opposes sell momentum", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
 
     buy_score, buy_reasons = score_conditions(
         base=8,
@@ -66,5 +76,5 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
         threshold=62,
         min_margin=8,
         strategy_name=STRATEGY_NAME,
-        metadata={"version": STRATEGY_VERSION, "session": session},
+        metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME, extra={"session": session}),
     )

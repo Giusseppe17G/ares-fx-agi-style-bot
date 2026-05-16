@@ -13,11 +13,12 @@ from .scoring_engine import (
     none_signal,
     score_conditions,
     spread_is_unsafe,
+    strategy_metadata,
 )
 
 
 STRATEGY_NAME = "liquidity_sweep"
-STRATEGY_VERSION = "0.1.0"
+STRATEGY_VERSION = "0.2.0"
 
 
 def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
@@ -38,6 +39,17 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
     lower_wick_ratio = feature_float(features, "lower_wick_ratio", 0)
     upper_wick_ratio = feature_float(features, "upper_wick_ratio", 0)
     rsi = feature_float(features, "rsi", 50)
+    if not (
+        feature_bool(features, "swept_prev_low")
+        or feature_bool(features, "swept_prev_high")
+        or feature_bool(features, "reclaimed_low")
+        or feature_bool(features, "reclaimed_high")
+        or low < prev_low
+        or high > prev_high
+    ):
+        return none_signal(STRATEGY_NAME, "liquidity sweep missing", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
+    if max(lower_wick_ratio, upper_wick_ratio) < 0.35:
+        return none_signal(STRATEGY_NAME, "wick rejection missing", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
 
     buy_score, buy_reasons = score_conditions(
         base=8,
@@ -67,5 +79,5 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
         threshold=64,
         min_margin=8,
         strategy_name=STRATEGY_NAME,
-        metadata={"version": STRATEGY_VERSION, "prev_high": prev_high, "prev_low": prev_low},
+        metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME, extra={"prev_high": prev_high, "prev_low": prev_low}),
     )

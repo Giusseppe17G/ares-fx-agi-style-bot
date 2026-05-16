@@ -13,11 +13,12 @@ from .scoring_engine import (
     none_signal,
     score_conditions,
     spread_is_unsafe,
+    strategy_metadata,
 )
 
 
 STRATEGY_NAME = "mean_reversion"
-STRATEGY_VERSION = "0.1.0"
+STRATEGY_VERSION = "0.2.0"
 
 
 def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
@@ -38,6 +39,13 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
     trend_strength = abs(feature_float(features, "trend_strength", 0))
     regime = detected_regime(features)
     range_width = max(resistance - support, snapshot.point)
+    if regime != Regime.RANGE:
+        return none_signal(STRATEGY_NAME, "mean reversion requires RANGE regime", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
+    if feature_float(features, "atr_percentile", 50) >= 90:
+        return none_signal(STRATEGY_NAME, "high volatility blocks mean reversion", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
+    if feature_text := str(features.get("break_of_structure", "NONE")).upper():
+        if feature_text in {"BULLISH", "BEARISH"}:
+            return none_signal(STRATEGY_NAME, "fresh breakout blocks mean reversion", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
 
     buy_score, buy_reasons = score_conditions(
         base=8,
@@ -67,5 +75,5 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
         threshold=64,
         min_margin=8,
         strategy_name=STRATEGY_NAME,
-        metadata={"version": STRATEGY_VERSION, "regime": regime.value, "rsi": rsi, "zscore": zscore},
+        metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME, extra={"regime": regime.value, "rsi": rsi, "zscore": zscore}),
     )

@@ -12,11 +12,13 @@ from .scoring_engine import (
     none_signal,
     score_conditions,
     spread_is_unsafe,
+    detected_regime,
+    strategy_metadata,
 )
 
 
 STRATEGY_NAME = "trend_pullback"
-STRATEGY_VERSION = "0.1.0"
+STRATEGY_VERSION = "0.2.0"
 
 
 def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
@@ -29,14 +31,22 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
     if spread_is_unsafe(snapshot, features):
         return none_signal(STRATEGY_NAME, "spread unsafe for strategy")
 
+    regime = detected_regime(features)
     close = feature_float(features, "close", (snapshot.bid + snapshot.ask) / 2)
     previous_close = feature_float(features, "previous_close", close)
     ema_fast = feature_float(features, "ema_fast", close)
     ema_slow = feature_float(features, "ema_slow", close)
     rsi = feature_float(features, "rsi", 50)
     trend_slope = feature_float(features, "trend_slope", ema_fast - ema_slow)
+    trend_strength = abs(feature_float(features, "trend_strength", 0))
     atr_points = feature_float(features, "atr_points", 0)
     pullback_depth_points = abs(close - ema_fast) / snapshot.point if snapshot.point > 0 else 0
+    if regime.value not in {"TREND_UP", "TREND_DOWN"} and trend_strength < 0.8:
+        return none_signal(STRATEGY_NAME, "trend regime or strength missing", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
+    if atr_points > 0 and pullback_depth_points > atr_points * 2.2:
+        return none_signal(STRATEGY_NAME, "price too extended from pullback zone", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
+    if feature_float(features, "spread_percentile", 50) >= 90:
+        return none_signal(STRATEGY_NAME, "spread percentile blocks trend pullback", metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME))
 
     buy_score, buy_reasons = score_conditions(
         base=10,
@@ -66,5 +76,5 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
         threshold=62,
         min_margin=8,
         strategy_name=STRATEGY_NAME,
-        metadata={"version": STRATEGY_VERSION, "close": close, "rsi": rsi},
+        metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME, extra={"close": close, "rsi": rsi}),
     )

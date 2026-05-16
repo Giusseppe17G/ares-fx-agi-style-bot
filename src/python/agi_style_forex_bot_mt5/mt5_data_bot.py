@@ -30,6 +30,7 @@ from .contracts import (
 )
 from .data import add_indicators, add_regime_labels, normalize_ohlcv_bars
 from .execution import MT5Connector, ShadowExecutionEngine, ShadowOrder
+from .market_structure import build_market_structure_features
 from .risk import RiskEngine, RiskRuntimeState
 from .strategy import evaluate_ensemble
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
@@ -549,7 +550,9 @@ class MT5DataOnlyBot:
         high_window = labeled.tail(20)["high"]
         low_window = labeled.tail(20)["low"]
         close = float(latest["close"])
+        structure_features = build_market_structure_features(labeled, point=snapshot.point)
         return {
+            **structure_features,
             "regime": str(latest["regime"]),
             "close": close,
             "previous_close": previous_close,

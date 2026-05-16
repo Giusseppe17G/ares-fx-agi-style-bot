@@ -63,6 +63,13 @@ $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode competiti
 $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode research --symbols EURUSD,GBPUSD,USDJPY --data-dir data\historical --reports-root data\reports --output-dir data\reports\research --max-candidates 100
 ```
 
+Run strategy diagnostics and market-structure reports when tuning Phase 16 rules:
+
+```powershell
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode strategy-diagnose --symbol EURUSD --data-dir data\historical --report-dir data\reports\strategy_diagnostics
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode structure-report --symbols EURUSD,GBPUSD,USDJPY --data-dir data\historical --report-dir data\reports\market_structure
+```
+
 9. Run broker quality and readiness audit:
 
 ```powershell
