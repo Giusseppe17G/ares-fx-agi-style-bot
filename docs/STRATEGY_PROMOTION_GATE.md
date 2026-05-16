@@ -105,3 +105,17 @@ Minimum forward shadow evidence:
 - `execution_attempted=false` in forward-shadow summaries and audit records.
 
 If forward evidence is missing, unstable, or materially worse than research evidence, the strategy remains `WATCHLIST` or becomes `REJECTED`.
+
+## Phase 11 ML Meta-Filter Requirement
+
+ML is optional and fail-safe. A missing, corrupt, uncalibrated, expired, or weak model must result in `ML_DISABLED` or `WATCHLIST`, not approval.
+
+An ML model may only filter shadow signals when:
+
+- Dataset was built with temporal train/validation/test separation.
+- Closed trades only were used for labels.
+- Calibration does not materially worsen Brier score.
+- Metadata marks `approved_for_shadow_filtering=true`.
+- Every prediction is audited as `ML_PREDICTION`.
+
+ML cannot increase risk, enable demo execution, enable live execution, or bypass risk gates.

@@ -25,6 +25,7 @@ from .contracts import AccountState, MarketSnapshot, utc_now
 from .data_pipeline import build_broker_cost_profile, build_dataset_manifest, cost_for_symbol
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
+from .ml import build_ml_dataset, build_ml_report, train_ml_filter
 from .observability import DailySummary, build_health_status, build_status
 from .paper_trading import ForwardShadowBot, forward_summary_to_json
 from .research import run_research
@@ -118,6 +119,9 @@ def main(argv: list[str] | None = None) -> int:
             "daily-summary",
             "broker-quality",
             "readiness-report",
+            "build-ml-dataset",
+            "train-ml-filter",
+            "ml-report",
         ],
         default="shadow",
     )
@@ -136,6 +140,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
     parser.add_argument("--reports-root", type=Path, default=Path("data/reports"), help="Reports root for validation-report.")
     parser.add_argument("--trades", type=Path, default=None, help="Trades CSV for monte-carlo.")
+    parser.add_argument("--dataset", type=Path, default=None, help="ML dataset CSV for train-ml-filter.")
+    parser.add_argument("--model-dir", type=Path, default=Path("data/models/ml_filter"), help="ML model registry directory.")
     parser.add_argument("--simulations", type=int, default=1000, help="Monte Carlo simulation count.")
     parser.add_argument("--seed", type=int, default=0, help="Reproducible random seed.")
     parser.add_argument("--max-candidates", type=int, default=100, help="Maximum research candidates.")
@@ -156,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
-    if args.mode in {"mt5-data", "mt5-diagnose", "status", "health", "daily-summary", "broker-quality", "readiness-report"} and args.sqlite is None:
+    if args.mode in {"mt5-data", "mt5-diagnose", "status", "health", "daily-summary", "broker-quality", "readiness-report", "build-ml-dataset"} and args.sqlite is None:
         parser.error(f"--mode {args.mode} requires --sqlite for durable audit")
     database = TelemetryDatabase(args.sqlite) if args.sqlite else None
     try:
@@ -348,6 +354,35 @@ def main(argv: list[str] | None = None) -> int:
                 reports_root=args.reports_root,
                 output_dir=args.output_dir,
                 database=database,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "build-ml-dataset":
+            assert database is not None
+            summary = build_ml_dataset(
+                database=database,
+                reports_root=args.reports_root,
+                output_dir=args.output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "train-ml-filter":
+            if args.dataset is None:
+                parser.error("--mode train-ml-filter requires --dataset")
+            summary = train_ml_filter(
+                dataset_path=args.dataset,
+                model_dir=args.model_dir,
+                report_dir=args.report_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "ml-report":
+            summary = build_ml_report(
+                model_dir=args.model_dir,
+                report_dir=args.report_dir,
             )
             print(_json_dumps(summary))
             return 0

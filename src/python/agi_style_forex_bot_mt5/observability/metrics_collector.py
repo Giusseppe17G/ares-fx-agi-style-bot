@@ -20,6 +20,7 @@ class MetricsCollector:
     def collect(self) -> dict[str, Any]:
         trades = [json.loads(row["payload_json"]) for row in self.database.fetch_paper_trades()]
         events = self.database.fetch_all("events")
+        predictions = self.database.fetch_all("model_predictions")
         event_counts = Counter(str(row["event_type"]) for row in events)
         rejection_counts = Counter()
         symbols_rejected = 0
@@ -62,6 +63,12 @@ class MetricsCollector:
             + event_counts.get("FORWARD_SHADOW_CRITICAL_ERROR", 0),
             "disk_free_gb": _disk_free_gb(),
             "memory_approx_mb": _memory_approx_mb(),
+            "ml_predictions_today": len(predictions),
+            "ml_rejected_signals_today": _prediction_count(predictions, "ML_REJECTED"),
+            "ml_approved_signals_today": _prediction_count(predictions, "ML_APPROVED"),
+            "avg_probability_today": _avg_probability(predictions),
+            "model_id": _latest_model_id(predictions),
+            "model_status": _latest_model_status(predictions),
             "execution_attempted": False,
         }
 
@@ -118,3 +125,32 @@ def _memory_approx_mb() -> float | None:
     except Exception:
         return None
     return None
+
+
+def _prediction_payloads(rows: list[Any]) -> list[dict[str, Any]]:
+    payloads = []
+    for row in rows:
+        try:
+            payloads.append(json.loads(row["payload_json"]))
+        except Exception:
+            continue
+    return payloads
+
+
+def _prediction_count(rows: list[Any], status: str) -> int:
+    return sum(1 for payload in _prediction_payloads(rows) if payload.get("ml_status") == status)
+
+
+def _avg_probability(rows: list[Any]) -> float:
+    values = [float(payload["probability_of_success"]) for payload in _prediction_payloads(rows) if payload.get("probability_of_success") is not None]
+    return sum(values) / len(values) if values else 0.0
+
+
+def _latest_model_id(rows: list[Any]) -> str:
+    payloads = _prediction_payloads(rows)
+    return str(payloads[-1].get("model_id") or "") if payloads else ""
+
+
+def _latest_model_status(rows: list[Any]) -> str:
+    payloads = _prediction_payloads(rows)
+    return str(payloads[-1].get("ml_status") or "ML_DISABLED") if payloads else "ML_DISABLED"

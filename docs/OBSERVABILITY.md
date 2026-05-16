@@ -21,6 +21,8 @@ Safety invariants:
 - SQLite status.
 - JSONL status.
 - Telegram command status.
+- ML prediction status.
+- ML approvals/rejections and average probability.
 
 ## Heartbeat
 
@@ -69,6 +71,17 @@ Implemented rules include:
 
 Every alert includes severity, code, message, recommended action and `execution_attempted=false`.
 
+## ML Metrics
+
+Status and daily summaries include:
+
+- `ml_predictions_today`
+- `ml_rejected_signals_today`
+- `ml_approved_signals_today`
+- `avg_probability_today`
+- `model_id`
+- `model_status`
+
 ## CLI
 
 ```powershell
@@ -81,4 +94,3 @@ py -m agi_style_forex_bot_mt5.cli --mode health --sqlite data\sqlite\forward-sha
 $env:PYTHONPATH="src/python"
 py -m agi_style_forex_bot_mt5.cli --mode daily-summary --sqlite data\sqlite\forward-shadow.sqlite3 --report-dir data\reports\forward_shadow\daily
 ```
-

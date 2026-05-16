@@ -31,6 +31,8 @@ Do not commit Telegram tokens, chat IDs, or secrets.
 - `/readiness`
 - `/spreads`
 - `/latency`
+- `/ml`
+- `/ml_status`
 
 ## Pause And Resume
 
@@ -43,3 +45,7 @@ Neither command can enable broker execution.
 ## Broker Quality Commands
 
 `/broker`, `/readiness`, `/spreads`, and `/latency` are read-only. They summarize broker-quality records and readiness reports. They cannot call `order_check`, `order_send`, or change trading permissions.
+
+## ML Commands
+
+`/ml` and `/ml_status` are read-only. They return the latest ML prediction status or `ML_DISABLED` if no approved model is active. They cannot approve execution or change risk.

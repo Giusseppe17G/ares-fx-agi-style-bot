@@ -122,6 +122,40 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 
+## Phase 11 ML Meta-Filter Update
+
+Status: PASS.
+
+Integrated in Phase 11:
+
+- Added `ml` package with feature store, label builder, dataset builder, numpy logistic baseline trainer, sigmoid probability calibrator, model registry, runtime ML filter, prediction audit and ML reports.
+- Added CLI modes: `build-ml-dataset`, `train-ml-filter`, and `ml-report`.
+- Integrated forward-shadow with ML filtering after strategy and risk gates. `ML_DISABLED` allows current shadow behavior; `ML_REJECTED` blocks paper trade creation only.
+- Added persistent prediction audit through `model_predictions` and `ML_PREDICTION` events.
+- Added observability metrics for ML predictions, approvals, rejections, average probability and model status.
+- Added Telegram commands `/ml` and `/ml_status`.
+- Added docs: `ML_META_FILTER.md`, `ML_DATASET.md`, and `PROBABILITY_CALIBRATION.md`.
+
+Additional Phase 11 tests:
+
+- Feature store generates required columns.
+- Label builder excludes open trades.
+- Dataset builder uses temporal train/validation/test splits and avoids label leakage.
+- Baseline trainer creates registry artifacts.
+- Calibrator reports Brier score.
+- ML filter returns `ML_DISABLED` when no approved model exists.
+- ML filter rejects low-probability candidates without risk changes.
+- Forward-shadow audits `ML_PREDICTION`.
+- CLI accepts all ML modes.
+- Telegram `/ml_status` returns ML state.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+
 ## Interface Compatibility
 
 Findings:

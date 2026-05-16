@@ -45,6 +45,8 @@ class TelegramCommandCenter:
         "/readiness",
         "/spreads",
         "/latency",
+        "/ml",
+        "/ml_status",
     }
 
     def __init__(
@@ -162,6 +164,10 @@ class TelegramCommandCenter:
         if command == "/latency":
             rows = self.database.fetch_all("broker_quality")
             latest = rows[-1]["payload_json"] if rows else "{}"
+            return TelegramCommandResult(command, True, latest[:1000], "OK")
+        if command in {"/ml", "/ml_status"}:
+            rows = self.database.fetch_all("model_predictions")
+            latest = rows[-1]["payload_json"] if rows else '{"ml_status":"ML_DISABLED","execution_attempted":false}'
             return TelegramCommandResult(command, True, latest[:1000], "OK")
         return TelegramCommandResult(command, True, self._help(), "OK")
 

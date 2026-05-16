@@ -12,6 +12,8 @@ from agi_style_forex_bot_mt5.config import BotConfig
 from agi_style_forex_bot_mt5.contracts import AccountState, Environment, Event, Severity, SignalAction
 from agi_style_forex_bot_mt5.execution import MT5Connector
 from agi_style_forex_bot_mt5.mt5_data_bot import MT5DataOnlyBot
+from agi_style_forex_bot_mt5.ml import MLFilter
+from agi_style_forex_bot_mt5.ml.prediction_audit import audit_ml_prediction
 from agi_style_forex_bot_mt5.observability import AlertRuleEngine, DailySummary, HeartbeatWriter, MetricsCollector
 from agi_style_forex_bot_mt5.risk import RiskRuntimeState
 from agi_style_forex_bot_mt5.strategy import evaluate_ensemble
@@ -76,6 +78,7 @@ class ForwardShadowBot:
             daily_report_dir=f"{self.report_dir}/daily",
             run_id=self.run_id,
         )
+        self.ml_filter = MLFilter.load_latest_model()
 
     def run(self) -> ForwardShadowSummary:
         opened = 0
@@ -260,6 +263,25 @@ class ForwardShadowBot:
                             "reject_reason": risk_decision.reject_reason,
                             "checks": dict(risk_decision.checks),
                         },
+                        symbol=resolution.canonical_symbol,
+                        notify=True,
+                    )
+                    continue
+                ml_features = {**features, "score": strategy_signal.score}
+                ml_decision = self.ml_filter.approve_or_reject(trade_signal, ml_features)
+                prediction_payload = {
+                    "signal_id": trade_signal.signal_id,
+                    "symbol": trade_signal.symbol,
+                    "timestamp_utc": trade_signal.created_at_utc.isoformat(),
+                    **ml_decision.to_dict(),
+                }
+                audit_ml_prediction(self.database, prediction_payload)
+                self._audit("ML_PREDICTION", Severity.INFO if ml_decision.ml_status != "ML_ERROR" else Severity.ERROR, prediction_payload, symbol=resolution.canonical_symbol)
+                if ml_decision.ml_status == "ML_REJECTED":
+                    self._audit(
+                        "SIGNAL_REJECTED",
+                        Severity.INFO,
+                        {"reject_reason": "ML_REJECTED", "ml": ml_decision.to_dict(), "execution_attempted": False},
                         symbol=resolution.canonical_symbol,
                         notify=True,
                     )
