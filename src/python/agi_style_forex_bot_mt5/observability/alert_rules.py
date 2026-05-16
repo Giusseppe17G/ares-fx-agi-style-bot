@@ -115,6 +115,30 @@ class AlertRuleEngine:
             alerts.append(
                 self._alert(now, "WARNING", "ROLLOVER_SPREAD_DANGER", "Rollover spread danger detected", "Keep new shadow entries paused near rollover if spreads remain elevated.", metrics)
             )
+        if bool(metrics.get("currency_exposure_high", False)):
+            alerts.append(
+                self._alert(now, "WARNING", "CURRENCY_EXPOSURE_HIGH", "Currency exposure is high", "Avoid adding correlated or same-currency shadow exposure until risk normalizes.", metrics)
+            )
+        if bool(metrics.get("correlation_cluster_high", False)):
+            alerts.append(
+                self._alert(now, "WARNING", "CORRELATION_CLUSTER_HIGH", "Correlation cluster exposure is high", "Review open paper trades and reject lower-ranked correlated signals.", metrics)
+            )
+        if bool(metrics.get("portfolio_risk_budget_low", False)):
+            alerts.append(
+                self._alert(now, "WARNING", "PORTFOLIO_RISK_BUDGET_LOW", "Portfolio risk budget is low", "Pause or reduce new shadow entries until open risk decreases.", metrics)
+            )
+        if bool(metrics.get("dynamic_risk_reduced", False)):
+            alerts.append(
+                self._alert(now, "INFO", "DYNAMIC_RISK_REDUCED", "Dynamic risk allocator reduced shadow risk", "Review drawdown, spread, ML probability and broker readiness context.", metrics)
+            )
+        if bool(metrics.get("strategy_concentration_high", False)):
+            alerts.append(
+                self._alert(now, "WARNING", "STRATEGY_CONCENTRATION_HIGH", "Strategy concentration is high", "Prefer diversified validated candidates before opening more paper trades.", metrics)
+            )
+        if bool(metrics.get("regime_concentration_high", False)):
+            alerts.append(
+                self._alert(now, "WARNING", "REGIME_CONCENTRATION_HIGH", "Regime concentration is high", "Reduce exposure to a single market regime until conditions diversify.", metrics)
+            )
         return tuple(alerts)
 
     def persist(self, alerts: Iterable[OperationalAlert]) -> int:

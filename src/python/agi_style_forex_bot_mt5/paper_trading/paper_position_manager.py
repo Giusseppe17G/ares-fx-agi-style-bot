@@ -65,6 +65,7 @@ class PaperPositionManager:
             return PaperTrade.from_json(existing["payload_json"])
         entry = self.fill_model.entry_price(direction=signal.direction.value, snapshot=snapshot)
         risk_amount = float(risk_decision.risk_amount_account_currency or 0.0)
+        effective_risk_pct = float(risk_decision.checks.get("effective_risk_pct") or signal.risk_pct or 0.0)
         trade = PaperTrade(
             paper_trade_id=PaperTrade.new_id(),
             signal_id=signal.signal_id,
@@ -77,7 +78,7 @@ class PaperPositionManager:
             sl_price=signal.sl_price,
             tp_price=signal.tp_price,
             lot=risk_decision.approved_lot,
-            risk_pct=float(signal.risk_pct or 0.0),
+            risk_pct=effective_risk_pct,
             risk_amount=risk_amount,
             strategy_name=strategy_name,
             strategy_version=strategy_version,

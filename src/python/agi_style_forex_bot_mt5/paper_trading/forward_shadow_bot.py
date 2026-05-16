@@ -9,12 +9,13 @@ from typing import Any, Iterable
 from uuid import uuid4
 
 from agi_style_forex_bot_mt5.config import BotConfig
-from agi_style_forex_bot_mt5.contracts import AccountState, Environment, Event, Severity, SignalAction
+from agi_style_forex_bot_mt5.contracts import AccountState, Environment, Event, RiskDecision, Severity, SignalAction
 from agi_style_forex_bot_mt5.execution import MT5Connector
 from agi_style_forex_bot_mt5.mt5_data_bot import MT5DataOnlyBot
 from agi_style_forex_bot_mt5.ml import MLFilter
 from agi_style_forex_bot_mt5.ml.prediction_audit import audit_ml_prediction
 from agi_style_forex_bot_mt5.observability import AlertRuleEngine, DailySummary, HeartbeatWriter, MetricsCollector
+from agi_style_forex_bot_mt5.portfolio import DynamicRiskAllocator, PortfolioGuard, SignalRanker
 from agi_style_forex_bot_mt5.risk import RiskRuntimeState
 from agi_style_forex_bot_mt5.strategy import evaluate_ensemble
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase, TelegramNotifier
@@ -79,6 +80,9 @@ class ForwardShadowBot:
             run_id=self.run_id,
         )
         self.ml_filter = MLFilter.load_latest_model()
+        self.signal_ranker = SignalRanker()
+        self.portfolio_guard = PortfolioGuard()
+        self.dynamic_risk_allocator = DynamicRiskAllocator()
 
     def run(self) -> ForwardShadowSummary:
         opened = 0
@@ -286,6 +290,84 @@ class ForwardShadowBot:
                         notify=True,
                     )
                     continue
+                open_trade_payloads = [trade.to_dict() for trade in self.manager.load_open_trades()]
+                risk_pct = self._risk_pct_from_decision(risk_decision, account)
+                candidate = {
+                    "symbol": trade_signal.symbol,
+                    "broker_symbol": resolution.broker_symbol,
+                    "direction": trade_signal.direction.value,
+                    "risk_pct": risk_pct,
+                    "strategy_name": strategy_signal.strategy_name,
+                    "regime": str(features.get("regime", "")),
+                    "session": str(features.get("session", "")),
+                    "strategy_score": strategy_signal.score,
+                    "ml_probability": ml_decision.probability_of_success,
+                    "spread_percentile": min(100.0, snapshot.spread_points / max(1.0, self.config.max_spread_points_default) * 100.0),
+                    "broker_readiness_score": 100.0,
+                    "research_candidate_status": str(strategy_signal.metadata.get("candidate_status", "")),
+                }
+                ranked = self.signal_ranker.rank([candidate], top_n=1)[0]
+                self._audit("SIGNAL_RANKED", Severity.INFO, ranked, symbol=resolution.canonical_symbol)
+                if ranked["ranking_decision"] != "ACCEPT_TOP_N":
+                    self._audit(
+                        "SIGNAL_REJECTED",
+                        Severity.INFO,
+                        {"reject_reason": ranked["ranking_decision"], "ranking": ranked, "execution_attempted": False},
+                        symbol=resolution.canonical_symbol,
+                        notify=True,
+                    )
+                    continue
+                portfolio_decision = self.portfolio_guard.evaluate(
+                    candidate=ranked,
+                    open_trades=open_trade_payloads,
+                    correlation=ranked.get("correlation"),
+                    shadow_paused=self.database.get_shadow_paused(),
+                    daily_drawdown_pct=abs(float(risk_decision.daily_drawdown_pct or 0.0)),
+                    consecutive_losses=self._consecutive_paper_losses(),
+                )
+                self._audit("PORTFOLIO_DECISION", Severity.INFO if portfolio_decision.accepted else Severity.WARNING, portfolio_decision.to_dict(), symbol=resolution.canonical_symbol)
+                if not portfolio_decision.accepted:
+                    event_type = "PORTFOLIO_REJECTED"
+                    if "CORRELATION" in portfolio_decision.reject_code:
+                        event_type = "CORRELATION_REJECTED"
+                    elif "EXPOSURE" in portfolio_decision.reject_code:
+                        event_type = "EXPOSURE_REJECTED"
+                    self._audit(event_type, Severity.WARNING, portfolio_decision.to_dict(), symbol=resolution.canonical_symbol, notify=True)
+                    continue
+                dynamic_decision = self.dynamic_risk_allocator.allocate(
+                    {
+                        **portfolio_decision.checks,
+                        "drawdown_pct": abs(float(risk_decision.daily_drawdown_pct or 0.0)),
+                        "consecutive_losses": self._consecutive_paper_losses(),
+                        "spread_ratio": snapshot.spread_points / max(1.0, self.config.max_spread_points_default),
+                        "broker_readiness_score": ranked.get("broker_readiness_score", 100.0),
+                        "ml_probability": ml_decision.probability_of_success,
+                        "correlation": ranked.get("correlation", 0.0),
+                        "symbol_watchlist": str(ranked.get("research_candidate_status", "")).upper() == "WATCHLIST",
+                    }
+                )
+                self._audit("DYNAMIC_RISK_ADJUSTED", Severity.INFO, dynamic_decision.to_dict(), symbol=resolution.canonical_symbol)
+                if dynamic_decision.risk_multiplier <= 0:
+                    self._audit(
+                        "RISK_REJECTED",
+                        Severity.WARNING,
+                        {
+                            "reject_code": "DYNAMIC_RISK_ZERO",
+                            "reject_reason": "dynamic risk allocator reduced risk to zero",
+                            "dynamic_risk": dynamic_decision.to_dict(),
+                            "execution_attempted": False,
+                        },
+                        symbol=resolution.canonical_symbol,
+                        notify=True,
+                    )
+                    continue
+                risk_decision = self._adjust_risk_decision(
+                    risk_decision,
+                    multiplier=dynamic_decision.risk_multiplier,
+                    effective_risk_pct=risk_pct * dynamic_decision.risk_multiplier,
+                    portfolio_decision=portfolio_decision.to_dict(),
+                    dynamic_risk=dynamic_decision.to_dict(),
+                )
                 before = self.database.count_rows("paper_trades")
                 trade = self.manager.open_trade(
                     signal=trade_signal,
@@ -312,6 +394,51 @@ class ForwardShadowBot:
                     notify=True,
                 )
         return opened
+
+    def _risk_pct_from_decision(self, decision: RiskDecision, account: AccountState) -> float:
+        if account.equity > 0 and decision.risk_amount_account_currency > 0:
+            return min(self.config.max_risk_per_trade_pct, decision.risk_amount_account_currency / account.equity * 100.0)
+        return self.config.max_risk_per_trade_pct
+
+    def _adjust_risk_decision(
+        self,
+        decision: RiskDecision,
+        *,
+        multiplier: float,
+        effective_risk_pct: float,
+        portfolio_decision: dict[str, Any],
+        dynamic_risk: dict[str, Any],
+    ) -> RiskDecision:
+        multiplier = max(0.0, min(1.0, multiplier))
+        checks = {
+            **dict(decision.checks),
+            "portfolio_decision": portfolio_decision,
+            "dynamic_risk": dynamic_risk,
+            "effective_risk_pct": effective_risk_pct,
+        }
+        return RiskDecision(
+            signal_id=decision.signal_id,
+            accepted=decision.accepted,
+            reject_code=decision.reject_code,
+            reject_reason=decision.reject_reason,
+            approved_lot=decision.approved_lot * multiplier,
+            risk_amount_account_currency=decision.risk_amount_account_currency * multiplier,
+            open_risk_pct_after_trade=decision.open_risk_pct_after_trade * multiplier,
+            daily_drawdown_pct=decision.daily_drawdown_pct,
+            floating_drawdown_pct=decision.floating_drawdown_pct,
+            checks=checks,
+        )
+
+    def _consecutive_paper_losses(self) -> int:
+        losses = 0
+        for trade in reversed(self.manager.load_all_trades()):
+            if trade.status != "CLOSED":
+                continue
+            if trade.r_multiple < 0:
+                losses += 1
+                continue
+            break
+        return losses
 
     def _snapshot_for(self, broker_symbol: str, canonical_symbol: str):
         assert self.connector is not None

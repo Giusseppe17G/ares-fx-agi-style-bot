@@ -8,6 +8,7 @@ from collections import Counter
 from datetime import date
 from typing import Any
 
+from agi_style_forex_bot_mt5.portfolio import build_portfolio_state
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 
 
@@ -24,16 +25,28 @@ class MetricsCollector:
         event_counts = Counter(str(row["event_type"]) for row in events)
         rejection_counts = Counter()
         symbols_rejected = 0
+        dynamic_risk_reduced = False
+        strategy_concentration_high = False
+        regime_concentration_high = False
+        correlation_cluster_high = False
         for row in events:
+            payload = {}
+            try:
+                payload = json.loads(row["payload_json"])
+            except json.JSONDecodeError:
+                payload = {}
             if str(row["event_type"]) in {"SIGNAL_REJECTED", "RISK_REJECTED", "SYMBOL_REJECTED"}:
-                try:
-                    payload = json.loads(row["payload_json"])
-                except json.JSONDecodeError:
-                    payload = {}
                 reason = payload.get("reject_reason") or payload.get("reject_code") or row["event_type"]
                 rejection_counts[str(reason)] += 1
             if str(row["event_type"]) == "SYMBOL_REJECTED":
                 symbols_rejected += 1
+            if str(row["event_type"]) == "DYNAMIC_RISK_ADJUSTED" and float(payload.get("risk_multiplier") or 1.0) < 1.0:
+                dynamic_risk_reduced = True
+            if str(row["event_type"]) == "PORTFOLIO_DECISION":
+                code = str(payload.get("reject_code") or "")
+                strategy_concentration_high = strategy_concentration_high or code == "STRATEGY_CONCENTRATION_HIGH"
+                regime_concentration_high = regime_concentration_high or code == "REGIME_CONCENTRATION_HIGH"
+                correlation_cluster_high = correlation_cluster_high or code == "CORRELATION_CLUSTER_HIGH"
         metrics = _paper_metrics(trades)
         open_trades = sum(1 for trade in trades if trade.get("status") == "OPEN")
         closed_today = sum(
@@ -43,6 +56,7 @@ class MetricsCollector:
             and trade.get("exit_time_utc")
             and str(trade.get("exit_time_utc"))[:10] == date.today().isoformat()
         )
+        portfolio_state = build_portfolio_state(self.database).to_dict()
         return {
             "mode": "forward-shadow",
             "bot_uptime_seconds": 0,
@@ -69,6 +83,16 @@ class MetricsCollector:
             "avg_probability_today": _avg_probability(predictions),
             "model_id": _latest_model_id(predictions),
             "model_status": _latest_model_status(predictions),
+            "portfolio_risk_pct": portfolio_state["portfolio_risk_pct"],
+            "available_risk_budget_pct": portfolio_state["available_risk_budget_pct"],
+            "currency_exposure": portfolio_state["currency_exposure"],
+            "concentration_flags": portfolio_state["concentration_flags"],
+            "currency_exposure_high": "CURRENCY_EXPOSURE_HIGH" in portfolio_state["concentration_flags"],
+            "portfolio_risk_budget_low": "PORTFOLIO_RISK_BUDGET_LOW" in portfolio_state["concentration_flags"],
+            "correlation_cluster_high": correlation_cluster_high,
+            "dynamic_risk_reduced": dynamic_risk_reduced,
+            "strategy_concentration_high": strategy_concentration_high,
+            "regime_concentration_high": regime_concentration_high,
             "execution_attempted": False,
         }
 

@@ -122,6 +122,37 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 
+## Phase 12 Portfolio Intelligence Update
+
+Status: PASS. Full suite result: 155 collected, 155 passed.
+
+Integrated in Phase 12:
+
+- Added `portfolio` package with currency exposure, correlation matrix, portfolio state, signal ranking, portfolio guard, dynamic risk allocation, exposure report, and portfolio report modules.
+- Integrated `forward-shadow` with `SIGNAL_RANKED`, `PORTFOLIO_DECISION`, `DYNAMIC_RISK_ADJUSTED`, `CORRELATION_REJECTED`, and `EXPOSURE_REJECTED` audit events.
+- Added CLI modes: `portfolio-status`, `exposure-report`, and `correlation-report`.
+- Added Telegram read-only commands: `/portfolio`, `/exposure`, `/correlation`, and `/risk`.
+- Added observability metrics and alerts for portfolio risk, currency exposure, correlation clusters, dynamic risk reduction, strategy concentration, and regime concentration.
+- Added docs: `PORTFOLIO_INTELLIGENCE.md`, `CORRELATION_GUARD.md`, and `DYNAMIC_RISK_ALLOCATION.md`.
+
+Additional Phase 12 tests:
+
+- Currency exposure BUY/SELL and USD aggregation.
+- Correlation matrix detects high correlation.
+- Portfolio guard rejects exposure and correlation.
+- Dynamic risk reduces for drawdown/loss streak and never exceeds `1.0`.
+- Signal ranker prioritizes ML probability and penalizes spread.
+- Forward-shadow audits portfolio decisions.
+- CLI accepts portfolio modes and returns `execution_attempted=false`.
+- Telegram `/portfolio` returns read-only status.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+
 ## Phase 11 ML Meta-Filter Update
 
 Status: PASS.

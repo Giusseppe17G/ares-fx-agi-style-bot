@@ -33,6 +33,10 @@ Do not commit Telegram tokens, chat IDs, or secrets.
 - `/latency`
 - `/ml`
 - `/ml_status`
+- `/portfolio`
+- `/exposure`
+- `/correlation`
+- `/risk`
 
 ## Pause And Resume
 
@@ -49,3 +53,9 @@ Neither command can enable broker execution.
 ## ML Commands
 
 `/ml` and `/ml_status` are read-only. They return the latest ML prediction status or `ML_DISABLED` if no approved model is active. They cannot approve execution or change risk.
+
+## Portfolio Commands
+
+`/portfolio`, `/exposure`, `/correlation`, and `/risk` are read-only. They summarize portfolio risk, currency exposure, correlation report availability, and risk budget state.
+
+They cannot enable demo/live execution, cannot change `DEMO_ONLY`, cannot change `LIVE_TRADING_APPROVED`, and cannot call `order_send`.

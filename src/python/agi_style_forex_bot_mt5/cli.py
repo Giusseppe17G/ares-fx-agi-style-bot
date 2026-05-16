@@ -28,6 +28,7 @@ from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .ml import build_ml_dataset, build_ml_report, train_ml_filter
 from .observability import DailySummary, build_health_status, build_status
 from .paper_trading import ForwardShadowBot, forward_summary_to_json
+from .portfolio import build_correlation_report, build_exposure_report, build_portfolio_status
 from .research import run_research
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
 
@@ -122,6 +123,9 @@ def main(argv: list[str] | None = None) -> int:
             "build-ml-dataset",
             "train-ml-filter",
             "ml-report",
+            "portfolio-status",
+            "exposure-report",
+            "correlation-report",
         ],
         default="shadow",
     )
@@ -162,7 +166,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
-    if args.mode in {"mt5-data", "mt5-diagnose", "status", "health", "daily-summary", "broker-quality", "readiness-report", "build-ml-dataset"} and args.sqlite is None:
+    if args.mode in {
+        "mt5-data",
+        "mt5-diagnose",
+        "status",
+        "health",
+        "daily-summary",
+        "broker-quality",
+        "readiness-report",
+        "build-ml-dataset",
+        "portfolio-status",
+        "exposure-report",
+    } and args.sqlite is None:
         parser.error(f"--mode {args.mode} requires --sqlite for durable audit")
     database = TelemetryDatabase(args.sqlite) if args.sqlite else None
     try:
@@ -387,6 +402,34 @@ def main(argv: list[str] | None = None) -> int:
             print(_json_dumps(summary))
             return 0
 
+        if args.mode == "portfolio-status":
+            assert database is not None
+            output_dir = _portfolio_output_dir(args.output_dir, args.reports_root)
+            summary = build_portfolio_status(
+                database=database,
+                reports_root=args.reports_root,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "exposure-report":
+            assert database is not None
+            summary = build_exposure_report(
+                database=database,
+                output_dir=_portfolio_output_dir(args.output_dir, args.reports_root),
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "correlation-report":
+            summary = build_correlation_report(
+                data_dir=args.data_dir,
+                output_dir=_portfolio_output_dir(args.output_dir, args.reports_root),
+            )
+            print(_json_dumps(summary))
+            return 0
+
         if args.mode in {"mt5-data", "mt5-diagnose"}:
             bot_cls = MT5DiagnoseBot if args.mode == "mt5-diagnose" else MT5DataOnlyBot
             bot = bot_cls(
@@ -460,6 +503,12 @@ def _load_optional_json(path: Path) -> dict[str, object] | None:
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _portfolio_output_dir(output_dir: Path, reports_root: Path) -> Path:
+    if output_dir == Path("data/historical"):
+        return reports_root / "portfolio"
+    return output_dir
 
 
 if __name__ == "__main__":

@@ -119,3 +119,18 @@ An ML model may only filter shadow signals when:
 - Every prediction is audited as `ML_PREDICTION`.
 
 ML cannot increase risk, enable demo execution, enable live execution, or bypass risk gates.
+
+## Phase 12 Portfolio Requirement
+
+No strategy or symbol can advance while portfolio controls are failing.
+
+Required shadow evidence:
+
+- Currency exposure remains inside configured limits.
+- Highly correlated symbols are not stacked without explicit rejection or risk reduction.
+- Portfolio open risk remains below the global `5%` cap.
+- Strategy and regime concentration remain controlled.
+- Dynamic risk reductions are audited as `DYNAMIC_RISK_ADJUSTED`.
+- Dynamic risk never raises risk above the RiskEngine-approved amount.
+
+If portfolio evidence is missing, correlation data is required but unavailable, or exposure controls reject the setup, the candidate remains `WATCHLIST` or `REJECTED`.

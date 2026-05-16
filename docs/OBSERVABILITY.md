@@ -23,6 +23,8 @@ Safety invariants:
 - Telegram command status.
 - ML prediction status.
 - ML approvals/rejections and average probability.
+- Portfolio risk percentage and available risk budget.
+- Currency exposure and concentration flags.
 
 ## Heartbeat
 
@@ -68,6 +70,12 @@ Implemented rules include:
 - `PERFORMANCE_DRIFT`
 - `SQLITE_UNAVAILABLE`
 - `JSONL_UNAVAILABLE`
+- `CURRENCY_EXPOSURE_HIGH`
+- `CORRELATION_CLUSTER_HIGH`
+- `PORTFOLIO_RISK_BUDGET_LOW`
+- `DYNAMIC_RISK_REDUCED`
+- `STRATEGY_CONCENTRATION_HIGH`
+- `REGIME_CONCENTRATION_HIGH`
 
 Every alert includes severity, code, message, recommended action and `execution_attempted=false`.
 
@@ -81,6 +89,17 @@ Status and daily summaries include:
 - `avg_probability_today`
 - `model_id`
 - `model_status`
+
+## Portfolio Metrics
+
+Status, heartbeat context, and daily summaries can include:
+
+- `portfolio_risk_pct`
+- `available_risk_budget_pct`
+- `currency_exposure`
+- `concentration_flags`
+
+These metrics are advisory for shadow/paper mode only and never authorize broker execution.
 
 ## CLI
 

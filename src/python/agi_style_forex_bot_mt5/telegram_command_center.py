@@ -13,6 +13,7 @@ from agi_style_forex_bot_mt5.contracts import Environment, Event, Severity
 from agi_style_forex_bot_mt5.broker_quality import build_readiness_report
 from agi_style_forex_bot_mt5.observability.daily_summary import DailySummary
 from agi_style_forex_bot_mt5.observability.operational_status import build_health_status, build_status
+from agi_style_forex_bot_mt5.portfolio import build_portfolio_state
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase
 from agi_style_forex_bot_mt5.telemetry.logger_setup import redact_text, utc_now_iso
 
@@ -47,6 +48,10 @@ class TelegramCommandCenter:
         "/latency",
         "/ml",
         "/ml_status",
+        "/portfolio",
+        "/exposure",
+        "/correlation",
+        "/risk",
     }
 
     def __init__(
@@ -169,6 +174,14 @@ class TelegramCommandCenter:
             rows = self.database.fetch_all("model_predictions")
             latest = rows[-1]["payload_json"] if rows else '{"ml_status":"ML_DISABLED","execution_attempted":false}'
             return TelegramCommandResult(command, True, latest[:1000], "OK")
+        if command in {"/portfolio", "/risk"}:
+            state = build_portfolio_state(self.database).to_dict()
+            return TelegramCommandResult(command, True, str(state)[:1000], "OK")
+        if command == "/exposure":
+            exposure = build_portfolio_state(self.database).currency_exposure
+            return TelegramCommandResult(command, True, str(exposure)[:1000], "OK")
+        if command == "/correlation":
+            return TelegramCommandResult(command, True, "correlation_status=READ_ONLY_REPORT_AVAILABLE via --mode correlation-report", "OK")
         return TelegramCommandResult(command, True, self._help(), "OK")
 
     def _help(self) -> str:
