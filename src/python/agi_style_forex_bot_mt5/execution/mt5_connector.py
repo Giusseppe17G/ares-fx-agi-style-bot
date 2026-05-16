@@ -460,12 +460,12 @@ class MT5Connector:
                 ),
                 None,
             )
-        if tick_age > self.config.max_tick_age_seconds:
+        if abs(tick_age) > self.config.max_tick_age_seconds:
             market_closed = is_market_probably_closed(now, canonical)
             return (
                 AdapterCheck.reject(
                     "MARKET_CLOSED_OR_NO_TICKS" if market_closed else "MARKET_DATA_INVALID",
-                    "market appears closed or symbol has no fresh ticks" if market_closed else "tick is stale",
+                    "market appears closed or symbol has no fresh ticks" if market_closed else "tick timestamp is stale or in the future",
                     **base_payload,
                 ),
                 None,

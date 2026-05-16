@@ -24,6 +24,38 @@ Status: PASS with implementation gaps to track before any executable demo/live p
 
 The Python implementation is currently fail-closed for the reviewed paths. Default config remains demo-only, shadow mode prevents order attempts in the top-level bot loop, risk rejects unsafe signals before execution, and the MT5 execution layer can be tested with an injected mock client. No real execution route was observed while `DEMO_ONLY=True`, and the lower execution adapter also blocks real accounts when `LIVE_TRADING_APPROVED=False`.
 
+## Phase 8 Forward Shadow Update
+
+Status: PASS.
+
+Integrated in Phase 8:
+
+- Added `paper_trading` package with `PaperTrade`, paper fill model, paper position manager, performance/reporting, reconciliation, drift detection, and forward shadow orchestration.
+- Added `--mode forward-shadow` for 24/7 paper observation with MT5 read-only snapshots, SQLite/JSONL audit, optional fail-safe Telegram, cycle summaries, and `execution_attempted=false`.
+- Added SQLite tables: `paper_trades`, `paper_trade_events`, `paper_performance_snapshots`, and `forward_shadow_sessions`.
+- Added forward reports: `summary.json`, `trades.csv`, `equity_curve.csv`, `by_symbol.csv`, `by_strategy.csv`, `by_regime.csv`, `by_session.csv`, `rejections.csv`, and `report.html`.
+- Updated EC2 healthcheck to detect `forward-shadow`, inspect JSONL critical events, and flag `execution_attempted=true`.
+- Added docs: `FORWARD_SHADOW.md`, `PAPER_TRADING_LIFECYCLE.md`, and `FORWARD_DRIFT_DETECTION.md`.
+
+Additional Phase 8 tests:
+
+- PaperTrade JSON roundtrip.
+- Paper fill model uses ask for BUY entry and bid for SELL entry, with slippage.
+- Paper position manager opens trades, blocks duplicates by idempotency, and reloads open trades.
+- Paper trades close by SL, TP, and time stop.
+- Break-even/trailing management never retreats the stop.
+- Forward shadow loop tolerates Telegram failure and does not call `order_send`.
+- Forward reports are written.
+- Drift detector classifies performance drift.
+- CLI accepts `--mode forward-shadow` and returns `execution_attempted=false`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+
 ## Interface Compatibility
 
 Findings:

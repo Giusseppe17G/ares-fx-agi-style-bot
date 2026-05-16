@@ -65,13 +65,13 @@ class TelemetryDatabase:
             )
             """
         )
-        if self._migration_applied(1):
-            return
-        self._apply_v1()
-        self._conn.execute(
-            "INSERT INTO schema_migrations(version, applied_at_utc) VALUES (?, ?)",
-            (1, utc_now_iso()),
-        )
+        if not self._migration_applied(1):
+            self._apply_v1()
+            self._conn.execute(
+                "INSERT INTO schema_migrations(version, applied_at_utc) VALUES (?, ?)",
+                (1, utc_now_iso()),
+            )
+        self._apply_paper_tables()
         self._conn.commit()
 
     def _migration_applied(self, version: int) -> bool:
@@ -163,6 +163,59 @@ class TelemetryDatabase:
                 FOREIGN KEY (telegram_message_id)
                     REFERENCES telegram_outbox(telegram_message_id)
                     ON DELETE CASCADE
+            )
+            """
+        )
+
+    def _apply_paper_tables(self) -> None:
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS paper_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                paper_trade_id TEXT NOT NULL UNIQUE,
+                signal_id TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                symbol TEXT NOT NULL,
+                status TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                opened_at_utc TEXT NOT NULL,
+                closed_at_utc TEXT,
+                updated_at_utc TEXT NOT NULL
+            )
+            """
+        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_trades_status ON paper_trades(status)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_trades_symbol ON paper_trades(symbol)")
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS paper_trade_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                paper_trade_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                timestamp_utc TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS paper_performance_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_id TEXT NOT NULL UNIQUE,
+                timestamp_utc TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS forward_shadow_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL UNIQUE,
+                started_at_utc TEXT NOT NULL,
+                stopped_at_utc TEXT,
+                status TEXT NOT NULL,
+                payload_json TEXT NOT NULL
             )
             """
         )
@@ -350,12 +403,86 @@ class TelemetryDatabase:
         )
         self._conn.commit()
 
+    def insert_paper_trade(self, trade: Mapping[str, Any]) -> bool:
+        payload = redact_secrets(dict(trade))
+        now = utc_now_iso()
+        cursor = self._conn.execute(
+            """
+            INSERT OR IGNORE INTO paper_trades (
+                paper_trade_id, signal_id, idempotency_key, symbol, status,
+                payload_json, opened_at_utc, closed_at_utc, updated_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["paper_trade_id"],
+                payload.get("signal_id", ""),
+                payload["idempotency_key"],
+                payload["symbol"],
+                payload["status"],
+                compact_json(payload),
+                payload.get("entry_time_utc") or now,
+                payload.get("exit_time_utc"),
+                now,
+            ),
+        )
+        self._conn.commit()
+        return cursor.rowcount == 1
+
+    def update_paper_trade(self, trade: Mapping[str, Any]) -> None:
+        payload = redact_secrets(dict(trade))
+        self._conn.execute(
+            """
+            UPDATE paper_trades
+            SET status = ?, payload_json = ?, closed_at_utc = ?, updated_at_utc = ?
+            WHERE paper_trade_id = ?
+            """,
+            (
+                payload["status"],
+                compact_json(payload),
+                payload.get("exit_time_utc"),
+                utc_now_iso(),
+                payload["paper_trade_id"],
+            ),
+        )
+        self._conn.commit()
+
+    def insert_paper_trade_event(self, paper_trade_id: str, event_type: str, payload: Mapping[str, Any]) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO paper_trade_events (
+                paper_trade_id, event_type, timestamp_utc, payload_json
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (paper_trade_id, event_type, utc_now_iso(), compact_json(redact_secrets(payload))),
+        )
+        self._conn.commit()
+
+    def fetch_open_paper_trades(self) -> list[sqlite3.Row]:
+        return list(
+            self._conn.execute(
+                "SELECT * FROM paper_trades WHERE status = 'OPEN' ORDER BY id"
+            )
+        )
+
+    def fetch_paper_trades(self) -> list[sqlite3.Row]:
+        return list(self._conn.execute("SELECT * FROM paper_trades ORDER BY id"))
+
+    def fetch_paper_trade_by_idempotency(self, idempotency_key: str) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM paper_trades WHERE idempotency_key = ? ORDER BY id LIMIT 1",
+            (idempotency_key,),
+        ).fetchone()
+
     def count_rows(self, table: str) -> int:
         if table not in DOMAIN_TABLES and table not in {
             "events",
             "telegram_outbox",
             "delivery_attempts",
             "schema_migrations",
+            "paper_trades",
+            "paper_trade_events",
+            "paper_performance_snapshots",
+            "forward_shadow_sessions",
         }:
             raise ValueError(f"unsupported telemetry table: {table}")
         row = self._conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()
@@ -367,6 +494,10 @@ class TelemetryDatabase:
             "telegram_outbox",
             "delivery_attempts",
             "schema_migrations",
+            "paper_trades",
+            "paper_trade_events",
+            "paper_performance_snapshots",
+            "forward_shadow_sessions",
         }:
             raise ValueError(f"unsupported telemetry table: {table}")
         return list(self._conn.execute(f"SELECT * FROM {table} ORDER BY id"))

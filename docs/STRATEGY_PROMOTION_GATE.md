@@ -86,3 +86,22 @@ From Phase 5 onward, a symbol/strategy can only be classified as `APPROVED_FOR_S
 - No single hour, day, session, regime, or week explains the result.
 
 If any layer is missing, inconclusive, or impossible to calculate, the final decision must be `WATCHLIST` or `REJECTED`.
+
+## Phase 8 Forward Shadow Requirement
+
+No strategy can move toward demo execution unless it first survives forward shadow observation.
+
+Minimum forward shadow evidence:
+
+- At least two calendar weeks or `200` paper trades, whichever takes longer.
+- Forward expectancy R greater than `0`.
+- Forward profit factor greater than `1.15`.
+- Shadow drawdown remains controlled against configured limits.
+- No severe cost drift versus the broker cost profile.
+- No severe performance drift versus backtest/research.
+- Real spread is compatible with the assumptions used in validation.
+- SQLite, JSONL, and optional Telegram remain stable.
+- `order_send was not called` throughout the observation.
+- `execution_attempted=false` in forward-shadow summaries and audit records.
+
+If forward evidence is missing, unstable, or materially worse than research evidence, the strategy remains `WATCHLIST` or becomes `REJECTED`.

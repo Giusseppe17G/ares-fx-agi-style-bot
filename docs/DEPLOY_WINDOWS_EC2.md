@@ -268,7 +268,34 @@ Exit codes:
 - `1`: WARNING.
 - `2`: CRITICAL.
 
-## 14. MT5 Diagnose Mode
+## 14. Forward Shadow 24/7
+
+After `mt5-data` and `mt5-diagnose` are healthy, run paper lifecycle observation:
+
+```powershell
+$env:PYTHONPATH="src/python"
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode forward-shadow --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --log-dir data\logs\forward-shadow --sqlite data\sqlite\forward-shadow.sqlite3 --cycle-seconds 30
+```
+
+Smoke test:
+
+```powershell
+$env:PYTHONPATH="src/python"
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode forward-shadow --symbols EURUSD --log-dir data\logs\forward-shadow-smoke --sqlite data\sqlite\forward-shadow-smoke.sqlite3 --cycle-seconds 0 --max-cycles 1
+```
+
+Expected output includes:
+
+```json
+{
+  "mode": "forward-shadow",
+  "execution_attempted": false
+}
+```
+
+Forward shadow manages paper trades only. It must not create demo or live broker orders, and `order_send was not called` must remain true.
+
+## 15. MT5 Diagnose Mode
 
 Use this when `mt5-data` rejects symbols because the tick is stale or symbol mapping is unclear:
 
@@ -280,15 +307,17 @@ The script runs `--mode mt5-diagnose`, audits `MT5_DIAGNOSTIC`, prints `tick.tim
 
 If `reject_code=MARKET_CLOSED_OR_NO_TICKS`, verify MT5 is connected, the symbol is visible in Market Watch, and the Forex session is open. A weekend or no fresh broker ticks should remain rejected; do not increase `MAX_TICK_AGE_SECONDS` just to bypass this.
 
-## 15. Operational Checklist
+## 16. Operational Checklist
 
 Before leaving EC2 unattended:
 
 - MT5 terminal is open and logged into demo.
 - `py -m pytest -q` passes locally.
 - `scripts\run_mt5_data.ps1` returns JSON with `execution_attempted=false`.
+- `forward-shadow` smoke returns JSON with `execution_attempted=false`.
 - JSONL logs are being written.
 - SQLite file is being updated.
+- Paper trades, if any, are stored in `paper_trades`.
 - Watchdog task is enabled.
 - Disk free space is healthy.
 - No secrets are present in git status.

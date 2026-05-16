@@ -1,6 +1,6 @@
 param(
     [string]$LogRoot = "data\logs",
-    [string]$SqlitePath = "data\sqlite\mt5-data-ec2.sqlite3",
+    [string]$SqlitePath = "data\sqlite\forward-shadow.sqlite3",
     [int]$MinimumFreeDiskGB = 5
 )
 
@@ -32,12 +32,12 @@ $botProcesses = Get-CimInstance Win32_Process |
     Where-Object {
         $_.CommandLine -and
         $_.CommandLine -match "agi_style_forex_bot_mt5\.cli" -and
-        $_.CommandLine -match "--mode\s+mt5-data"
+        ($_.CommandLine -match "--mode\s+mt5-data" -or $_.CommandLine -match "--mode\s+forward-shadow")
     }
 if ($botProcesses) {
-    Add-Status "OK" "mt5-data bot process detected"
+    Add-Status "OK" "mt5-data or forward-shadow bot process detected"
 } else {
-    Add-Status "WARNING" "mt5-data bot process not detected"
+    Add-Status "WARNING" "mt5-data or forward-shadow bot process not detected"
 }
 
 $latestJsonl = Get-ChildItem -Path $LogRoot -Recurse -Filter "*.jsonl" -ErrorAction SilentlyContinue |
@@ -49,12 +49,19 @@ if ($latestJsonl) {
     if ($lastLine -match '"event_type"\s*:\s*"CRITICAL_ERROR"') {
         Add-Status "CRITICAL" "Latest JSONL event is CRITICAL_ERROR"
     }
+    if ($lastLine -match '"event_type"\s*:\s*"FORWARD_SHADOW_CRITICAL_ERROR"') {
+        Add-Status "CRITICAL" "Latest JSONL event is FORWARD_SHADOW_CRITICAL_ERROR"
+    }
+    if ($lastLine -match '"execution_attempted"\s*:\s*true') {
+        Add-Status "CRITICAL" "Latest JSONL indicates execution_attempted=true"
+    }
 } else {
     Add-Status "WARNING" "No JSONL logs found under $LogRoot"
 }
 
 if (Test-Path $SqlitePath) {
-    Add-Status "OK" "SQLite database exists: $SqlitePath"
+    $sqliteItem = Get-Item $SqlitePath
+    Add-Status "OK" "SQLite database exists: $SqlitePath ($([math]::Round($sqliteItem.Length / 1MB, 2)) MB)"
 } else {
     Add-Status "WARNING" "SQLite database missing: $SqlitePath"
 }

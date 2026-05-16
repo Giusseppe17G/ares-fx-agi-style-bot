@@ -24,6 +24,7 @@ from .contracts import AccountState, MarketSnapshot, utc_now
 from .data_pipeline import build_broker_cost_profile, build_dataset_manifest, cost_for_symbol
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
+from .paper_trading import ForwardShadowBot, forward_summary_to_json
 from .research import run_research
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
 
@@ -109,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
             "benchmark",
             "competitive-scorecard",
             "research",
+            "forward-shadow",
         ],
         default="shadow",
     )
@@ -130,6 +132,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--simulations", type=int, default=1000, help="Monte Carlo simulation count.")
     parser.add_argument("--seed", type=int, default=0, help="Reproducible random seed.")
     parser.add_argument("--max-candidates", type=int, default=100, help="Maximum research candidates.")
+    parser.add_argument("--cycle-seconds", type=int, default=30, help="Forward shadow cycle interval.")
+    parser.add_argument("--max-cycles", type=int, default=None, help="Maximum forward shadow cycles for tests/smoke.")
     parser.add_argument("--train-days", type=int, default=90)
     parser.add_argument("--validation-days", type=int, default=30)
     parser.add_argument("--test-days", type=int, default=30)
@@ -283,6 +287,24 @@ def main(argv: list[str] | None = None) -> int:
                 max_candidates=args.max_candidates,
             )
             print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "forward-shadow":
+            if database is None:
+                parser.error("--mode forward-shadow requires --sqlite for paper lifecycle persistence")
+            bot = ForwardShadowBot(
+                config=config,
+                symbols=selected_symbols,
+                audit_logger=JsonlAuditLogger(args.log_dir, max_file_mb=config.max_jsonl_file_mb),
+                database=database,
+                telegram_notifier=TelegramNotifier.from_env(
+                    database=database,
+                    enabled=bool(args.telegram or config.telegram_enabled),
+                ),
+                cycle_seconds=args.cycle_seconds,
+                max_cycles=args.max_cycles,
+            )
+            print(forward_summary_to_json(bot.run()))
             return 0
 
         if args.mode in {"mt5-data", "mt5-diagnose"}:
