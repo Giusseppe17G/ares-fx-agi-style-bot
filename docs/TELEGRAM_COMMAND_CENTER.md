@@ -27,6 +27,10 @@ Do not commit Telegram tokens, chat IDs, or secrets.
 - `/pause_shadow`
 - `/resume_shadow`
 - `/help`
+- `/broker`
+- `/readiness`
+- `/spreads`
+- `/latency`
 
 ## Pause And Resume
 
@@ -36,3 +40,6 @@ Do not commit Telegram tokens, chat IDs, or secrets.
 
 Neither command can enable broker execution.
 
+## Broker Quality Commands
+
+`/broker`, `/readiness`, `/spreads`, and `/latency` are read-only. They summarize broker-quality records and readiness reports. They cannot call `order_check`, `order_send`, or change trading permissions.

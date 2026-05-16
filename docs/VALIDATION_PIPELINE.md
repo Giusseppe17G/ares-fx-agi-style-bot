@@ -63,7 +63,14 @@ $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode competiti
 $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode research --symbols EURUSD,GBPUSD,USDJPY --data-dir data\historical --reports-root data\reports --output-dir data\reports\research --max-candidates 100
 ```
 
-9. Build master validation report:
+9. Run broker quality and readiness audit:
+
+```powershell
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode broker-quality --symbols EURUSD,GBPUSD,USDJPY --log-dir data\logs\broker-quality --sqlite data\sqlite\forward-shadow.sqlite3 --report-dir data\reports\broker_quality
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode readiness-report --reports-root data\reports --sqlite data\sqlite\forward-shadow.sqlite3 --output-dir data\reports\readiness
+```
+
+10. Build master validation report:
 
 ```powershell
 $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode validation-report --reports-root data\reports --output-dir data\reports\validation
@@ -76,6 +83,8 @@ Files:
 - `data/reports/validation/master_validation_report.json`
 - `data/reports/validation/master_validation_report.csv`
 - `data/reports/validation/master_validation_report.html`
+
+The master report includes broker quality, execution readiness and forward-shadow summaries when available. Operational decisions include `CONTINUE_FORWARD_SHADOW`, `NEEDS_MORE_DATA`, `NEEDS_BROKER_FIX`, `NEEDS_STRATEGY_FIX`, and `NOT_READY`.
 
 ## Blocking Criteria
 

@@ -10,6 +10,7 @@ from uuid import uuid4
 import requests
 
 from agi_style_forex_bot_mt5.contracts import Environment, Event, Severity
+from agi_style_forex_bot_mt5.broker_quality import build_readiness_report
 from agi_style_forex_bot_mt5.observability.daily_summary import DailySummary
 from agi_style_forex_bot_mt5.observability.operational_status import build_health_status, build_status
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase
@@ -40,6 +41,10 @@ class TelegramCommandCenter:
         "/pause_shadow",
         "/resume_shadow",
         "/help",
+        "/broker",
+        "/readiness",
+        "/spreads",
+        "/latency",
     }
 
     def __init__(
@@ -141,6 +146,23 @@ class TelegramCommandCenter:
             return TelegramCommandResult(command, True, str(reasons), "OK")
         if command == "/drift":
             return TelegramCommandResult(command, True, "drift_status=NEEDS_MORE_DATA", "OK")
+        if command == "/broker":
+            health = self.database.get_latest_health()
+            return TelegramCommandResult(command, True, f"broker_quality={health.get('recent_alerts', [])}", "OK")
+        if command == "/readiness":
+            summary = build_readiness_report(
+                reports_root="data/reports",
+                output_dir="data/reports/readiness",
+                database=self.database,
+            )
+            return TelegramCommandResult(command, True, str(summary), "OK")
+        if command == "/spreads":
+            rows = self.database.fetch_all("broker_quality")
+            return TelegramCommandResult(command, True, f"broker_quality_records={len(rows)}", "OK")
+        if command == "/latency":
+            rows = self.database.fetch_all("broker_quality")
+            latest = rows[-1]["payload_json"] if rows else "{}"
+            return TelegramCommandResult(command, True, latest[:1000], "OK")
         return TelegramCommandResult(command, True, self._help(), "OK")
 
     def _help(self) -> str:

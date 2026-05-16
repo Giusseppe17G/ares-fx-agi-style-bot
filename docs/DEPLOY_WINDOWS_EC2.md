@@ -314,6 +314,14 @@ $env:PYTHONPATH="src/python"
 
 Telegram Command Center can pause or resume only shadow entries. Existing paper trades continue to be managed, and no command can enable real or demo broker execution.
 
+Broker quality audit:
+
+```powershell
+$env:PYTHONPATH="src/python"
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode broker-quality --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --log-dir data\logs\broker-quality --sqlite data\sqlite\forward-shadow.sqlite3 --report-dir data\reports\broker_quality
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode readiness-report --reports-root data\reports --sqlite data\sqlite\forward-shadow.sqlite3 --output-dir data\reports\readiness
+```
+
 ## 15. MT5 Diagnose Mode
 
 Use this when `mt5-data` rejects symbols because the tick is stale or symbol mapping is unclear:

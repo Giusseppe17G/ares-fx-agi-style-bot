@@ -49,6 +49,23 @@ If the market is closed or the broker has no fresh ticks, rejection is correct.
 3. Compare with backtest, walk-forward, Monte Carlo and stress results.
 4. Do not enable demo execution.
 
+## Broker Quality Audit
+
+Run a read-only broker quality probe:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode broker-quality --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --log-dir data\logs\broker-quality --sqlite data\sqlite\forward-shadow.sqlite3 --report-dir data\reports\broker_quality
+```
+
+Then consolidate readiness:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode readiness-report --reports-root data\reports --sqlite data\sqlite\forward-shadow.sqlite3 --output-dir data\reports\readiness
+```
+
+If readiness returns `NEEDS_BROKER_FIX` or `NOT_READY`, keep the system in shadow observation and review spreads, stale ticks, stops/freeze levels, volume restrictions and MT5 read latency.
+
 ## Safety
 
 Operational controls are shadow-only:
@@ -57,4 +74,3 @@ Operational controls are shadow-only:
 - `LIVE_TRADING_APPROVED=False`
 - `execution_attempted=false`
 - `order_send was not called`
-

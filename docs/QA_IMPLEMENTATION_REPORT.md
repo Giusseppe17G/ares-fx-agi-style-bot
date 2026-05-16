@@ -88,6 +88,40 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 
+## Phase 10 Broker Quality And Readiness Update
+
+Status: PASS.
+
+Integrated in Phase 10:
+
+- Added `broker_quality` package with read-only broker probe, spread analysis, tick freshness analysis, read latency measurement, session helper, readiness scoring and report writers.
+- Added CLI modes: `broker-quality` and `readiness-report`.
+- Added broker quality reports: `summary.json`, `by_symbol.csv`, `spread_by_session.csv`, `tick_freshness.csv`, `latency.csv`, `readiness_score.csv`, and `report.html`.
+- Added execution readiness reports: `execution_readiness_report.json`, `.csv`, and `.html`.
+- Updated validation-report to include broker quality, readiness and forward-shadow evidence when available.
+- Extended observability alert rules with broker readiness, spread degradation, tick freshness degradation, MT5 read latency and rollover spread danger alerts.
+- Extended Telegram Command Center with `/broker`, `/readiness`, `/spreads`, and `/latency`.
+- Added docs: `BROKER_QUALITY.md` and `EXECUTION_READINESS_AUDIT.md`.
+
+Additional Phase 10 tests:
+
+- BrokerQualityProbe does not call `order_send`.
+- Broker-quality summaries return `execution_attempted=false`.
+- Spread analyzer calculates p95/p99 and blocks high p95.
+- Tick freshness analyzer detects recurrent stale ticks.
+- Latency monitor measures read-only mock calls.
+- Readiness score classifies high-spread symbols as `NOT_READY`.
+- CLI accepts `broker-quality` and `readiness-report`.
+- Telegram `/broker` and `/readiness` return read-only summaries.
+- Validation report includes broker readiness.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+
 ## Interface Compatibility
 
 Findings:

@@ -34,6 +34,9 @@ def build_master_validation_report(
         "stress": _read_json(root / "stress" / "summary.json"),
         "benchmark": _read_json(root / "benchmarks" / "summary.json"),
         "competitive_scorecard": _read_json(root / "competitive_scorecard" / "competitive_scorecard.json"),
+        "broker_quality": _read_json(root / "broker_quality" / "summary.json"),
+        "readiness": _read_json(root / "readiness" / "execution_readiness_report.json"),
+        "forward_shadow": _read_json(root / "forward_shadow" / "summary.json"),
         "research": _read_json(root / "research" / "research_summary.json"),
         "recommended_strategy_mix": _read_json(root / "research" / "recommended_strategy_mix.json"),
         "candidate_registry": _read_json(root / "research" / "candidate_registry.json"),
@@ -87,6 +90,9 @@ def _existing_summary_paths(root: Path) -> list[Path]:
             root / "broker_costs" / "broker_cost_profile.json",
             root / "benchmarks" / "summary.json",
             root / "competitive_scorecard" / "competitive_scorecard.json",
+            root / "broker_quality" / "summary.json",
+            root / "readiness" / "execution_readiness_report.json",
+            root / "forward_shadow" / "summary.json",
             root / "research" / "research_summary.json",
             root / "research" / "recommended_strategy_mix.json",
             root / "research" / "candidate_registry.json",
@@ -96,6 +102,8 @@ def _existing_summary_paths(root: Path) -> list[Path]:
 
 
 def _section_classification(section: str, summary: Mapping[str, Any]) -> str:
+    if not summary and section in {"broker_quality", "readiness", "forward_shadow"}:
+        return "APPROVED_FOR_SHADOW_OBSERVATION"
     if not summary:
         return "REJECTED"
     if section == "backtest":
@@ -124,6 +132,22 @@ def _section_classification(section: str, summary: Mapping[str, Any]) -> str:
     if section == "research":
         value = str(summary.get("classification") or "REJECTED")
         return value if value in {"APPROVED_FOR_SHADOW_OBSERVATION", "WATCHLIST"} else "REJECTED"
+    if section == "broker_quality":
+        value = str(summary.get("classification") or "NOT_READY")
+        if value == "EXECUTION_READY_SHADOW_ONLY":
+            return "APPROVED_FOR_SHADOW_OBSERVATION"
+        if value == "WATCHLIST":
+            return "WATCHLIST"
+        return "REJECTED"
+    if section == "readiness":
+        value = str(summary.get("classification") or summary.get("decision") or "NOT_READY")
+        if value == "CONTINUE_FORWARD_SHADOW":
+            return "APPROVED_FOR_SHADOW_OBSERVATION"
+        if value in {"NEEDS_MORE_DATA", "NEEDS_BROKER_FIX"}:
+            return "WATCHLIST"
+        return "REJECTED"
+    if section == "forward_shadow":
+        return "WATCHLIST" if summary else "REJECTED"
     if section in {"recommended_strategy_mix", "candidate_registry"}:
         return "APPROVED_FOR_SHADOW_OBSERVATION" if summary else "REJECTED"
     if section == "benchmark":
@@ -140,12 +164,16 @@ def _final_decision(summaries: Mapping[str, Mapping[str, Any]]) -> tuple[str, li
     reasons = [f"{section}: {classification}" for section, classification in classifications.items()]
     if classifications.get("data_quality") == "REJECTED":
         return "NEEDS_MORE_DATA", reasons
+    if classifications.get("broker_quality") == "REJECTED" or classifications.get("readiness") == "REJECTED":
+        return "NEEDS_BROKER_FIX", reasons
     if classifications.get("benchmark") in {"REJECTED", "WATCHLIST"} or classifications.get("competitive_scorecard") in {"REJECTED", "WATCHLIST"}:
-        return "NEEDS_OPTIMIZATION", reasons
+        return "NEEDS_STRATEGY_FIX", reasons
     if any(classification == "REJECTED" for classification in classifications.values()):
         return "REJECTED", reasons
     if any(classification == "WATCHLIST" for classification in classifications.values()):
         return "NEEDS_OPTIMIZATION", reasons
+    if summaries.get("broker_quality") or summaries.get("readiness") or summaries.get("forward_shadow"):
+        return "CONTINUE_FORWARD_SHADOW", reasons
     return "APPROVED_FOR_SHADOW_OBSERVATION", reasons
 
 

@@ -19,6 +19,7 @@ from .backtesting import (
     run_walk_forward_for_symbols,
 )
 from .benchmarks import build_competitive_scorecard, run_benchmarks
+from .broker_quality import build_readiness_report, run_broker_quality
 from .config import load_config
 from .contracts import AccountState, MarketSnapshot, utc_now
 from .data_pipeline import build_broker_cost_profile, build_dataset_manifest, cost_for_symbol
@@ -115,6 +116,8 @@ def main(argv: list[str] | None = None) -> int:
             "status",
             "health",
             "daily-summary",
+            "broker-quality",
+            "readiness-report",
         ],
         default="shadow",
     )
@@ -153,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
-    if args.mode in {"mt5-data", "mt5-diagnose", "status", "health", "daily-summary"} and args.sqlite is None:
+    if args.mode in {"mt5-data", "mt5-diagnose", "status", "health", "daily-summary", "broker-quality", "readiness-report"} and args.sqlite is None:
         parser.error(f"--mode {args.mode} requires --sqlite for durable audit")
     database = TelemetryDatabase(args.sqlite) if args.sqlite else None
     try:
@@ -324,6 +327,29 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "daily-summary":
             assert database is not None
             print(_json_dumps(DailySummary(database, args.report_dir).generate()))
+            return 0
+
+        if args.mode == "broker-quality":
+            assert database is not None
+            summary = run_broker_quality(
+                config=config,
+                symbols=selected_symbols,
+                log_dir=args.log_dir,
+                database=database,
+                report_dir=args.report_dir,
+                bars=args.bars,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "readiness-report":
+            assert database is not None
+            summary = build_readiness_report(
+                reports_root=args.reports_root,
+                output_dir=args.output_dir,
+                database=database,
+            )
+            print(_json_dumps(summary))
             return 0
 
         if args.mode in {"mt5-data", "mt5-diagnose"}:

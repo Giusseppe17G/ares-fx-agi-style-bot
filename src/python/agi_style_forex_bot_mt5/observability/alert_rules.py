@@ -91,6 +91,30 @@ class AlertRuleEngine:
             alerts.append(
                 self._alert(now, "CRITICAL", "LOW_DISK_SPACE", "Disk free space is low", "Free disk space or rotate logs before continuing unattended operation.", metrics)
             )
+        if str(metrics.get("broker_quality_status", "")) == "NOT_READY":
+            alerts.append(
+                self._alert(now, "CRITICAL", "BROKER_QUALITY_NOT_READY", "Broker quality is not ready", "Review broker-quality report before continuing observation.", metrics)
+            )
+        if bool(metrics.get("symbol_not_ready", False)):
+            alerts.append(
+                self._alert(now, "WARNING", "SYMBOL_NOT_READY", "One or more symbols are not ready", "Review symbol readiness scores and reject reasons.", metrics)
+            )
+        if bool(metrics.get("broker_spread_degraded", False)):
+            alerts.append(
+                self._alert(now, "WARNING", "BROKER_SPREAD_DEGRADED", "Broker spread quality degraded", "Compare real spreads with broker cost profile and backtest assumptions.", metrics)
+            )
+        if bool(metrics.get("tick_freshness_degraded", False)):
+            alerts.append(
+                self._alert(now, "WARNING", "TICK_FRESHNESS_DEGRADED", "Tick freshness degraded", "Run mt5-diagnose and verify market session or broker connectivity.", metrics)
+            )
+        if bool(metrics.get("mt5_read_latency_high", False)):
+            alerts.append(
+                self._alert(now, "WARNING", "MT5_READ_LATENCY_HIGH", "MT5 read latency is high", "Check EC2 CPU/memory, network latency and MT5 terminal responsiveness.", metrics)
+            )
+        if bool(metrics.get("rollover_spread_danger", False)):
+            alerts.append(
+                self._alert(now, "WARNING", "ROLLOVER_SPREAD_DANGER", "Rollover spread danger detected", "Keep new shadow entries paused near rollover if spreads remain elevated.", metrics)
+            )
         return tuple(alerts)
 
     def persist(self, alerts: Iterable[OperationalAlert]) -> int:
