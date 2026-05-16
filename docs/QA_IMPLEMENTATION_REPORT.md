@@ -143,3 +143,46 @@ Remaining risks:
 Recommendation after Phase 2:
 
 - Keep shadow mode as the only top-level run mode until execution-event persistence, MQL5/Python JSON adapters, and strategy promotion evidence are complete.
+
+## Phase 3 MT5 Data-Only Update
+
+Status: PASS.
+
+Integrated in Phase 3:
+
+- Added `--mode mt5-data` to the CLI.
+- Added `MT5DataOnlyBot`, a read-only MT5 orchestrator that initializes MT5, reads account/symbol/tick/rates data, computes features, runs strategy/risk, and creates shadow orders only.
+- `mt5-data` reads `account_info`, `symbol_info`, `symbol_info_tick`, and `copy_rates_from_pos`. It does not call `order_send`.
+- Real accounts under `DEMO_ONLY=True` are audited as `ACCOUNT_REAL_DETECTED_READ_ONLY` and the run stops before symbol processing.
+- MT5 initialization failure or missing account info fails closed with `execution_attempted=false`.
+- Symbol/tick/rates validation failures emit `SYMBOL_REJECTED` or market-data rejection payloads and continue to the next symbol.
+- Added documentation in `docs/MT5_DATA_ONLY_MODE.md`.
+
+Additional Phase 3 tests:
+
+- CLI accepts `--mode mt5-data`.
+- `mt5-data` never calls `order_send`.
+- MT5 initialize failure fails closed.
+- Missing `account_info` fails closed.
+- Missing `symbol_info` rejects symbol.
+- Stale tick rejects symbol.
+- Empty market data rejects symbol.
+- Valid mocked MT5 data creates a shadow order.
+- Risk rejection creates no shadow order.
+- Missing audit sink fails closed.
+- Telegram failure does not break the loop.
+- Final summary always includes `execution_attempted=false`.
+
+Commands run:
+
+- `py -m pytest -q`
+  - Result: passed.
+- `$env:PYTHONPATH='src/python'; py -m agi_style_forex_bot_mt5.cli --mode mt5-data --log-dir data\logs\mt5-data-smoke --sqlite data\sqlite\mt5-data-smoke.sqlite3`
+  - Result in this environment: fail-closed if MT5 is unavailable or not initialized; no `order_send` path is used.
+
+Remaining risks:
+
+- `mt5-data` validates read-only integration, not broker execution or fills.
+- `copy_rates_range` is not yet used by the CLI path; `copy_rates_from_pos` is the current data source.
+- Multi-symbol risk correlation can be expanded once real symbol sets are configured.
+- MQL5-side JSON exchange remains future work.

@@ -10,6 +10,7 @@ from pathlib import Path
 from .bot import ShadowDemoBot
 from .config import load_config
 from .contracts import AccountState, MarketSnapshot, utc_now
+from .mt5_data_bot import MT5DataOnlyBot, summary_to_json
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
 
 
@@ -74,11 +75,13 @@ def build_sample_features() -> dict[str, object]:
 def main(argv: list[str] | None = None) -> int:
     """Run one shadow/demo cycle and print a JSON summary."""
 
-    parser = argparse.ArgumentParser(description="Run AGI_STYLE_FOREX_BOT_MT5 in shadow mode.")
+    parser = argparse.ArgumentParser(description="Run AGI_STYLE_FOREX_BOT_MT5 safely.")
     parser.add_argument("--config", type=Path, default=None, help="Path to config INI.")
-    parser.add_argument("--mode", choices=["shadow", "demo"], default="shadow")
+    parser.add_argument("--mode", choices=["shadow", "demo", "mt5-data"], default="shadow")
     parser.add_argument("--log-dir", type=Path, default=Path("data/logs"))
     parser.add_argument("--sqlite", type=Path, default=None, help="Optional telemetry SQLite path.")
+    parser.add_argument("--symbols", default="EURUSD", help="Comma-separated symbols for mt5-data.")
+    parser.add_argument("--bars", type=int, default=260, help="Bars per timeframe for mt5-data.")
     parser.add_argument(
         "--telegram",
         action="store_true",
@@ -87,8 +90,25 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
+    if args.mode == "mt5-data" and args.sqlite is None:
+        parser.error("--mode mt5-data requires --sqlite for durable shadow-order audit")
     database = TelemetryDatabase(args.sqlite) if args.sqlite else None
     try:
+        if args.mode == "mt5-data":
+            bot = MT5DataOnlyBot(
+                config=config,
+                symbols=tuple(item.strip() for item in args.symbols.split(",") if item.strip()),
+                bars=args.bars,
+                audit_logger=JsonlAuditLogger(args.log_dir, max_file_mb=config.max_jsonl_file_mb),
+                database=database,
+                telegram_notifier=TelegramNotifier.from_env(
+                    database=database,
+                    enabled=bool(args.telegram or config.telegram_enabled),
+                ),
+            )
+            print(summary_to_json(bot.run()))
+            return 0
+
         bot = ShadowDemoBot(
             config=config,
             audit_logger=JsonlAuditLogger(args.log_dir, max_file_mb=config.max_jsonl_file_mb),
