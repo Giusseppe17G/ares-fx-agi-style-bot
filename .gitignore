@@ -6,6 +6,7 @@ __pycache__/
 data/logs/
 data/sqlite/
 data/reports/
+data/runs/
 *.rdp
 *.pem
 *.key

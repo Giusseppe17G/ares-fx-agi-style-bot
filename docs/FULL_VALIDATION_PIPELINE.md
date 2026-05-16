@@ -51,3 +51,13 @@ Use `--run-export-history` only when MT5 is installed and read-only history expo
 
 The pipeline creates `.pipeline.lock` under the output directory. A second run fails fast while the lock exists.
 
+## Real Data Research Wrapper
+
+Phase 17 adds `real-data-research` as a higher-level wrapper around the full validation stack. It first runs MT5 read-only diagnostics and real historical export into a timestamped run folder, then runs data quality, cost profile, market-structure reports, strategy diagnostics, backtest, walk-forward, Monte Carlo, stress, research, benchmarks, competitive scorecard, and `full-validation`.
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --bars 50000 --output-root data\runs
+```
+
+If exported history is insufficient, the wrapper returns `NEEDS_MORE_DATA` even if later stages are skipped or mocked. It remains read-only/research-only and does not call `order_send` or `order_check`.

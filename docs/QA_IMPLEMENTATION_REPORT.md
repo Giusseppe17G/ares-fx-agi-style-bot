@@ -156,6 +156,37 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 17 Real Data Research Run
+
+Status: PASS. Full suite result: 191 collected, 191 passed.
+
+Integrated in Phase 17:
+
+- Added `real_data_research` orchestration for MT5 diagnose, history export, data quality, broker costs, structure reports, strategy diagnostics, backtest, walk-forward, Monte Carlo, stress, research, benchmark, competitive scorecard, and full validation.
+- Added CLI mode: `real-data-research`.
+- Added Windows script: `scripts/run_real_data_research.ps1`.
+- Added timestamped run folders under `data/runs/<run_id>/` with `logs`, `historical`, `reports`, `sqlite`, `final_summary.json`, and `final_summary.html`.
+- Added insufficient-history detection so the final decision becomes `NEEDS_MORE_DATA` when required bar counts are missing.
+- Added docs: `REAL_DATA_RESEARCH_RUN.md`.
+
+Additional Phase 17 tests:
+
+- Windows script exists.
+- CLI accepts `real-data-research`.
+- Run folder structure is created.
+- `final_summary.json` is generated.
+- Missing history returns `NEEDS_MORE_DATA`.
+- Failed stages are reflected in the final summary.
+- Summary and stages return `execution_attempted=false`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 15 Full Validation Pipeline Update
 
 Status: PASS. Full suite result: 179 collected, 179 passed.

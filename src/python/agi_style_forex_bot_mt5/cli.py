@@ -40,6 +40,7 @@ from .persistence import (
     validate_event_integrity,
 )
 from .portfolio import build_correlation_report, build_exposure_report, build_portfolio_status
+from .real_data_research import RealDataResearchConfig, run_real_data_research
 from .research import run_research
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
 from .validation_pipeline import PipelineConfig, run_full_validation
@@ -149,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
             "full-validation",
             "strategy-diagnose",
             "structure-report",
+            "real-data-research",
         ],
         default="shadow",
     )
@@ -164,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeframes", default="M5,M15,H1", help="Comma-separated timeframes for export-history.")
     parser.add_argument("--data-dir", type=Path, default=Path("data/historical"), help="Historical CSV directory for backtest.")
     parser.add_argument("--output-dir", type=Path, default=Path("data/historical"), help="CSV output directory for export-history.")
+    parser.add_argument("--output-root", type=Path, default=Path("data/runs"), help="Root directory for real-data-research run folders.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
     parser.add_argument("--reports-root", type=Path, default=Path("data/reports"), help="Reports root for validation-report.")
     parser.add_argument("--trades", type=Path, default=None, help="Trades CSV for monte-carlo.")
@@ -289,6 +292,18 @@ def main(argv: list[str] | None = None) -> int:
                 seed=args.seed,
             )
             summary = run_full_validation(config_for_pipeline)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "real-data-research":
+            research_config = RealDataResearchConfig(
+                symbols=selected_symbols,
+                output_root=str(args.output_root),
+                bars=args.bars,
+                seed=args.seed,
+                fail_fast=args.fail_fast,
+            )
+            summary = run_real_data_research(research_config, bot_config=config)
             print(_json_dumps(summary))
             return 0
 

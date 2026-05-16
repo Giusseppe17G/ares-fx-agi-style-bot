@@ -124,6 +124,28 @@ If it is `NEEDS_BROKER_FIX`, review broker quality/readiness.
 If it is `NEEDS_COST_RECALIBRATION`, review spread/slippage/commission and paper-vs-backtest.
 If it is `REJECTED`, do not promote the strategy.
 
+## Real Data Research Run
+
+Use this when MT5 is available and you want one complete research run from read-only broker data through final decision:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --bars 50000 --output-root data\runs
+```
+
+Or on Windows:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\run_real_data_research.ps1
+```
+
+Read:
+
+- `data\runs\<run_id>\final_summary.json`
+- `data\runs\<run_id>\final_summary.html`
+
+If the decision is `NEEDS_MORE_DATA`, leave MT5 connected longer, verify the broker symbols with `mt5-diagnose`, and rerun export/history quality. If the decision is `NEEDS_STRATEGY_RESEARCH`, inspect research ablations, benchmark gaps and rejected candidates. If the decision is `NEEDS_BROKER_FIX`, review spread, tick freshness, broker readiness and session quality.
+
 ## Safety
 
 Operational controls are shadow-only:
