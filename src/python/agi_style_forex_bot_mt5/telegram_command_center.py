@@ -18,6 +18,7 @@ from agi_style_forex_bot_mt5.persistence import check_db_health, create_backup, 
 from agi_style_forex_bot_mt5.portfolio import build_portfolio_state
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase
 from agi_style_forex_bot_mt5.telemetry.logger_setup import redact_text, utc_now_iso
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,8 @@ class TelegramCommandCenter:
         "/fills",
         "/costs",
         "/paper_vs_backtest",
+        "/validation",
+        "/pipeline",
     }
 
     def __init__(
@@ -203,6 +206,16 @@ class TelegramCommandCenter:
             return TelegramCommandResult(command, True, str(run_simulation_calibration(database=self.database, reports_root="data/reports", output_dir="data/reports/execution_simulation"))[:1000], "OK")
         if command == "/paper_vs_backtest":
             return TelegramCommandResult(command, True, str(compare_paper_vs_backtest(database=self.database, reports_root="data/reports", output_dir="data/reports/paper_vs_backtest"))[:1000], "OK")
+        if command in {"/validation", "/pipeline"}:
+            summary_path = Path("data/reports/full_validation/pipeline_summary.json")
+            decision_path = Path("data/reports/full_validation/master_decision.json")
+            if summary_path.exists():
+                response = summary_path.read_text(encoding="utf-8")[:1000]
+            elif decision_path.exists():
+                response = decision_path.read_text(encoding="utf-8")[:1000]
+            else:
+                response = '{"mode":"full-validation","status":"NO_PIPELINE_RUN","execution_attempted":false}'
+            return TelegramCommandResult(command, True, response, "OK")
         return TelegramCommandResult(command, True, self._help(), "OK")
 
     def _help(self) -> str:

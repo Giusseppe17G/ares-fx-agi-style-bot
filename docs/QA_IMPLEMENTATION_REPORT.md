@@ -122,6 +122,39 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 
+## Phase 15 Full Validation Pipeline Update
+
+Status: PASS. Full suite result: 179 collected, 179 passed.
+
+Integrated in Phase 15:
+
+- Added `validation_pipeline` package with config, stage definitions, stage results, runner, lock, artifacts, report writer, and master decision engine.
+- Added `--mode full-validation`.
+- Added pipeline lock to prevent concurrent full validation runs.
+- Added reports: `pipeline_summary.json`, `stage_results.csv`, `master_decision.json`, `master_decision.csv`, and `report.html`.
+- Added Telegram commands: `/validation` and `/pipeline`.
+- Added Windows script: `scripts/run_full_validation.ps1`.
+- Added docs: `FULL_VALIDATION_PIPELINE.md` and `MASTER_DECISION_ENGINE.md`.
+
+Additional Phase 15 tests:
+
+- Pipeline config serializes.
+- Pipeline runner executes mocked stages in order.
+- Pipeline lock blocks duplicate runs.
+- Missing expected output marks a stage failed.
+- Master decision returns `NEEDS_MORE_DATA`, `NEEDS_STRATEGY_RESEARCH`, `REJECTED`, `NEEDS_BROKER_FIX`, and `NEEDS_COST_RECALIBRATION` for the expected evidence.
+- CLI accepts `full-validation`.
+- Telegram `/validation` returns the latest summary.
+- Windows script exists.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 14 Execution Simulation Calibration Update
 
 Status: PASS. Full suite result: 172 collected, 172 passed.

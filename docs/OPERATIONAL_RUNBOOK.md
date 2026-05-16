@@ -101,6 +101,29 @@ py -m agi_style_forex_bot_mt5.cli --mode compact-logs --log-dir data\logs\forwar
 
 If recovery emits `RECOVERY_FAILED`, keep the bot stopped and inspect `db-health`, `audit-replay`, backups, and JSONL logs before restarting.
 
+## Full Validation
+
+Run the full validation pipeline:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode full-validation --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --data-dir data\historical --reports-root data\reports --sqlite data\sqlite\forward-shadow.sqlite3 --output-dir data\reports\full_validation --skip-export-history
+```
+
+Or on Windows EC2:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\run_full_validation.ps1
+```
+
+Read `data\reports\full_validation\master_decision.json`.
+
+If the decision is `NEEDS_MORE_DATA`, collect cleaner history or more forward paper data.
+If it is `NEEDS_STRATEGY_RESEARCH`, revisit research candidates and baselines.
+If it is `NEEDS_BROKER_FIX`, review broker quality/readiness.
+If it is `NEEDS_COST_RECALIBRATION`, review spread/slippage/commission and paper-vs-backtest.
+If it is `REJECTED`, do not promote the strategy.
+
 ## Safety
 
 Operational controls are shadow-only:

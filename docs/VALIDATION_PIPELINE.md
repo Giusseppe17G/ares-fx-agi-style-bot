@@ -83,6 +83,12 @@ $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode paper-vs-
 $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode validation-report --reports-root data\reports --output-dir data\reports\validation
 ```
 
+12. Or run the full pipeline orchestrator:
+
+```powershell
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode full-validation --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --data-dir data\historical --reports-root data\reports --sqlite data\sqlite\forward-shadow.sqlite3 --output-dir data\reports\full_validation --skip-export-history
+```
+
 ## Master Report
 
 Files:
@@ -92,6 +98,8 @@ Files:
 - `data/reports/validation/master_validation_report.html`
 
 The master report includes broker quality, execution readiness, forward-shadow, execution simulation, and paper-vs-backtest summaries when available. Operational decisions include `CONTINUE_FORWARD_SHADOW`, `NEEDS_MORE_DATA`, `NEEDS_BROKER_FIX`, `NEEDS_STRATEGY_FIX`, and `NOT_READY`.
+
+The full validation pipeline additionally writes a master decision with `CONTINUE_FORWARD_SHADOW`, `NEEDS_MORE_DATA`, `NEEDS_STRATEGY_RESEARCH`, `NEEDS_BROKER_FIX`, `NEEDS_COST_RECALIBRATION`, or `REJECTED`.
 
 ## Blocking Criteria
 

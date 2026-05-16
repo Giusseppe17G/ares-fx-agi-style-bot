@@ -44,6 +44,8 @@ Do not commit Telegram tokens, chat IDs, or secrets.
 - `/fills`
 - `/costs`
 - `/paper_vs_backtest`
+- `/validation`
+- `/pipeline`
 
 ## Pause And Resume
 
@@ -86,3 +88,9 @@ These commands are operational only and cannot enable trading.
 `/paper_vs_backtest` generates a read-only forward paper versus backtest comparison.
 
 They cannot call `order_send`, cannot call `order_check`, and cannot change risk settings.
+
+## Full Validation Commands
+
+`/validation` and `/pipeline` read the latest full-validation summary or master decision from local reports.
+
+They are read-only and cannot start a pipeline, cannot enable demo/live execution, and cannot change strategy/risk settings.

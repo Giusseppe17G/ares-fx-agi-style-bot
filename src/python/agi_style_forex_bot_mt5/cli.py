@@ -41,6 +41,7 @@ from .persistence import (
 from .portfolio import build_correlation_report, build_exposure_report, build_portfolio_status
 from .research import run_research
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
+from .validation_pipeline import PipelineConfig, run_full_validation
 
 
 def build_sample_snapshot() -> MarketSnapshot:
@@ -144,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
             "compact-logs",
             "simulation-calibration",
             "paper-vs-backtest",
+            "full-validation",
         ],
         default="shadow",
     )
@@ -177,6 +179,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--spread-points", type=float, default=10.0)
     parser.add_argument("--slippage-points", type=float, default=1.0)
     parser.add_argument("--commission", type=float, default=0.0, help="Commission per lot round turn.")
+    parser.add_argument("--skip-export-history", action="store_true", help="Skip MT5 history export in full-validation.")
+    parser.add_argument("--run-export-history", action="store_true", help="Run MT5 history export in full-validation.")
+    parser.add_argument("--fail-fast", action="store_true", help="Stop full-validation at the first failed stage.")
     parser.add_argument(
         "--telegram",
         action="store_true",
@@ -203,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
         "telegram-outbox-flush",
         "simulation-calibration",
         "paper-vs-backtest",
+        "full-validation",
     } and args.sqlite is None:
         parser.error(f"--mode {args.mode} requires --sqlite for durable audit")
     direct_persistence_modes = {"db-migrate", "db-health", "backup", "compact-logs"}
@@ -251,6 +257,24 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "paper-vs-backtest":
             assert database is not None
             summary = compare_paper_vs_backtest(database=database, reports_root=args.reports_root, output_dir=args.output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "full-validation":
+            config_for_pipeline = PipelineConfig.from_paths(
+                symbols=selected_symbols,
+                timeframes=tuple(item.strip() for item in args.timeframes.split(",") if item.strip()),
+                data_dir=args.data_dir,
+                reports_root=args.reports_root,
+                sqlite_path=args.sqlite,
+                log_dir=args.log_dir,
+                output_dir=args.output_dir,
+                bars=args.bars,
+                run_export_history=bool(args.run_export_history and not args.skip_export_history),
+                fail_fast=args.fail_fast,
+                seed=args.seed,
+            )
+            summary = run_full_validation(config_for_pipeline)
             print(_json_dumps(summary))
             return 0
 
