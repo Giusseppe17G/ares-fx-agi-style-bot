@@ -38,6 +38,10 @@ A strategy or symbol can only be considered for `APPROVED_FOR_SHADOW_OBSERVATION
 - Results not concentrated in a single week.
 - Monte Carlo does not show excessive risk of ruin.
 - Reasonable sensitivity to spread and slippage stress.
+- Walk-forward test windows are positive and not materially worse than train/validation windows.
+- Stress test remains viable under spread `x2`.
+- Removing the top `5%` of trades does not destroy the full edge.
+- Results are not excessively concentrated by hour, weekday, session, regime, or week.
 
 ## Anti-Overfitting Rules
 
@@ -69,3 +73,16 @@ The Phase 4 backtester writes Strategy Promotion Gate results into:
 - `data/reports/backtests/report.html`
 
 Promotion only allows further shadow observation. It does not authorize demo or live execution.
+
+## Phase 5 Required Evidence
+
+From Phase 5 onward, a symbol/strategy can only be classified as `APPROVED_FOR_SHADOW_OBSERVATION` when all validation layers are acceptable:
+
+- Base backtest meets sample, profit factor, expectancy, and drawdown minimums.
+- Walk-forward test results are positive out-of-sample.
+- Monte Carlo risk of ruin is not excessive.
+- Stress testing does not collapse under spread `x2`.
+- Removing the top `5%` of trades does not eliminate all profitability.
+- No single hour, day, session, regime, or week explains the result.
+
+If any layer is missing, inconclusive, or impossible to calculate, the final decision must be `WATCHLIST` or `REJECTED`.

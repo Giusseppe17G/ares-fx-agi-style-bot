@@ -220,6 +220,36 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 
+## Phase 5 Advanced Validation Update
+
+Status: PASS.
+
+Integrated in Phase 5:
+
+- Added `--mode walk-forward` with strict train/validation/test ordering and no test leakage.
+- Added robust anti-overfitting scoring that penalizes low sample size, drawdown, suspicious profit factor, out-of-sample deterioration, concentration, and cost sensitivity.
+- Strengthened Monte Carlo validation with reproducible seed, bootstrap/permutation support, risk of ruin, final equity distribution, drawdown distribution, losing-streak distribution, and CSV/JSON exports.
+- Strengthened stress testing with spread/slippage/commission multipliers, best-trade removal, artificial loss streaks, missing-bars proxy, one-bar delay proxy, and session shift proxy.
+- Added `--mode validation-report` to consolidate base backtest, walk-forward, Monte Carlo, and stress summaries into a master decision.
+- Added documentation: `docs/WALK_FORWARD.md`, `docs/MONTE_CARLO.md`, `docs/STRESS_TESTING.md`, and `docs/VALIDATION_PIPELINE.md`.
+
+Additional Phase 5 tests:
+
+- Walk-forward preserves temporal order and avoids leakage.
+- Robust scoring penalizes few trades and out-of-sample deterioration.
+- Monte Carlo report is reproducible with a fixed seed and includes probability of ruin.
+- Stress testing worsens results when spread increases and removes top trades correctly.
+- Master validation report consolidates all summaries.
+- CLI accepts `walk-forward`, `monte-carlo`, `stress-test`, and `validation-report`.
+- New validation modes return `execution_attempted=false`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+
 ## Phase 4 Backtesting Update
 
 Status: PASS.

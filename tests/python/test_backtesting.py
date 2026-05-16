@@ -13,11 +13,17 @@ from agi_style_forex_bot_mt5.backtesting import (
     PerformanceReportWriter,
     StressTester,
     TradeCandidate,
+    TradeResult,
     calculate_metrics,
     classify_strategy_promotion,
+    build_master_validation_report,
     load_historical_csv,
+    robust_validation_score,
     run_backtest_for_symbols,
+    run_monte_carlo_report,
+    run_stress_report,
 )
+from agi_style_forex_bot_mt5.backtesting.walk_forward_optimizer import WalkForwardOptimizer
 from agi_style_forex_bot_mt5.mt5_history_exporter import MT5HistoryExporter
 
 
@@ -369,3 +375,137 @@ def test_export_history_never_calls_order_send(tmp_path: Path) -> None:
 
     assert summary.files_created == 1
     assert "order_send" not in fake.calls
+
+
+def _trade(profit: float, *, signal_id: str = "t") -> TradeResult:
+    return TradeResult(
+        signal_id=signal_id,
+        symbol="EURUSD",
+        direction="BUY",
+        entry_time="2026-01-01T00:00:00Z",
+        exit_time="2026-01-01T01:00:00Z",
+        entry_price=1.1000,
+        exit_price=1.1010,
+        initial_sl_price=1.0990,
+        final_sl_price=1.0990,
+        tp_price=1.1020,
+        lot=1.0,
+        profit=profit,
+        r_multiple=profit / 100.0,
+        exit_reason="TP" if profit > 0 else "SL",
+        duration_bars=1,
+        duration_seconds=3600,
+        mae=-0.0002,
+        mfe=0.0004,
+        spread_points=10,
+        slippage_points=1,
+        commission=0,
+        point=0.0001,
+        tick_value=10,
+        tick_size=0.0001,
+        metadata={"session": "LONDON", "regime": "TREND_UP"},
+    )
+
+
+def test_walk_forward_respects_temporal_order_and_no_leakage() -> None:
+    candles = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-01-01", periods=90, freq="D", tz="UTC"),
+            "open": [1.1] * 90,
+            "high": [1.2] * 90,
+            "low": [1.0] * 90,
+            "close": [1.15] * 90,
+        }
+    )
+
+    def callback(frame: pd.DataFrame, params):
+        candidate = TradeCandidate(
+            timestamp=frame.iloc[0]["timestamp"],
+            symbol="EURUSD",
+            direction="BUY",
+            sl_price=1.0,
+            tp_price=1.2,
+        )
+        return Backtester().run(frame, [candidate])
+
+    result = WalkForwardOptimizer(train_size=30, validation_size=10, test_size=10, step_size=10).run(
+        candles,
+        [{"x": 1}, {"x": 2}],
+        callback,
+    )
+    fold = result.folds[0]
+    assert pd.Timestamp(fold.train_end) < pd.Timestamp(fold.validation_start)
+    assert pd.Timestamp(fold.validation_end) < pd.Timestamp(fold.test_start)
+
+
+def test_robust_scoring_penalizes_few_trades_and_oos_deterioration() -> None:
+    weak = calculate_metrics([_trade(10)])
+    strong_train = calculate_metrics([_trade(100) for _ in range(50)])
+    poor_test = calculate_metrics([_trade(-50) for _ in range(20)])
+
+    few = robust_validation_score(train_metrics=weak, validation_metrics=weak, test_metrics=weak)
+    deteriorated = robust_validation_score(
+        train_metrics=strong_train,
+        validation_metrics=strong_train,
+        test_metrics=poor_test,
+    )
+
+    assert few.classification != "APPROVED_FOR_SHADOW_OBSERVATION"
+    assert deteriorated.classification == "REJECTED"
+
+
+def test_monte_carlo_report_is_reproducible_and_has_ruin_probability(tmp_path: Path) -> None:
+    trades = [_trade(100), _trade(-50), _trade(80), _trade(-30)]
+
+    first = run_monte_carlo_report(trades=trades, report_dir=tmp_path / "a", seed=42, iterations=100)
+    second = run_monte_carlo_report(trades=trades, report_dir=tmp_path / "b", seed=42, iterations=100)
+
+    assert first["probability_of_ruin"] == second["probability_of_ruin"]
+    assert "fifth_percentile_return_pct" in first
+    assert Path(first["reports_created"][0]).exists()
+
+
+def test_stress_tester_worsens_with_higher_spread_and_removes_top_trades(tmp_path: Path) -> None:
+    trades = [_trade(200, signal_id="best"), _trade(50), _trade(-20), _trade(40)]
+    rows = StressTester().comprehensive(trades)
+    spread_x1 = next(row for row in rows if row.scenario == "spread_multiplier" and row.parameters["spread_multiplier"] == 1.0)
+    spread_x3 = next(row for row in rows if row.scenario == "spread_multiplier" and row.parameters["spread_multiplier"] == 3.0)
+    top5 = next(row for row in rows if row.scenario == "remove_best_percent" and row.parameters["removed_pct"] == 5)
+    report = run_stress_report(trades=trades, report_dir=tmp_path)
+
+    assert spread_x3.metrics.net_profit < spread_x1.metrics.net_profit
+    assert top5.metrics.net_profit < spread_x1.metrics.net_profit
+    assert report["execution_attempted"] is False
+
+
+def test_validation_report_consolidates_results(tmp_path: Path) -> None:
+    root = tmp_path / "reports"
+    (root / "backtests").mkdir(parents=True)
+    (root / "walk_forward").mkdir()
+    (root / "monte_carlo").mkdir()
+    (root / "stress").mkdir()
+    (root / "backtests" / "summary.json").write_text('{"total_trades":300,"profit_factor":1.5,"expectancy_r":0.1,"max_drawdown_pct":-5}', encoding="utf-8")
+    for folder in ("walk_forward", "monte_carlo", "stress"):
+        (root / folder / "summary.json").write_text('{"classification":"APPROVED_FOR_SHADOW_OBSERVATION"}', encoding="utf-8")
+
+    report = build_master_validation_report(reports_root=root, output_dir=root / "validation")
+
+    assert report["classification"] == "APPROVED_FOR_SHADOW_OBSERVATION"
+    assert len(report["reports_created"]) == 3
+
+
+def test_phase5_cli_modes_accept_and_return_no_execution(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.setattr(cli, "run_walk_forward_for_symbols", lambda **kwargs: {"mode": "walk-forward", "input_files": [], "reports_created": [], "classification": "WATCHLIST", "execution_attempted": False})
+    monkeypatch.setattr(cli, "run_monte_carlo_report", lambda **kwargs: {"mode": "monte-carlo", "input_files": [], "reports_created": [], "classification": "WATCHLIST", "execution_attempted": False})
+    monkeypatch.setattr(cli, "run_stress_report", lambda **kwargs: {"mode": "stress-test", "input_files": [], "reports_created": [], "classification": "WATCHLIST", "execution_attempted": False})
+    monkeypatch.setattr(cli, "build_master_validation_report", lambda **kwargs: {"mode": "validation-report", "input_files": [], "reports_created": [], "classification": "WATCHLIST", "execution_attempted": False})
+
+    commands = [
+        ["--mode", "walk-forward", "--symbol", "EURUSD", "--data-dir", str(tmp_path), "--report-dir", str(tmp_path)],
+        ["--mode", "monte-carlo", "--trades", str(tmp_path / "trades.csv"), "--report-dir", str(tmp_path)],
+        ["--mode", "stress-test", "--symbol", "EURUSD", "--data-dir", str(tmp_path), "--report-dir", str(tmp_path)],
+        ["--mode", "validation-report", "--reports-root", str(tmp_path), "--output-dir", str(tmp_path)],
+    ]
+    for command in commands:
+        assert cli.main(command) == 0
+        assert '"execution_attempted": false' in capsys.readouterr().out

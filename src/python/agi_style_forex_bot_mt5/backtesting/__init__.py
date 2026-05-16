@@ -17,10 +17,19 @@ from .backtester import (
     run_backtest_for_symbols,
     run_strategy_backtest,
 )
-from .monte_carlo import MonteCarloResult, MonteCarloSimulator, monte_carlo_metrics
+from .monte_carlo import MonteCarloResult, MonteCarloSimulator, monte_carlo_metrics, run_monte_carlo_report
 from .performance_report import PerformanceReportWriter, ReportArtifacts, write_batch_reports, write_reports
-from .stress_tester import StressResult, StressTester
-from .walk_forward_optimizer import WalkForwardFold, WalkForwardOptimizer, WalkForwardResult
+from .stress_tester import StressResult, StressTester, run_stress_report
+from .validation_report import build_master_validation_report
+from .walk_forward_optimizer import (
+    RobustScore,
+    WalkForwardFold,
+    WalkForwardOptimizer,
+    WalkForwardResult,
+    WalkForwardSettings,
+    robust_validation_score,
+    run_walk_forward_for_symbols,
+)
 
 __all__ = [
     "Backtester",
@@ -35,6 +44,7 @@ __all__ = [
     "PerformanceReportWriter",
     "PromotionGateResult",
     "ReportArtifacts",
+    "RobustScore",
     "StressResult",
     "StressTester",
     "TradeCandidate",
@@ -42,12 +52,18 @@ __all__ = [
     "WalkForwardFold",
     "WalkForwardOptimizer",
     "WalkForwardResult",
+    "WalkForwardSettings",
+    "build_master_validation_report",
     "calculate_metrics",
     "classify_strategy_promotion",
     "load_historical_csv",
     "monte_carlo_metrics",
+    "robust_validation_score",
     "run_backtest_for_symbols",
+    "run_monte_carlo_report",
+    "run_stress_report",
     "run_strategy_backtest",
+    "run_walk_forward_for_symbols",
     "write_batch_reports",
     "write_reports",
 ]

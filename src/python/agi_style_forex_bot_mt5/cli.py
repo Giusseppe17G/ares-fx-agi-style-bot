@@ -8,7 +8,16 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .bot import ShadowDemoBot
-from .backtesting import BacktestSettings, CostModel, run_backtest_for_symbols
+from .backtesting import (
+    BacktestSettings,
+    CostModel,
+    WalkForwardSettings,
+    build_master_validation_report,
+    run_backtest_for_symbols,
+    run_monte_carlo_report,
+    run_stress_report,
+    run_walk_forward_for_symbols,
+)
 from .config import load_config
 from .contracts import AccountState, MarketSnapshot, utc_now
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
@@ -81,7 +90,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, default=None, help="Path to config INI.")
     parser.add_argument(
         "--mode",
-        choices=["shadow", "demo", "mt5-data", "mt5-diagnose", "backtest", "export-history"],
+        choices=[
+            "shadow",
+            "demo",
+            "mt5-data",
+            "mt5-diagnose",
+            "backtest",
+            "export-history",
+            "walk-forward",
+            "monte-carlo",
+            "stress-test",
+            "validation-report",
+        ],
         default="shadow",
     )
     parser.add_argument("--log-dir", type=Path, default=Path("data/logs"))
@@ -97,6 +117,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-dir", type=Path, default=Path("data/historical"), help="Historical CSV directory for backtest.")
     parser.add_argument("--output-dir", type=Path, default=Path("data/historical"), help="CSV output directory for export-history.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
+    parser.add_argument("--reports-root", type=Path, default=Path("data/reports"), help="Reports root for validation-report.")
+    parser.add_argument("--trades", type=Path, default=None, help="Trades CSV for monte-carlo.")
+    parser.add_argument("--simulations", type=int, default=1000, help="Monte Carlo simulation count.")
+    parser.add_argument("--seed", type=int, default=0, help="Reproducible random seed.")
+    parser.add_argument("--train-days", type=int, default=90)
+    parser.add_argument("--validation-days", type=int, default=30)
+    parser.add_argument("--test-days", type=int, default=30)
+    parser.add_argument("--step-days", type=int, default=30)
     parser.add_argument("--spread-points", type=float, default=10.0)
     parser.add_argument("--slippage-points", type=float, default=1.0)
     parser.add_argument("--commission", type=float, default=0.0, help="Commission per lot round turn.")
@@ -152,6 +180,48 @@ def main(argv: list[str] | None = None) -> int:
                 database=database,
             )
             print(export_summary_to_json(exporter.run()))
+            return 0
+
+        if args.mode == "walk-forward":
+            summary = run_walk_forward_for_symbols(
+                data_dir=args.data_dir,
+                symbols=selected_symbols,
+                report_dir=args.report_dir,
+                settings=WalkForwardSettings(
+                    train_days=args.train_days,
+                    validation_days=args.validation_days,
+                    test_days=args.test_days,
+                    step_days=args.step_days,
+                ),
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "monte-carlo":
+            summary = run_monte_carlo_report(
+                trades_path=args.trades,
+                report_dir=args.report_dir,
+                seed=args.seed,
+                iterations=args.simulations,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "stress-test":
+            summary = run_stress_report(
+                data_dir=args.data_dir,
+                symbols=selected_symbols,
+                report_dir=args.report_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "validation-report":
+            summary = build_master_validation_report(
+                reports_root=args.reports_root,
+                output_dir=args.output_dir,
+            )
+            print(_json_dumps(summary))
             return 0
 
         if args.mode in {"mt5-data", "mt5-diagnose"}:
