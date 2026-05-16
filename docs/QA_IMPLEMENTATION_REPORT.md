@@ -219,3 +219,40 @@ Safety remains unchanged:
 - `LIVE_TRADING_APPROVED=False`.
 - `execution_attempted=false`.
 - `order_send was not called`.
+
+## Phase 4 Backtesting Update
+
+Status: PASS.
+
+Integrated in Phase 4:
+
+- Added `--mode backtest` for offline, reproducible backtests from local CSV files.
+- Added `--mode export-history` for MT5 read-only CSV export with no signals, no shadow orders, and no broker execution.
+- Historical CSV loading validates required columns, empty/corrupt datasets, duplicate timestamps, large gaps, and data fingerprints.
+- Backtests run per symbol and multi-symbol using M5 as the base timeframe.
+- The simulator applies spread, slippage, commission, SL/TP, break-even at `0.6R`, trailing from `0.8R`, and optional time stop settings.
+- Reports include summary, trades, equity curve, data quality, Strategy Promotion Gate results, and breakdowns by symbol, regime, session, weekday, and UTC hour.
+- Added `docs/BACKTESTING.md` and `docs/STRATEGY_PROMOTION_GATE.md`.
+
+Additional Phase 4 tests:
+
+- Valid CSV loads correctly.
+- CSV missing mandatory columns fails.
+- Empty CSV fails.
+- Backtest remains offline and does not call `order_send`.
+- Simulated trades use SL/TP candidates.
+- Break-even moves stop to non-loss.
+- Trailing stop does not retreat.
+- Profit factor, drawdown, and expectancy are reproducible.
+- JSON/CSV/HTML reports are created.
+- Strategy Promotion Gate classifies approved, watchlist, and rejected cases.
+- `export-history` does not call `order_send`.
+- CLI accepts `--mode backtest`.
+- CLI accepts `--mode export-history`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.

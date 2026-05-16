@@ -8,9 +8,11 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .bot import ShadowDemoBot
+from .backtesting import BacktestSettings, CostModel, run_backtest_for_symbols
 from .config import load_config
 from .contracts import AccountState, MarketSnapshot, utc_now
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
+from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
 
 
@@ -77,15 +79,27 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description="Run AGI_STYLE_FOREX_BOT_MT5 safely.")
     parser.add_argument("--config", type=Path, default=None, help="Path to config INI.")
-    parser.add_argument("--mode", choices=["shadow", "demo", "mt5-data", "mt5-diagnose"], default="shadow")
+    parser.add_argument(
+        "--mode",
+        choices=["shadow", "demo", "mt5-data", "mt5-diagnose", "backtest", "export-history"],
+        default="shadow",
+    )
     parser.add_argument("--log-dir", type=Path, default=Path("data/logs"))
     parser.add_argument("--sqlite", type=Path, default=None, help="Optional telemetry SQLite path.")
     parser.add_argument(
         "--symbols",
         default=",".join(DEFAULT_FOREX_SYMBOLS),
-        help="Comma-separated symbols for mt5-data or mt5-diagnose.",
+        help="Comma-separated symbols for mt5-data, mt5-diagnose, backtest, or export-history.",
     )
+    parser.add_argument("--symbol", default="", help="Single symbol convenience override.")
     parser.add_argument("--bars", type=int, default=260, help="Bars per timeframe for mt5-data.")
+    parser.add_argument("--timeframes", default="M5,M15,H1", help="Comma-separated timeframes for export-history.")
+    parser.add_argument("--data-dir", type=Path, default=Path("data/historical"), help="Historical CSV directory for backtest.")
+    parser.add_argument("--output-dir", type=Path, default=Path("data/historical"), help="CSV output directory for export-history.")
+    parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
+    parser.add_argument("--spread-points", type=float, default=10.0)
+    parser.add_argument("--slippage-points", type=float, default=1.0)
+    parser.add_argument("--commission", type=float, default=0.0, help="Commission per lot round turn.")
     parser.add_argument(
         "--telegram",
         action="store_true",
@@ -98,11 +112,53 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"--mode {args.mode} requires --sqlite for durable audit")
     database = TelemetryDatabase(args.sqlite) if args.sqlite else None
     try:
+        selected_symbols = _selected_symbols(args.symbol, args.symbols)
+        if args.mode == "backtest":
+            result = run_backtest_for_symbols(
+                data_dir=args.data_dir,
+                symbols=selected_symbols,
+                report_dir=args.report_dir,
+                config=config,
+                settings=BacktestSettings(
+                    cost_model=CostModel(
+                        spread_points=args.spread_points,
+                        slippage_points=args.slippage_points,
+                        commission_per_lot_round_turn=args.commission,
+                        max_spread_points=config.max_spread_points_default,
+                    ),
+                    break_even_trigger_r=0.6,
+                    trailing_start_r=0.8,
+                    trailing_distance_points=80,
+                    max_bars_in_trade=96,
+                    data_source=str(args.data_dir),
+                    parameters={
+                        "DEMO_ONLY": config.demo_only,
+                        "LIVE_TRADING_APPROVED": config.live_trading_approved,
+                        "execution_attempted": False,
+                    },
+                ),
+            )
+            print(_json_dumps(result.summary))
+            return 0
+
+        if args.mode == "export-history":
+            exporter = MT5HistoryExporter(
+                config=config,
+                symbols=selected_symbols,
+                timeframes=tuple(item.strip() for item in args.timeframes.split(",") if item.strip()),
+                bars=args.bars,
+                output_dir=args.output_dir,
+                audit_logger=JsonlAuditLogger(args.log_dir, max_file_mb=config.max_jsonl_file_mb),
+                database=database,
+            )
+            print(export_summary_to_json(exporter.run()))
+            return 0
+
         if args.mode in {"mt5-data", "mt5-diagnose"}:
             bot_cls = MT5DiagnoseBot if args.mode == "mt5-diagnose" else MT5DataOnlyBot
             bot = bot_cls(
                 config=config,
-                symbols=tuple(item.strip() for item in args.symbols.split(",") if item.strip()),
+                symbols=selected_symbols,
                 bars=args.bars,
                 audit_logger=JsonlAuditLogger(args.log_dir, max_file_mb=config.max_jsonl_file_mb),
                 database=database,
@@ -142,6 +198,29 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if database is not None:
             database.close()
+
+
+def _selected_symbols(single_symbol: str, symbols: str) -> tuple[str, ...]:
+    if single_symbol.strip():
+        return (single_symbol.strip().upper(),)
+    return tuple(item.strip().upper() for item in symbols.split(",") if item.strip())
+
+
+def _json_dumps(payload: object) -> str:
+    def convert(value: object) -> object:
+        if isinstance(value, dict):
+            return {str(key): convert(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [convert(item) for item in value]
+        if isinstance(value, float) and math_is_inf(value):
+            return "Infinity" if value > 0 else "-Infinity"
+        return value
+
+    return json.dumps(convert(payload), ensure_ascii=True, sort_keys=True)
+
+
+def math_is_inf(value: float) -> bool:
+    return value == float("inf") or value == float("-inf")
 
 
 if __name__ == "__main__":

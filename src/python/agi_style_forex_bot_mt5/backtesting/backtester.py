@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+from hashlib import sha256
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,7 +18,10 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 import pandas as pd
 
-from ..contracts import Direction
+from ..config import BotConfig
+from ..contracts import Direction, MarketSnapshot, SignalAction
+from ..data import add_indicators, add_regime_labels, normalize_ohlcv_bars
+from ..strategy import evaluate_ensemble
 
 
 ENGINE_VERSION = "0.1.0"
@@ -221,7 +225,15 @@ class BacktestOutcome:
     equity_curve: pd.DataFrame
 
     def trades_frame(self) -> pd.DataFrame:
-        return pd.DataFrame([asdict(trade) for trade in self.trades])
+        rows: list[dict[str, Any]] = []
+        for trade in self.trades:
+            row = asdict(trade)
+            metadata = dict(row.get("metadata") or {})
+            for key in ("regime", "session", "score"):
+                if key in metadata:
+                    row[key] = metadata[key]
+            rows.append(row)
+        return pd.DataFrame(rows)
 
     def to_summary_dict(self) -> dict[str, Any]:
         return {
@@ -229,6 +241,49 @@ class BacktestOutcome:
             "metrics": _jsonable(asdict(self.metrics)),
             "rejected_candidates": list(self.rejected_candidates),
         }
+
+
+@dataclass(frozen=True)
+class DataQualityReport:
+    """CSV data quality summary used to reproduce backtests."""
+
+    symbol: str
+    timeframe: str
+    rows: int
+    start_utc: str
+    end_utc: str
+    duplicate_timestamps: int
+    largest_gap_seconds: float
+    expected_gap_seconds: float
+    gap_count: int
+    fingerprint: str
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PromotionGateResult:
+    """Backtest-level Strategy Promotion Gate classification."""
+
+    status: str
+    reasons: tuple[str, ...]
+    checks: Mapping[str, bool]
+
+
+@dataclass(frozen=True)
+class BacktestBatchResult:
+    """Multi-symbol backtest output plus grouped report tables."""
+
+    summary: Mapping[str, Any]
+    trades: pd.DataFrame
+    equity_curve: pd.DataFrame
+    by_symbol: pd.DataFrame
+    by_regime: pd.DataFrame
+    by_session: pd.DataFrame
+    by_weekday: pd.DataFrame
+    by_hour_utc: pd.DataFrame
+    data_quality: tuple[DataQualityReport, ...]
+    promotion: Mapping[str, PromotionGateResult]
+    reports_created: tuple[str, ...] = ()
 
 
 class Backtester:
@@ -474,6 +529,297 @@ class Backtester:
             else:
                 new_sl = min(new_sl, bar_extreme + distance)
         return new_sl
+
+
+def load_historical_csv(
+    path: str | Path,
+    *,
+    symbol: str,
+    timeframe: str = "M5",
+    expected_gap_seconds: float | None = None,
+) -> tuple[pd.DataFrame, DataQualityReport]:
+    """Load and validate one local historical CSV for reproducible backtests."""
+
+    csv_path = Path(path)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"historical CSV not found: {csv_path}")
+    raw = pd.read_csv(csv_path)
+    if raw.empty:
+        raise ValueError("historical CSV is empty")
+    required = {"time", "open", "high", "low", "close", "tick_volume"}
+    missing = required - set(raw.columns)
+    if missing:
+        raise ValueError(f"historical CSV missing columns: {sorted(missing)}")
+    duplicate_count = int(pd.to_datetime(raw["time"], utc=True, errors="coerce").duplicated().sum())
+    frame = normalize_ohlcv_bars(raw, symbol=symbol, timeframe=timeframe)
+    frame = frame.rename(columns={"timestamp_utc": "timestamp"})
+    if "spread_points" not in frame.columns:
+        frame["spread_points"] = np.nan
+    gap_expectation = expected_gap_seconds or _timeframe_seconds(timeframe)
+    gaps = frame["timestamp"].diff().dt.total_seconds().dropna()
+    largest_gap = float(gaps.max()) if len(gaps) else 0.0
+    gap_count = int((gaps > gap_expectation * 3.0).sum()) if gap_expectation > 0 else 0
+    warnings: list[str] = []
+    if duplicate_count:
+        warnings.append("duplicate timestamps detected and de-duplicated")
+    if gap_count:
+        warnings.append("large timestamp gaps detected")
+    fingerprint = sha256(csv_path.read_bytes()).hexdigest()
+    quality = DataQualityReport(
+        symbol=symbol,
+        timeframe=timeframe,
+        rows=len(frame),
+        start_utc=pd.Timestamp(frame["timestamp"].iloc[0]).isoformat(),
+        end_utc=pd.Timestamp(frame["timestamp"].iloc[-1]).isoformat(),
+        duplicate_timestamps=duplicate_count,
+        largest_gap_seconds=largest_gap,
+        expected_gap_seconds=float(gap_expectation),
+        gap_count=gap_count,
+        fingerprint=fingerprint,
+        warnings=tuple(warnings),
+    )
+    return frame, quality
+
+
+def run_strategy_backtest(
+    candles: pd.DataFrame,
+    *,
+    symbol: str,
+    settings: BacktestSettings | None = None,
+    config: BotConfig | None = None,
+    timeframe: str = "M5",
+) -> BacktestOutcome:
+    """Generate ensemble candidates from bars and simulate them offline."""
+
+    cfg = config or BotConfig()
+    cfg.validate_safety()
+    run_settings = settings or BacktestSettings(
+        strategy_name="strategy_ensemble",
+        strategy_version="0.1.0",
+        break_even_trigger_r=0.6,
+        trailing_start_r=0.8,
+        trailing_distance_points=80,
+        max_bars_in_trade=96,
+    )
+    bars = _normalize_candles(candles)
+    candidates = generate_strategy_candidates(
+        bars,
+        symbol=symbol,
+        timeframe=timeframe,
+        config=cfg,
+        point=run_settings.cost_model.point,
+    )
+    return Backtester(run_settings).run(bars, candidates)
+
+
+def generate_strategy_candidates(
+    candles: pd.DataFrame,
+    *,
+    symbol: str,
+    timeframe: str,
+    config: BotConfig,
+    point: float,
+) -> tuple[TradeCandidate, ...]:
+    """Create deterministic offline trade candidates from the current ensemble."""
+
+    bars = _normalize_candles(candles)
+    indicator_input = bars.rename(columns={"timestamp": "timestamp_utc"}).copy()
+    indicator_input["volume"] = indicator_input.get("volume", indicator_input.get("tick_volume", 0))
+    if "spread_points" not in indicator_input.columns:
+        indicator_input["spread_points"] = config.max_spread_points_default
+    enriched = add_regime_labels(
+        add_indicators(indicator_input),
+        max_spread_points=config.max_spread_points_default,
+    )
+    candidates: list[TradeCandidate] = []
+    last_candidate_idx = -999
+    for idx in range(220, len(enriched) - 1):
+        row = enriched.iloc[idx]
+        if pd.isna(row[["ema20", "ema50", "ema200", "rsi14", "atr14"]]).any():
+            continue
+        if idx - last_candidate_idx < 3:
+            continue
+        snapshot = _snapshot_from_row(row, symbol=symbol, timeframe=timeframe, point=point, config=config)
+        features = _features_from_row(enriched, idx, snapshot, config)
+        signal = evaluate_ensemble(snapshot, features, mode="shadow")
+        if signal.action == SignalAction.NONE:
+            continue
+        direction = Direction.BUY if signal.action == SignalAction.BUY else Direction.SELL
+        reference = snapshot.ask if direction == Direction.BUY else snapshot.bid
+        atr = max(float(row["atr14"]), point * 100)
+        stop_distance = max(atr, point * 100)
+        target_distance = stop_distance * 1.8
+        if direction == Direction.BUY:
+            sl_price = reference - stop_distance
+            tp_price = reference + target_distance
+        else:
+            sl_price = reference + stop_distance
+            tp_price = reference - target_distance
+        candidates.append(
+            TradeCandidate(
+                timestamp=pd.Timestamp(row["timestamp_utc"]),
+                symbol=symbol,
+                direction=direction,
+                sl_price=round(sl_price, snapshot.digits),
+                tp_price=round(tp_price, snapshot.digits),
+                timeframe=timeframe,
+                signal_id=f"bt_{symbol}_{idx}",
+                lot=1.0,
+                metadata={
+                    "regime": str(row["regime"]),
+                    "session": session_for_timestamp(pd.Timestamp(row["timestamp_utc"])),
+                    "score": signal.score,
+                    "reasons": tuple(signal.reasons),
+                },
+            )
+        )
+        last_candidate_idx = idx
+    return tuple(candidates)
+
+
+def run_backtest_for_symbols(
+    *,
+    data_dir: str | Path,
+    symbols: Iterable[str],
+    report_dir: str | Path | None = None,
+    settings: BacktestSettings | None = None,
+    config: BotConfig | None = None,
+    timeframe: str = "M5",
+) -> BacktestBatchResult:
+    """Run a reproducible multi-symbol backtest from local CSV history."""
+
+    cfg = config or BotConfig()
+    cfg.validate_safety()
+    run_settings = settings or BacktestSettings(
+        run_id=f"backtest_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+        strategy_name="strategy_ensemble",
+        strategy_version="0.1.0",
+        break_even_trigger_r=0.6,
+        trailing_start_r=0.8,
+        trailing_distance_points=80,
+        max_bars_in_trade=96,
+        parameters={"DEMO_ONLY": cfg.demo_only, "LIVE_TRADING_APPROVED": cfg.live_trading_approved},
+    )
+    all_trades: list[pd.DataFrame] = []
+    all_equity: list[pd.DataFrame] = []
+    qualities: list[DataQualityReport] = []
+    promotions: dict[str, PromotionGateResult] = {}
+    for symbol in [item.strip().upper() for item in symbols if item.strip()]:
+        path = _find_history_csv(Path(data_dir), symbol, timeframe)
+        candles, quality = load_historical_csv(path, symbol=symbol, timeframe=timeframe)
+        qualities.append(quality)
+        outcome = run_strategy_backtest(candles, symbol=symbol, settings=run_settings, config=cfg, timeframe=timeframe)
+        trades = outcome.trades_frame()
+        if not trades.empty:
+            trades["symbol"] = symbol
+            all_trades.append(trades)
+        equity = outcome.equity_curve.copy()
+        equity["symbol"] = symbol
+        all_equity.append(equity)
+        promotions[symbol] = classify_strategy_promotion(outcome.metrics, trades)
+
+    trades_frame = pd.concat(all_trades, ignore_index=True) if all_trades else _empty_trades_frame()
+    equity_curve = _aggregate_equity_curves(all_equity, run_settings.initial_balance)
+    metrics = calculate_metrics(trades_frame.to_dict("records"), initial_balance=run_settings.initial_balance, equity_curve=equity_curve)
+    by_symbol = _group_metrics(trades_frame, "symbol")
+    by_regime = _group_metrics(trades_frame, "regime")
+    by_session = _group_metrics(trades_frame, "session")
+    by_weekday = _group_metrics(_with_time_columns(trades_frame), "weekday")
+    by_hour = _group_metrics(_with_time_columns(trades_frame), "hour_utc")
+    summary: dict[str, Any] = {
+        "mode": "backtest",
+        "symbols_tested": len(qualities),
+        "total_trades": metrics.trades_total,
+        "net_return_pct": metrics.total_return_pct,
+        "max_drawdown_pct": metrics.max_drawdown_pct,
+        "profit_factor": metrics.profit_factor,
+        "winrate": metrics.win_rate_pct,
+        "expectancy_r": metrics.average_r,
+        "sharpe": metrics.sharpe,
+        "sortino": metrics.sortino,
+        "execution_attempted": False,
+        "reports_created": [],
+    }
+    result = BacktestBatchResult(
+        summary=summary,
+        trades=trades_frame,
+        equity_curve=equity_curve,
+        by_symbol=by_symbol,
+        by_regime=by_regime,
+        by_session=by_session,
+        by_weekday=by_weekday,
+        by_hour_utc=by_hour,
+        data_quality=tuple(qualities),
+        promotion=promotions,
+    )
+    if report_dir is not None:
+        from .performance_report import write_batch_reports
+
+        artifacts = write_batch_reports(result, report_dir)
+        summary = {**summary, "reports_created": list(artifacts)}
+        result = BacktestBatchResult(
+            summary=summary,
+            trades=trades_frame,
+            equity_curve=equity_curve,
+            by_symbol=by_symbol,
+            by_regime=by_regime,
+            by_session=by_session,
+            by_weekday=by_weekday,
+            by_hour_utc=by_hour,
+            data_quality=tuple(qualities),
+            promotion=promotions,
+            reports_created=tuple(artifacts),
+        )
+    return result
+
+
+def classify_strategy_promotion(
+    metrics: BacktestMetrics,
+    trades: pd.DataFrame | None = None,
+    *,
+    oos_positive: bool = False,
+    monte_carlo_ruin_ok: bool = False,
+    spread_slippage_ok: bool = False,
+) -> PromotionGateResult:
+    """Classify a symbol for the Phase 4 promotion gate."""
+
+    trade_count = int(metrics.trades_total)
+    checks = {
+        "sample_size": trade_count >= 300,
+        "profit_factor": metrics.profit_factor > 1.25,
+        "drawdown": abs(metrics.max_drawdown_pct) < 12.0,
+        "expectancy_r": metrics.average_r > 0,
+        "oos_positive": bool(oos_positive),
+        "monte_carlo": bool(monte_carlo_ruin_ok),
+        "spread_slippage": bool(spread_slippage_ok),
+        "profit_concentration": not _depends_on_few_large_trades(trades),
+        "week_concentration": not _is_concentrated_in_one_week(trades),
+    }
+    failed = tuple(name for name, passed in checks.items() if not passed)
+    core_failed = [name for name in ("profit_factor", "drawdown", "expectancy_r") if not checks[name]]
+    if not failed:
+        status = "APPROVED_FOR_SHADOW_OBSERVATION"
+    elif core_failed or trade_count == 0:
+        status = "REJECTED"
+    else:
+        status = "WATCHLIST"
+    reasons = tuple(f"failed: {name}" for name in failed) or ("promotion gate passed",)
+    return PromotionGateResult(status=status, reasons=reasons, checks=checks)
+
+
+def session_for_timestamp(timestamp: pd.Timestamp) -> str:
+    """Return a coarse FX session label for UTC timestamps."""
+
+    hour = pd.Timestamp(timestamp).hour
+    if 7 <= hour < 12:
+        return "LONDON"
+    if 12 <= hour < 17:
+        return "NY_OVERLAP"
+    if 17 <= hour < 22:
+        return "NEW_YORK"
+    if 22 <= hour or hour < 7:
+        return "ASIA"
+    return "UNKNOWN"
 
 
 def calculate_metrics(
@@ -838,3 +1184,185 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, float) and math.isinf(value):
         return "Infinity" if value > 0 else "-Infinity"
     return value
+
+
+def _timeframe_seconds(timeframe: str) -> float:
+    normalized = timeframe.strip().upper()
+    if normalized.startswith("M"):
+        return float(normalized[1:]) * 60.0
+    if normalized.startswith("H"):
+        return float(normalized[1:]) * 3600.0
+    if normalized.startswith("D"):
+        return float(normalized[1:] or 1) * 86400.0
+    return 300.0
+
+
+def _snapshot_from_row(
+    row: pd.Series,
+    *,
+    symbol: str,
+    timeframe: str,
+    point: float,
+    config: BotConfig,
+) -> MarketSnapshot:
+    spread_points = float(row.get("spread_points", config.max_spread_points_default))
+    if math.isnan(spread_points):
+        spread_points = config.max_spread_points_default
+    close = float(row["close"])
+    half_spread = spread_points * point / 2.0
+    return MarketSnapshot(
+        symbol=symbol,
+        timeframe=timeframe,
+        timestamp_utc=pd.Timestamp(row["timestamp_utc"]).to_pydatetime(),
+        bid=max(point, close - half_spread),
+        ask=close + half_spread,
+        spread_points=spread_points,
+        digits=3 if "JPY" in symbol else 5,
+        point=point,
+        tick_value=1.0,
+        tick_size=point,
+        volume_min=0.01,
+        volume_max=100.0,
+        volume_step=0.01,
+        stops_level_points=10,
+        freeze_level_points=5,
+    )
+
+
+def _features_from_row(
+    frame: pd.DataFrame,
+    idx: int,
+    snapshot: MarketSnapshot,
+    config: BotConfig,
+) -> dict[str, Any]:
+    row = frame.iloc[idx]
+    previous = frame.iloc[idx - 1]
+    tail = frame.iloc[max(0, idx - 20) : idx + 1]
+    close = float(row["close"])
+    return {
+        "regime": str(row["regime"]),
+        "close": close,
+        "previous_close": float(previous["close"]),
+        "ema20": float(row["ema20"]),
+        "ema50": float(row["ema50"]),
+        "ema200": float(row["ema200"]),
+        "ema_fast": float(row["ema20"]),
+        "ema_slow": float(row["ema50"]),
+        "rsi": float(row["rsi14"]),
+        "rsi14": float(row["rsi14"]),
+        "atr": float(row["atr14"]),
+        "atr14": float(row["atr14"]),
+        "atr_points": float(row["atr14"]) / snapshot.point,
+        "atr_mean_points": float(frame.iloc[max(0, idx - 50) : idx + 1]["atr14"].mean()) / snapshot.point,
+        "atr_percent": float(row["atr_percent"]),
+        "ema_slope": float(row["ema_slope"]),
+        "trend_slope": float(row["ema_slope"]),
+        "trend_strength": float(row["trend_strength"]),
+        "momentum": float(row["momentum"]),
+        "momentum_points": float(row["momentum"]) / snapshot.point,
+        "range_points": float((tail["high"].max() - tail["low"].min()) / snapshot.point),
+        "body_ratio": float(abs(row["candle_body"]) / max(float(row["high"] - row["low"]), snapshot.point)),
+        "prior_high": float(tail.iloc[:-1]["high"].max()) if len(tail) > 1 else close,
+        "prior_low": float(tail.iloc[:-1]["low"].min()) if len(tail) > 1 else close,
+        "lower_wick": float(row["lower_wick"]),
+        "upper_wick": float(row["upper_wick"]),
+        "spread_points": snapshot.spread_points,
+        "max_strategy_spread_points": config.max_spread_points_default,
+        "session": session_for_timestamp(pd.Timestamp(row["timestamp_utc"])),
+        "volatility": float(row["volatility"]),
+    }
+
+
+def _find_history_csv(data_dir: Path, symbol: str, timeframe: str) -> Path:
+    candidates = (
+        data_dir / f"{symbol}_{timeframe}.csv",
+        data_dir / f"{symbol}-{timeframe}.csv",
+        data_dir / f"{symbol.lower()}_{timeframe.lower()}.csv",
+        data_dir / f"{symbol}.csv",
+    )
+    for path in candidates:
+        if path.exists():
+            return path
+    raise FileNotFoundError(f"no CSV found for {symbol} {timeframe} in {data_dir}")
+
+
+def _empty_trades_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "signal_id",
+            "symbol",
+            "direction",
+            "entry_time",
+            "exit_time",
+            "profit",
+            "r_multiple",
+            "regime",
+            "session",
+        ]
+    )
+
+
+def _aggregate_equity_curves(curves: list[pd.DataFrame], initial_balance: float) -> pd.DataFrame:
+    if not curves:
+        return pd.DataFrame({"timestamp": [pd.Timestamp("1970-01-01T00:00:00Z")], "equity": [initial_balance]})
+    combined = pd.concat(curves, ignore_index=True)
+    combined["timestamp"] = pd.to_datetime(combined["timestamp"], utc=True)
+    pivot = combined.pivot_table(index="timestamp", columns="symbol", values="equity", aggfunc="last")
+    pivot = pivot.sort_index().ffill().fillna(initial_balance)
+    aggregate = pivot.sum(axis=1) - (len(pivot.columns) - 1) * initial_balance
+    return pd.DataFrame({"timestamp": aggregate.index, "equity": aggregate.values})
+
+
+def _with_time_columns(trades: pd.DataFrame) -> pd.DataFrame:
+    frame = trades.copy()
+    if frame.empty or "exit_time" not in frame.columns:
+        frame["weekday"] = []
+        frame["hour_utc"] = []
+        return frame
+    times = pd.to_datetime(frame["exit_time"], utc=True)
+    frame["weekday"] = times.dt.day_name()
+    frame["hour_utc"] = times.dt.hour
+    return frame
+
+
+def _group_metrics(trades: pd.DataFrame, group_column: str) -> pd.DataFrame:
+    if trades.empty or group_column not in trades.columns:
+        return pd.DataFrame(columns=[group_column, "trades", "net_profit", "net_return_pct", "profit_factor", "winrate", "expectancy_r"])
+    rows: list[dict[str, Any]] = []
+    for value, group in trades.groupby(group_column, dropna=False):
+        metrics = calculate_metrics(group.to_dict("records"))
+        rows.append(
+            {
+                group_column: value,
+                "trades": metrics.trades_total,
+                "net_profit": metrics.net_profit,
+                "net_return_pct": metrics.total_return_pct,
+                "profit_factor": metrics.profit_factor,
+                "winrate": metrics.win_rate_pct,
+                "expectancy_r": metrics.average_r,
+            }
+        )
+    return pd.DataFrame(rows).sort_values(group_column).reset_index(drop=True)
+
+
+def _depends_on_few_large_trades(trades: pd.DataFrame | None) -> bool:
+    if trades is None or trades.empty or "profit" not in trades.columns:
+        return True
+    positive = trades[trades["profit"] > 0]["profit"].astype(float).sort_values(ascending=False)
+    if len(positive) <= 2:
+        return True
+    top_two = float(positive.head(2).sum())
+    total_positive = float(positive.sum())
+    return bool(total_positive > 0 and top_two / total_positive > 0.5)
+
+
+def _is_concentrated_in_one_week(trades: pd.DataFrame | None) -> bool:
+    if trades is None or trades.empty or "exit_time" not in trades.columns or "profit" not in trades.columns:
+        return True
+    frame = trades.copy()
+    frame["week"] = pd.to_datetime(frame["exit_time"], utc=True).dt.strftime("%G-W%V")
+    weekly = frame.groupby("week")["profit"].sum()
+    total = abs(float(weekly.sum()))
+    if total <= 0 or len(weekly) <= 1:
+        return True
+    return bool(abs(float(weekly.abs().max())) / total > 0.5)
