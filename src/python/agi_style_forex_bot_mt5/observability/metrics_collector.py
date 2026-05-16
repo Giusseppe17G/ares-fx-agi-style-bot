@@ -61,6 +61,10 @@ class MetricsCollector:
         portfolio_state = build_portfolio_state(self.database).to_dict()
         integrity = validate_event_integrity(database=self.database)
         outbox_pending = sum(1 for row in self.database.fetch_all("telegram_outbox") if row["status"] in {"PENDING", "FAILED"})
+        fill_quality_poor = sum(1 for trade in trades if str(trade.get("metadata", {}).get("fill_quality", "")).upper() == "POOR")
+        ambiguous_intrabar = sum(1 for trade in trades if trade.get("metadata", {}).get("ambiguity_flags"))
+        rejected_by_spread = event_counts.get("SPREAD_MODEL_REJECTED", 0)
+        slippage_values = [float(trade.get("slippage_assumed_points") or 0.0) for trade in trades]
         return {
             "mode": "forward-shadow",
             "bot_uptime_seconds": 0,
@@ -103,6 +107,12 @@ class MetricsCollector:
             "telegram_outbox_pending": outbox_pending,
             "event_gap_count": integrity["event_gap_count"],
             "replay_possible": integrity["replay_possible"],
+            "fill_quality_poor_count": fill_quality_poor,
+            "ambiguous_intrabar_events": ambiguous_intrabar,
+            "rejected_by_spread_model": rejected_by_spread,
+            "assumed_slippage_avg": (sum(slippage_values) / len(slippage_values)) if slippage_values else 0.0,
+            "cost_model_status": "WATCHLIST" if fill_quality_poor or rejected_by_spread else "OK",
+            "paper_vs_backtest_status": "NEEDS_MORE_FORWARD_DATA",
             "execution_attempted": False,
         }
 

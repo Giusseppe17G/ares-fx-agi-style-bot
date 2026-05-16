@@ -21,6 +21,7 @@ Safety invariants:
 - Records paper events in `paper_trade_events`.
 - Writes summary reports under `data/reports/forward_shadow`.
 - Keeps Telegram optional and fail-safe.
+- Stores conservative execution simulation assumptions in paper trade metadata.
 
 ## What It Does Not Do
 
@@ -28,6 +29,20 @@ Safety invariants:
 - It does not place demo orders.
 - It does not place live orders.
 - It does not approve strategy promotion by itself.
+
+## Execution Simulation Metadata
+
+Forward paper trades include conservative execution assumptions:
+
+- BUY entries use ask.
+- SELL entries use bid.
+- BUY exits use bid.
+- SELL exits use ask.
+- Adverse slippage and commission are explicit.
+- High spread, stale ticks and market-closed conditions reject fills.
+- Same-bar SL/TP ambiguity is marked conservatively.
+
+The paper trade `metadata` contains `execution_simulation_version`, spread/slippage/commission/latency models and `fill_quality`.
 
 ## Command
 

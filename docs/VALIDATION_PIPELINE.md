@@ -70,7 +70,14 @@ $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode broker-qu
 $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode readiness-report --reports-root data\reports --sqlite data\sqlite\forward-shadow.sqlite3 --output-dir data\reports\readiness
 ```
 
-10. Build master validation report:
+10. Run execution simulation and paper-vs-backtest calibration:
+
+```powershell
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode simulation-calibration --reports-root data\reports --sqlite data\sqlite\forward-shadow.sqlite3 --output-dir data\reports\execution_simulation
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode paper-vs-backtest --reports-root data\reports --sqlite data\sqlite\forward-shadow.sqlite3 --output-dir data\reports\paper_vs_backtest
+```
+
+11. Build master validation report:
 
 ```powershell
 $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode validation-report --reports-root data\reports --output-dir data\reports\validation
@@ -84,7 +91,7 @@ Files:
 - `data/reports/validation/master_validation_report.csv`
 - `data/reports/validation/master_validation_report.html`
 
-The master report includes broker quality, execution readiness and forward-shadow summaries when available. Operational decisions include `CONTINUE_FORWARD_SHADOW`, `NEEDS_MORE_DATA`, `NEEDS_BROKER_FIX`, `NEEDS_STRATEGY_FIX`, and `NOT_READY`.
+The master report includes broker quality, execution readiness, forward-shadow, execution simulation, and paper-vs-backtest summaries when available. Operational decisions include `CONTINUE_FORWARD_SHADOW`, `NEEDS_MORE_DATA`, `NEEDS_BROKER_FIX`, `NEEDS_STRATEGY_FIX`, and `NOT_READY`.
 
 ## Blocking Criteria
 
@@ -100,5 +107,7 @@ Demo execution remains blocked when:
 - Stress test collapses under spread `x2`.
 - Removing the top `5%` of trades destroys profitability.
 - Results are concentrated by hour, day, session, regime, or week.
+- Execution simulation reports `COST_ASSUMPTION_TOO_LOW`.
+- Paper-vs-backtest reports `BACKTEST_TOO_OPTIMISTIC` or `COST_ASSUMPTION_TOO_LOW`.
 
 Backtest positivity alone is never enough.

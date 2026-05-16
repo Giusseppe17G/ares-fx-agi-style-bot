@@ -13,6 +13,7 @@ from agi_style_forex_bot_mt5.contracts import Environment, Event, Severity
 from agi_style_forex_bot_mt5.broker_quality import build_readiness_report
 from agi_style_forex_bot_mt5.observability.daily_summary import DailySummary
 from agi_style_forex_bot_mt5.observability.operational_status import build_health_status, build_status
+from agi_style_forex_bot_mt5.execution_simulation import compare_paper_vs_backtest, run_simulation_calibration
 from agi_style_forex_bot_mt5.persistence import check_db_health, create_backup, flush_telegram_outbox, replay_audit
 from agi_style_forex_bot_mt5.portfolio import build_portfolio_state
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase
@@ -57,6 +58,9 @@ class TelegramCommandCenter:
         "/backup",
         "/replay",
         "/outbox",
+        "/fills",
+        "/costs",
+        "/paper_vs_backtest",
     }
 
     def __init__(
@@ -195,6 +199,10 @@ class TelegramCommandCenter:
             return TelegramCommandResult(command, True, str(replay_audit(database=self.database))[:1000], "OK")
         if command == "/outbox":
             return TelegramCommandResult(command, True, str(flush_telegram_outbox(database=self.database))[:1000], "OK")
+        if command in {"/fills", "/costs"}:
+            return TelegramCommandResult(command, True, str(run_simulation_calibration(database=self.database, reports_root="data/reports", output_dir="data/reports/execution_simulation"))[:1000], "OK")
+        if command == "/paper_vs_backtest":
+            return TelegramCommandResult(command, True, str(compare_paper_vs_backtest(database=self.database, reports_root="data/reports", output_dir="data/reports/paper_vs_backtest"))[:1000], "OK")
         return TelegramCommandResult(command, True, self._help(), "OK")
 
     def _help(self) -> str:

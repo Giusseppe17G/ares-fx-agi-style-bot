@@ -122,6 +122,43 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 
+## Phase 14 Execution Simulation Calibration Update
+
+Status: PASS. Full suite result: 172 collected, 172 passed.
+
+Integrated in Phase 14:
+
+- Added `execution_simulation` package with fill, spread, slippage, commission, latency, gap, partial-fill, calibration, paper-vs-backtest, and report modules.
+- Updated paper fill and paper position management to use conservative bid/ask fills and store execution simulation metadata on paper trades.
+- Added CLI modes: `simulation-calibration` and `paper-vs-backtest`.
+- Added validation-report inputs for execution simulation and paper-vs-backtest calibration.
+- Added observability metrics and alerts for fill quality, ambiguous events, cost assumptions and backtest-forward divergence.
+- Added Telegram commands: `/fills`, `/costs`, and `/paper_vs_backtest`.
+- Added docs: `EXECUTION_SIMULATION.md` and `PAPER_VS_BACKTEST_CALIBRATION.md`.
+
+Additional Phase 14 tests:
+
+- BUY entry uses ask and SELL entry uses bid.
+- BUY exit uses bid and SELL exit uses ask.
+- Extreme spread and stale ticks reject fills.
+- Adverse slippage worsens fills.
+- Same-bar SL/TP conservative mode assumes the worse outcome.
+- Gap through SL closes worse than SL.
+- Commission model applies explicit costs.
+- Spread model uses p95 fallback.
+- Paper trade metadata includes fill assumptions.
+- Paper-vs-backtest detects optimistic backtests or underestimated costs.
+- CLI accepts `simulation-calibration` and `paper-vs-backtest`.
+- Telegram `/fills` returns a read-only summary.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 13 Persistence Hardening Update
 
 Status: PASS. Full suite result: 164 collected, 164 passed.

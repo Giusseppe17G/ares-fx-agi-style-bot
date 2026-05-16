@@ -40,6 +40,8 @@ def build_master_validation_report(
         "research": _read_json(root / "research" / "research_summary.json"),
         "recommended_strategy_mix": _read_json(root / "research" / "recommended_strategy_mix.json"),
         "candidate_registry": _read_json(root / "research" / "candidate_registry.json"),
+        "execution_simulation": _read_json(root / "execution_simulation" / "simulation_calibration.json"),
+        "paper_vs_backtest": _read_json(root / "paper_vs_backtest" / "summary.json"),
     }
     final_decision, reasons = _final_decision(summaries)
     report = {
@@ -96,13 +98,15 @@ def _existing_summary_paths(root: Path) -> list[Path]:
             root / "research" / "research_summary.json",
             root / "research" / "recommended_strategy_mix.json",
             root / "research" / "candidate_registry.json",
+            root / "execution_simulation" / "simulation_calibration.json",
+            root / "paper_vs_backtest" / "summary.json",
         )
         if path.exists()
     ]
 
 
 def _section_classification(section: str, summary: Mapping[str, Any]) -> str:
-    if not summary and section in {"broker_quality", "readiness", "forward_shadow"}:
+    if not summary and section in {"broker_quality", "readiness", "forward_shadow", "execution_simulation", "paper_vs_backtest"}:
         return "APPROVED_FOR_SHADOW_OBSERVATION"
     if not summary:
         return "REJECTED"
@@ -150,6 +154,20 @@ def _section_classification(section: str, summary: Mapping[str, Any]) -> str:
         return "WATCHLIST" if summary else "REJECTED"
     if section in {"recommended_strategy_mix", "candidate_registry"}:
         return "APPROVED_FOR_SHADOW_OBSERVATION" if summary else "REJECTED"
+    if section == "execution_simulation":
+        value = str(summary.get("classification") or "REJECTED")
+        if value == "CALIBRATED_OK":
+            return "APPROVED_FOR_SHADOW_OBSERVATION"
+        if value in {"NEEDS_MORE_FORWARD_DATA", "COST_ASSUMPTION_TOO_LOW"}:
+            return "WATCHLIST"
+        return "REJECTED"
+    if section == "paper_vs_backtest":
+        value = str(summary.get("classification") or "REJECTED")
+        if value == "CALIBRATED_OK":
+            return "APPROVED_FOR_SHADOW_OBSERVATION"
+        if value in {"NEEDS_MORE_FORWARD_DATA", "BACKTEST_TOO_OPTIMISTIC", "COST_ASSUMPTION_TOO_LOW", "STRATEGY_BEHAVIOR_DRIFT"}:
+            return "WATCHLIST"
+        return "REJECTED"
     if section == "benchmark":
         value = str(summary.get("classification") or "REJECTED")
         return "WATCHLIST" if value == "WATCHLIST" else value
@@ -167,6 +185,12 @@ def _final_decision(summaries: Mapping[str, Mapping[str, Any]]) -> tuple[str, li
     if classifications.get("broker_quality") == "REJECTED" or classifications.get("readiness") == "REJECTED":
         return "NEEDS_BROKER_FIX", reasons
     if classifications.get("benchmark") in {"REJECTED", "WATCHLIST"} or classifications.get("competitive_scorecard") in {"REJECTED", "WATCHLIST"}:
+        return "NEEDS_STRATEGY_FIX", reasons
+    paper_vs_backtest = summaries.get("paper_vs_backtest", {})
+    if str(paper_vs_backtest.get("classification") or "") in {"BACKTEST_TOO_OPTIMISTIC", "COST_ASSUMPTION_TOO_LOW"}:
+        return "NEEDS_STRATEGY_FIX", reasons
+    simulation = summaries.get("execution_simulation", {})
+    if str(simulation.get("classification") or "") == "COST_ASSUMPTION_TOO_LOW":
         return "NEEDS_STRATEGY_FIX", reasons
     if any(classification == "REJECTED" for classification in classifications.values()):
         return "REJECTED", reasons

@@ -163,6 +163,22 @@ class AlertRuleEngine:
             alerts.append(
                 self._alert(now, "WARNING", "JSONL_ROTATION_FAILED", "JSONL rotation failed", "Check disk permissions and backup availability.", metrics)
             )
+        if str(metrics.get("cost_model_status", "OK")) in {"WATCHLIST", "COST_ASSUMPTION_TOO_LOW"}:
+            alerts.append(
+                self._alert(now, "WARNING", "COST_ASSUMPTION_TOO_LOW", "Cost assumptions may be too low", "Run simulation-calibration and compare broker costs against paper fills.", metrics)
+            )
+        if int(metrics.get("fill_quality_poor_count", 0) or 0) > 0:
+            alerts.append(
+                self._alert(now, "WARNING", "FILL_QUALITY_DEGRADED", "Poor paper fill quality detected", "Review spread, slippage and broker readiness before promotion.", metrics)
+            )
+        if int(metrics.get("ambiguous_intrabar_events", 0) or 0) >= 5:
+            alerts.append(
+                self._alert(now, "WARNING", "AMBIGUOUS_EVENTS_HIGH", "Ambiguous intrabar events are high", "Treat paper results conservatively and avoid promotion.", metrics)
+            )
+        if str(metrics.get("paper_vs_backtest_status", "")) in {"BACKTEST_TOO_OPTIMISTIC", "STRATEGY_BEHAVIOR_DRIFT"}:
+            alerts.append(
+                self._alert(now, "WARNING", "BACKTEST_FORWARD_DIVERGENCE", "Backtest and forward paper results diverge", "Keep strategy in WATCHLIST or reject until recalibrated.", metrics)
+            )
         return tuple(alerts)
 
     def persist(self, alerts: Iterable[OperationalAlert]) -> int:

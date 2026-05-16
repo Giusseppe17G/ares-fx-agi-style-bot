@@ -26,6 +26,7 @@ Safety invariants:
 - Portfolio risk percentage and available risk budget.
 - Currency exposure and concentration flags.
 - DB health, audit integrity, backup age, replay availability and Telegram outbox backlog.
+- Fill quality, ambiguous intrabar events, slippage assumptions and paper-vs-backtest status.
 
 ## Heartbeat
 
@@ -83,6 +84,10 @@ Implemented rules include:
 - `BACKUP_STALE`
 - `RECOVERY_FAILED`
 - `JSONL_ROTATION_FAILED`
+- `COST_ASSUMPTION_TOO_LOW`
+- `FILL_QUALITY_DEGRADED`
+- `AMBIGUOUS_EVENTS_HIGH`
+- `BACKTEST_FORWARD_DIVERGENCE`
 
 Every alert includes severity, code, message, recommended action and `execution_attempted=false`.
 
@@ -120,6 +125,19 @@ Status can include:
 - `replay_possible`
 
 If these degrade, forward-shadow should remain fail-closed until persistence is repaired or replayed from backup.
+
+## Execution Simulation Metrics
+
+Status can include:
+
+- `fill_quality_poor_count`
+- `ambiguous_intrabar_events`
+- `rejected_by_spread_model`
+- `assumed_slippage_avg`
+- `cost_model_status`
+- `paper_vs_backtest_status`
+
+These metrics are promotion blockers only. They do not enable demo/live execution.
 
 ## CLI
 

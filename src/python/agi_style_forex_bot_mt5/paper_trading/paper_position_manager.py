@@ -63,7 +63,10 @@ class PaperPositionManager:
         existing = self.database.fetch_paper_trade_by_idempotency(key)
         if existing is not None:
             return PaperTrade.from_json(existing["payload_json"])
-        entry = self.fill_model.entry_price(direction=signal.direction.value, snapshot=snapshot)
+        entry_result = self.fill_model.entry_result(direction=signal.direction.value, snapshot=snapshot, lot=risk_decision.approved_lot)
+        if not entry_result.accepted or entry_result.fill_price is None:
+            raise ValueError(f"paper fill rejected: {entry_result.reject_reason or entry_result.reject_code}")
+        entry = entry_result.fill_price
         risk_amount = float(risk_decision.risk_amount_account_currency or 0.0)
         effective_risk_pct = float(risk_decision.checks.get("effective_risk_pct") or signal.risk_pct or 0.0)
         trade = PaperTrade(
@@ -87,8 +90,18 @@ class PaperPositionManager:
             score=float(score),
             reasons=tuple(reasons),
             spread_at_entry=snapshot.spread_points,
-            slippage_assumed_points=self.fill_model.slippage_points,
-            commission_assumed=self.fill_model.commission(risk_decision.approved_lot),
+            slippage_assumed_points=entry_result.assumed_slippage_points,
+            commission_assumed=entry_result.commission,
+            metadata={
+                "execution_simulation_version": str((entry_result.metadata or {}).get("execution_simulation_version", "")),
+                "fill_quality": entry_result.fill_quality,
+                "entry_fill": entry_result.to_dict(),
+                "spread_model_used": (entry_result.metadata or {}).get("spread_model_used", {}),
+                "slippage_model_used": (entry_result.metadata or {}).get("slippage_model_used", {}),
+                "commission_model_used": (entry_result.metadata or {}).get("commission_model_used", {}),
+                "latency_assumption": (entry_result.metadata or {}).get("latency_assumption", {}),
+                "ambiguity_flags": (entry_result.metadata or {}).get("ambiguity_flags", ()),
+            },
         )
         inserted = self.database.insert_paper_trade(trade.to_dict())
         if inserted:
@@ -129,7 +142,10 @@ class PaperPositionManager:
         reason: str,
         base_exit_price: float,
     ) -> PaperTrade:
-        exit_price = self.fill_model.exit_price(direction=trade.direction, snapshot=snapshot, base_price=base_exit_price)
+        exit_result = self.fill_model.exit_result(direction=trade.direction, snapshot=snapshot, lot=trade.lot, base_price=base_exit_price)
+        if not exit_result.accepted or exit_result.fill_price is None:
+            raise ValueError(f"paper exit fill rejected: {exit_result.reject_reason or exit_result.reject_code}")
+        exit_price = exit_result.fill_price
         profit = self._profit(trade, exit_price, snapshot)
         planned_risk = max(trade.risk_amount, abs(trade.entry_price - trade.sl_price) / snapshot.point * trade.lot)
         r_multiple = profit / planned_risk if planned_risk > 0 else 0.0
@@ -141,6 +157,11 @@ class PaperPositionManager:
             profit=profit,
             r_multiple=r_multiple,
             spread_at_exit=snapshot.spread_points,
+            metadata={
+                **dict(trade.metadata),
+                "exit_fill": exit_result.to_dict(),
+                "fill_quality": _worst_quality(str(trade.metadata.get("fill_quality", "GOOD")), exit_result.fill_quality),
+            },
         )
         self.database.update_paper_trade(closed.to_dict())
         self.database.insert_paper_trade_event(closed.paper_trade_id, "PAPER_TRADE_CLOSED", closed.to_dict())
@@ -185,3 +206,8 @@ class PaperPositionManager:
         if trade.direction == "SELL":
             move *= -1.0
         return (move / snapshot.tick_size) * snapshot.tick_value * trade.lot - trade.commission_assumed
+
+
+def _worst_quality(left: str, right: str) -> str:
+    order = {"GOOD": 0, "ACCEPTABLE": 1, "POOR": 2, "REJECTED": 3}
+    return left if order.get(left, 0) >= order.get(right, 0) else right

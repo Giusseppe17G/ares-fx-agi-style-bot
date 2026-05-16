@@ -41,6 +41,9 @@ Do not commit Telegram tokens, chat IDs, or secrets.
 - `/backup`
 - `/replay`
 - `/outbox`
+- `/fills`
+- `/costs`
+- `/paper_vs_backtest`
 
 ## Pause And Resume
 
@@ -75,3 +78,11 @@ They cannot enable demo/live execution, cannot change `DEMO_ONLY`, cannot change
 `/outbox` attempts a safe Telegram outbox flush without duplicating delivered messages.
 
 These commands are operational only and cannot enable trading.
+
+## Execution Simulation Commands
+
+`/fills` and `/costs` generate a read-only execution simulation calibration summary.
+
+`/paper_vs_backtest` generates a read-only forward paper versus backtest comparison.
+
+They cannot call `order_send`, cannot call `order_check`, and cannot change risk settings.
