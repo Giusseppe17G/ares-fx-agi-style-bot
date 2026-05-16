@@ -53,8 +53,24 @@ Example cycle summary:
   "open_trades": 0,
   "paper_trades_opened": 0,
   "paper_trades_closed": 0,
+  "heartbeat_written": true,
+  "alerts_emitted": 0,
+  "telegram_commands_processed": 0,
+  "shadow_paused": false,
   "execution_attempted": false
 }
+```
+
+## Observability
+
+Each cycle now writes a persistent heartbeat, evaluates operational alert rules, respects `shadow_paused`, and can process safe Telegram commands when Telegram is enabled.
+
+Use:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode status --sqlite data\sqlite\forward-shadow.sqlite3
+py -m agi_style_forex_bot_mt5.cli --mode health --sqlite data\sqlite\forward-shadow.sqlite3 --log-dir data\logs\forward-shadow
+py -m agi_style_forex_bot_mt5.cli --mode daily-summary --sqlite data\sqlite\forward-shadow.sqlite3 --report-dir data\reports\forward_shadow\daily
 ```
 
 ## Reports
@@ -85,4 +101,3 @@ Confirm:
 - no `order_send`
 - `execution_attempted=false`
 - paper lifecycle events only
-

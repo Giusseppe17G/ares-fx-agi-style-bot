@@ -24,6 +24,7 @@ from .contracts import AccountState, MarketSnapshot, utc_now
 from .data_pipeline import build_broker_cost_profile, build_dataset_manifest, cost_for_symbol
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
+from .observability import DailySummary, build_health_status, build_status
 from .paper_trading import ForwardShadowBot, forward_summary_to_json
 from .research import run_research
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
@@ -111,6 +112,9 @@ def main(argv: list[str] | None = None) -> int:
             "competitive-scorecard",
             "research",
             "forward-shadow",
+            "status",
+            "health",
+            "daily-summary",
         ],
         default="shadow",
     )
@@ -149,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
-    if args.mode in {"mt5-data", "mt5-diagnose"} and args.sqlite is None:
+    if args.mode in {"mt5-data", "mt5-diagnose", "status", "health", "daily-summary"} and args.sqlite is None:
         parser.error(f"--mode {args.mode} requires --sqlite for durable audit")
     database = TelemetryDatabase(args.sqlite) if args.sqlite else None
     try:
@@ -305,6 +309,21 @@ def main(argv: list[str] | None = None) -> int:
                 max_cycles=args.max_cycles,
             )
             print(forward_summary_to_json(bot.run()))
+            return 0
+
+        if args.mode == "status":
+            assert database is not None
+            print(_json_dumps(build_status(database)))
+            return 0
+
+        if args.mode == "health":
+            assert database is not None
+            print(_json_dumps(build_health_status(database, log_dir=args.log_dir)))
+            return 0
+
+        if args.mode == "daily-summary":
+            assert database is not None
+            print(_json_dumps(DailySummary(database, args.report_dir).generate()))
             return 0
 
         if args.mode in {"mt5-data", "mt5-diagnose"}:

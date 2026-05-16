@@ -72,6 +72,7 @@ class TelemetryDatabase:
                 (1, utc_now_iso()),
             )
         self._apply_paper_tables()
+        self._apply_observability_tables()
         self._conn.commit()
 
     def _migration_applied(self, version: int) -> bool:
@@ -215,6 +216,83 @@ class TelemetryDatabase:
                 started_at_utc TEXT NOT NULL,
                 stopped_at_utc TEXT,
                 status TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+
+    def _apply_observability_tables(self) -> None:
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS heartbeats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                heartbeat_id TEXT NOT NULL UNIQUE,
+                timestamp_utc TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                mt5_connected INTEGER NOT NULL,
+                execution_attempted INTEGER NOT NULL DEFAULT 0,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_heartbeats_time ON heartbeats(timestamp_utc)")
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                alert_id TEXT NOT NULL UNIQUE,
+                alert_code TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                timestamp_utc TEXT NOT NULL,
+                deduplication_key TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_code ON alerts(alert_code)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_dedup ON alerts(deduplication_key, timestamp_utc)")
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS telegram_commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                command_id TEXT NOT NULL UNIQUE,
+                chat_id_redacted TEXT NOT NULL,
+                command TEXT NOT NULL,
+                status TEXT NOT NULL,
+                timestamp_utc TEXT NOT NULL,
+                response_text TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS operational_state (
+                state_key TEXT PRIMARY KEY,
+                payload_json TEXT NOT NULL,
+                updated_at_utc TEXT NOT NULL
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                summary_id TEXT NOT NULL UNIQUE,
+                summary_date TEXT NOT NULL,
+                timestamp_utc TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS incidents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                incident_id TEXT NOT NULL UNIQUE,
+                severity TEXT NOT NULL,
+                incident_code TEXT NOT NULL,
+                timestamp_utc TEXT NOT NULL,
                 payload_json TEXT NOT NULL
             )
             """
@@ -473,6 +551,224 @@ class TelemetryDatabase:
             (idempotency_key,),
         ).fetchone()
 
+    def insert_heartbeat(self, payload: Mapping[str, Any]) -> bool:
+        raw = dict(payload)
+        safe = redact_secrets(raw)
+        now = str(raw.get("timestamp_utc") or utc_now_iso())
+        safe["timestamp_utc"] = now
+        heartbeat_id = str(safe.get("heartbeat_id") or f"hb_{uuid4().hex}")
+        cursor = self._conn.execute(
+            """
+            INSERT OR IGNORE INTO heartbeats (
+                heartbeat_id, timestamp_utc, mode, mt5_connected,
+                execution_attempted, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                heartbeat_id,
+                now,
+                str(safe.get("mode") or "unknown"),
+                1 if bool(safe.get("mt5_connected", False)) else 0,
+                1 if bool(safe.get("execution_attempted", False)) else 0,
+                compact_json(safe),
+            ),
+        )
+        self._conn.commit()
+        return cursor.rowcount == 1
+
+    def insert_alert(self, payload: Mapping[str, Any], *, dedup_window_seconds: int = 300) -> bool:
+        raw = dict(payload)
+        safe = redact_secrets(raw)
+        now = str(raw.get("timestamp_utc") or utc_now_iso())
+        safe["timestamp_utc"] = now
+        key = str(safe.get("deduplication_key") or safe.get("alert_code") or "alert")
+        existing = self._conn.execute(
+            """
+            SELECT timestamp_utc FROM alerts
+            WHERE deduplication_key = ?
+            ORDER BY timestamp_utc DESC
+            LIMIT 1
+            """,
+            (key,),
+        ).fetchone()
+        if existing is not None:
+            try:
+                from datetime import datetime
+
+                previous = datetime.fromisoformat(str(existing["timestamp_utc"]))
+                current = datetime.fromisoformat(now)
+                if (current - previous).total_seconds() < dedup_window_seconds:
+                    return False
+            except ValueError:
+                pass
+        alert_id = str(safe.get("alert_id") or f"alt_{uuid4().hex}")
+        cursor = self._conn.execute(
+            """
+            INSERT OR IGNORE INTO alerts (
+                alert_id, alert_code, severity, timestamp_utc,
+                deduplication_key, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                alert_id,
+                str(safe.get("alert_code") or "ALERT"),
+                str(safe.get("severity") or "WARNING"),
+                now,
+                key,
+                compact_json(safe),
+            ),
+        )
+        self._conn.commit()
+        return cursor.rowcount == 1
+
+    def get_latest_health(self) -> dict[str, Any]:
+        heartbeat = self._conn.execute("SELECT * FROM heartbeats ORDER BY id DESC LIMIT 1").fetchone()
+        state = self.get_operational_state()
+        alerts = [
+            json.loads(row["payload_json"])
+            for row in self._conn.execute("SELECT payload_json FROM alerts ORDER BY id DESC LIMIT 10")
+        ]
+        payload = json.loads(heartbeat["payload_json"]) if heartbeat is not None else {}
+        return {
+            "mode": payload.get("mode", "unknown"),
+            "last_heartbeat_utc": payload.get("timestamp_utc"),
+            "mt5_connected": bool(payload.get("mt5_connected", False)),
+            "shadow_paused": bool(state.get("shadow_paused", False)),
+            "open_paper_trades": payload.get("open_paper_trades", 0),
+            "recent_alerts": alerts,
+            "execution_attempted": False,
+        }
+
+    def get_operational_state(self) -> dict[str, Any]:
+        row = self._conn.execute(
+            "SELECT payload_json FROM operational_state WHERE state_key = 'runtime'"
+        ).fetchone()
+        if row is None:
+            return {
+                "shadow_paused": False,
+                "paused_reason": "",
+                "paused_by": "",
+                "paused_at_utc": None,
+                "resumed_at_utc": None,
+                "last_heartbeat_utc": None,
+                "last_daily_summary_utc": None,
+                "last_incident_utc": None,
+                "execution_attempted": False,
+            }
+        return json.loads(row["payload_json"])
+
+    def set_shadow_paused(self, paused: bool, *, reason: str, paused_by: str) -> dict[str, Any]:
+        state = self.get_operational_state()
+        now = utc_now_iso()
+        state.update(
+            {
+                "shadow_paused": bool(paused),
+                "paused_reason": reason if paused else "",
+                "paused_by": paused_by if paused else state.get("paused_by", ""),
+                "execution_attempted": False,
+            }
+        )
+        if paused:
+            state["paused_at_utc"] = now
+        else:
+            state["resumed_at_utc"] = now
+        self._conn.execute(
+            """
+            INSERT INTO operational_state (state_key, payload_json, updated_at_utc)
+            VALUES ('runtime', ?, ?)
+            ON CONFLICT(state_key) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                updated_at_utc = excluded.updated_at_utc
+            """,
+            (compact_json(redact_secrets(state)), now),
+        )
+        self._conn.commit()
+        return state
+
+    def get_shadow_paused(self) -> bool:
+        return bool(self.get_operational_state().get("shadow_paused", False))
+
+    def update_operational_state(self, updates: Mapping[str, Any]) -> dict[str, Any]:
+        state = self.get_operational_state()
+        raw_updates = dict(updates)
+        state.update(redact_secrets(raw_updates))
+        for key, value in raw_updates.items():
+            if key.endswith("_utc"):
+                state[key] = value
+        state["execution_attempted"] = False
+        now = utc_now_iso()
+        self._conn.execute(
+            """
+            INSERT INTO operational_state (state_key, payload_json, updated_at_utc)
+            VALUES ('runtime', ?, ?)
+            ON CONFLICT(state_key) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                updated_at_utc = excluded.updated_at_utc
+            """,
+            (compact_json(state), now),
+        )
+        self._conn.commit()
+        return state
+
+    def insert_telegram_command(self, payload: Mapping[str, Any]) -> bool:
+        safe = redact_secrets(dict(payload))
+        cursor = self._conn.execute(
+            """
+            INSERT OR IGNORE INTO telegram_commands (
+                command_id, chat_id_redacted, command, status,
+                timestamp_utc, response_text, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(safe.get("command_id") or f"tgc_{uuid4().hex}"),
+                str(safe.get("chat_id_redacted") or ""),
+                str(safe.get("command") or ""),
+                str(safe.get("status") or "UNKNOWN"),
+                str(safe.get("timestamp_utc") or utc_now_iso()),
+                str(safe.get("response_text") or ""),
+                compact_json(safe),
+            ),
+        )
+        self._conn.commit()
+        return cursor.rowcount == 1
+
+    def insert_daily_summary(self, payload: Mapping[str, Any]) -> bool:
+        safe = redact_secrets(dict(payload))
+        cursor = self._conn.execute(
+            """
+            INSERT OR IGNORE INTO daily_summaries (
+                summary_id, summary_date, timestamp_utc, payload_json
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (
+                str(safe.get("summary_id") or f"ds_{uuid4().hex}"),
+                str(safe.get("summary_date") or ""),
+                str(safe.get("timestamp_utc") or utc_now_iso()),
+                compact_json(safe),
+            ),
+        )
+        self._conn.commit()
+        return cursor.rowcount == 1
+
+    def insert_incident(self, payload: Mapping[str, Any]) -> bool:
+        safe = redact_secrets(dict(payload))
+        cursor = self._conn.execute(
+            """
+            INSERT OR IGNORE INTO incidents (
+                incident_id, severity, incident_code, timestamp_utc, payload_json
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                str(safe.get("incident_id") or f"inc_{uuid4().hex}"),
+                str(safe.get("severity") or "WARNING"),
+                str(safe.get("incident_code") or "INCIDENT"),
+                str(safe.get("timestamp_utc") or utc_now_iso()),
+                compact_json(safe),
+            ),
+        )
+        self._conn.commit()
+        return cursor.rowcount == 1
+
     def count_rows(self, table: str) -> int:
         if table not in DOMAIN_TABLES and table not in {
             "events",
@@ -483,6 +779,12 @@ class TelemetryDatabase:
             "paper_trade_events",
             "paper_performance_snapshots",
             "forward_shadow_sessions",
+            "heartbeats",
+            "alerts",
+            "telegram_commands",
+            "operational_state",
+            "daily_summaries",
+            "incidents",
         }:
             raise ValueError(f"unsupported telemetry table: {table}")
         row = self._conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()
@@ -498,6 +800,12 @@ class TelemetryDatabase:
             "paper_trade_events",
             "paper_performance_snapshots",
             "forward_shadow_sessions",
+            "heartbeats",
+            "alerts",
+            "telegram_commands",
+            "operational_state",
+            "daily_summaries",
+            "incidents",
         }:
             raise ValueError(f"unsupported telemetry table: {table}")
         return list(self._conn.execute(f"SELECT * FROM {table} ORDER BY id"))

@@ -295,6 +295,25 @@ Expected output includes:
 
 Forward shadow manages paper trades only. It must not create demo or live broker orders, and `order_send was not called` must remain true.
 
+Operational scripts:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\run_forward_shadow.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\watchdog_forward_shadow.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\status.ps1
+```
+
+Status and health:
+
+```powershell
+$env:PYTHONPATH="src/python"
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode status --sqlite data\sqlite\forward-shadow.sqlite3
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode health --sqlite data\sqlite\forward-shadow.sqlite3 --log-dir data\logs\forward-shadow
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode daily-summary --sqlite data\sqlite\forward-shadow.sqlite3 --report-dir data\reports\forward_shadow\daily
+```
+
+Telegram Command Center can pause or resume only shadow entries. Existing paper trades continue to be managed, and no command can enable real or demo broker execution.
+
 ## 15. MT5 Diagnose Mode
 
 Use this when `mt5-data` rejects symbols because the tick is stale or symbol mapping is unclear:

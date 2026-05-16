@@ -56,6 +56,38 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 
+## Phase 9 Observability And Command Center Update
+
+Status: PASS.
+
+Integrated in Phase 9:
+
+- Added `observability` package with heartbeat, metrics collector, alert rules, daily summary, operational status, incidents and report helpers.
+- Added persistent SQLite tables: `heartbeats`, `alerts`, `telegram_commands`, `operational_state`, `daily_summaries`, and `incidents`.
+- Added Telegram Command Center with allowlisted commands for `/status`, `/health`, `/summary`, `/open_trades`, `/today`, `/symbols`, `/rejections`, `/drift`, `/pause_shadow`, `/resume_shadow`, and `/help`.
+- Integrated `forward-shadow` heartbeat, alert evaluation, `shadow_paused`, daily summary generation and extended cycle summary fields.
+- Added CLI modes: `status`, `health`, and `daily-summary`.
+- Added Windows scripts: `run_forward_shadow.ps1`, `watchdog_forward_shadow.ps1`, and `status.ps1`.
+- Added docs: `OBSERVABILITY.md`, `TELEGRAM_COMMAND_CENTER.md`, and `OPERATIONAL_RUNBOOK.md`.
+
+Additional Phase 9 tests:
+
+- Heartbeat persists.
+- MT5 disconnected alert fires and deduplicates.
+- Operational state pauses and resumes shadow.
+- Telegram `/status`, `/pause_shadow`, `/resume_shadow` and unauthorized command handling are audited.
+- Daily summary writes JSON.
+- Forward shadow respects `shadow_paused` and writes heartbeat.
+- CLI accepts `status`, `health`, and `daily-summary`.
+- Forward-shadow operational scripts exist.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+
 ## Interface Compatibility
 
 Findings:

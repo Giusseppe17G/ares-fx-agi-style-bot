@@ -12,9 +12,11 @@ from agi_style_forex_bot_mt5.config import BotConfig
 from agi_style_forex_bot_mt5.contracts import AccountState, Environment, Event, Severity, SignalAction
 from agi_style_forex_bot_mt5.execution import MT5Connector
 from agi_style_forex_bot_mt5.mt5_data_bot import MT5DataOnlyBot
+from agi_style_forex_bot_mt5.observability import AlertRuleEngine, DailySummary, HeartbeatWriter, MetricsCollector
 from agi_style_forex_bot_mt5.risk import RiskRuntimeState
 from agi_style_forex_bot_mt5.strategy import evaluate_ensemble
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase, TelegramNotifier
+from agi_style_forex_bot_mt5.telegram_command_center import TelegramCommandCenter
 
 from .paper_fill_model import PaperFillModel
 from .paper_position_manager import PaperPositionManager
@@ -29,6 +31,10 @@ class ForwardShadowSummary:
     open_trades: int
     paper_trades_opened: int
     paper_trades_closed: int
+    heartbeat_written: bool = False
+    alerts_emitted: int = 0
+    telegram_commands_processed: int = 0
+    shadow_paused: bool = False
     execution_attempted: bool = False
 
 
@@ -61,19 +67,31 @@ class ForwardShadowBot:
         self.run_id = f"forward_{uuid4().hex}"
         self.connector: MT5Connector | None = None
         self.manager = PaperPositionManager(database=database, fill_model=PaperFillModel(max_spread_points=self.config.max_spread_points_default))
+        self.heartbeat = HeartbeatWriter(database)
+        self.alerts = AlertRuleEngine(database)
+        self.metrics = MetricsCollector(database)
+        self.command_center = TelegramCommandCenter(
+            database=database,
+            audit_logger=audit_logger,
+            daily_report_dir=f"{self.report_dir}/daily",
+            run_id=self.run_id,
+        )
 
     def run(self) -> ForwardShadowSummary:
         opened = 0
         closed = 0
         cycles = 0
+        alerts_emitted = 0
+        commands_processed = 0
+        heartbeat_written = False
         self._audit("FORWARD_SHADOW_STARTED", Severity.INFO, {"execution_attempted": False}, notify=True)
         if not self._connect():
             self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"execution_attempted": False}, notify=True)
-            return ForwardShadowSummary("forward-shadow", False, 0, 0, 0, 0, False)
+            return ForwardShadowSummary("forward-shadow", False, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, self.database.get_shadow_paused(), False)
         account = self._read_account()
         if account is None:
             self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"reason": "account_info unavailable", "execution_attempted": False}, notify=True)
-            return ForwardShadowSummary("forward-shadow", True, 0, 0, 0, 0, False)
+            return ForwardShadowSummary("forward-shadow", True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, self.database.get_shadow_paused(), False)
         if self.config.demo_only and not account.is_demo:
             self._audit(
                 "ACCOUNT_REAL_DETECTED_READ_ONLY",
@@ -81,9 +99,10 @@ class ForwardShadowBot:
                 {"trade_mode": account.trade_mode, "is_demo": account.is_demo, "execution_attempted": False},
                 notify=True,
             )
-            return ForwardShadowSummary("forward-shadow", True, 0, 0, 0, 0, False)
+            return ForwardShadowSummary("forward-shadow", True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, self.database.get_shadow_paused(), False)
         try:
             while self.max_cycles is None or cycles < self.max_cycles:
+                commands_processed += self.command_center.poll_and_process() if self.telegram_notifier is not None else 0
                 for trade in self.manager.load_open_trades():
                     snapshot = self._snapshot_for(trade.broker_symbol, trade.symbol)
                     if snapshot is None:
@@ -92,19 +111,61 @@ class ForwardShadowBot:
                     if updated.status == "CLOSED":
                         closed += 1
                         self._audit("PAPER_TRADE_CLOSED", Severity.INFO, updated.to_dict(), symbol=updated.symbol, notify=True)
-                opened += self._scan_new_paper_trades(account)
+                shadow_paused = self.database.get_shadow_paused()
+                if shadow_paused:
+                    self._audit("SHADOW_PAUSED", Severity.INFO, {"reason": self.database.get_operational_state().get("paused_reason", ""), "execution_attempted": False})
+                else:
+                    opened += self._scan_new_paper_trades(account)
                 after_open = len(self.manager.load_open_trades())
                 cycles += 1
-                self._audit("FORWARD_SHADOW_CYCLE", Severity.INFO, {"cycle": cycles, "open_trades": after_open, "execution_attempted": False})
+                heartbeat = self.heartbeat.write(
+                    {
+                        "mode": "forward-shadow",
+                        "mt5_connected": True,
+                        "symbols_seen": len(self.symbols),
+                        "symbols_rejected": 0,
+                        "open_paper_trades": after_open,
+                        "closed_paper_trades_today": closed,
+                        "last_error": "",
+                        "shadow_paused": shadow_paused,
+                        "execution_attempted": False,
+                    }
+                )
+                heartbeat_written = True
+                metrics = {**self.metrics.collect(), "mt5_connected": True, "sqlite_status": "OK", "jsonl_status": "OK"}
+                cycle_alerts = self.alerts.evaluate(metrics)
+                alerts_emitted += self.alerts.persist(cycle_alerts)
+                if cycle_alerts:
+                    self._audit("OPERATIONAL_ALERTS", Severity.WARNING, {"alerts": [alert.to_dict() for alert in cycle_alerts], "execution_attempted": False}, notify=True)
+                self._maybe_daily_summary()
+                self._audit(
+                    "HEARTBEAT",
+                    Severity.INFO,
+                    heartbeat,
+                    notify=False,
+                )
+                self._audit(
+                    "FORWARD_SHADOW_CYCLE",
+                    Severity.INFO,
+                    {
+                        "cycle": cycles,
+                        "open_trades": after_open,
+                        "heartbeat_written": True,
+                        "alerts_emitted": alerts_emitted,
+                        "telegram_commands_processed": commands_processed,
+                        "shadow_paused": shadow_paused,
+                        "execution_attempted": False,
+                    },
+                )
                 if self.max_cycles is None and self.cycle_seconds:
                     sleep(self.cycle_seconds)
             trades = self.manager.load_all_trades()
             write_forward_shadow_report(trades, self.report_dir)
             self._audit("FORWARD_SHADOW_STOPPED", Severity.INFO, {"cycles": cycles, "execution_attempted": False}, notify=True)
-            return ForwardShadowSummary("forward-shadow", True, cycles, len(self.manager.load_open_trades()), opened, closed, False)
+            return ForwardShadowSummary("forward-shadow", True, cycles, len(self.manager.load_open_trades()), opened, closed, heartbeat_written, alerts_emitted, commands_processed, self.database.get_shadow_paused(), False)
         except Exception as exc:
             self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"error": str(exc), "execution_attempted": False}, notify=True)
-            return ForwardShadowSummary("forward-shadow", True, cycles, len(self.manager.load_open_trades()), opened, closed, False)
+            return ForwardShadowSummary("forward-shadow", True, cycles, len(self.manager.load_open_trades()), opened, closed, heartbeat_written, alerts_emitted, commands_processed, self.database.get_shadow_paused(), False)
 
     def _connect(self) -> bool:
         self.connector = MT5Connector(config=self.config, mt5_client=self.mt5_client)
@@ -268,6 +329,13 @@ class ForwardShadowBot:
                 )
                 self.audit_logger.append_event(error)
                 self.database.insert_event(error)
+
+    def _maybe_daily_summary(self) -> None:
+        state = self.database.get_operational_state()
+        today = str(self.heartbeat.database.get_latest_health().get("last_heartbeat_utc") or "")[:10]
+        last = str(state.get("last_daily_summary_utc") or "")[:10]
+        if today and today != last:
+            DailySummary(self.database, f"{self.report_dir}/daily").generate()
 
 
 def forward_summary_to_json(summary: ForwardShadowSummary) -> str:

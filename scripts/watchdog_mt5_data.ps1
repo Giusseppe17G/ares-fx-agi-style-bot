@@ -28,6 +28,7 @@ function Get-RunningMt5DataProcess {
 }
 
 Write-WatchdogLog "Starting mt5-data watchdog. DEMO_ONLY=True, LIVE_TRADING_APPROVED=False, read-only mode."
+Write-WatchdogLog "For 24/7 paper lifecycle use scripts\watchdog_forward_shadow.ps1 after mt5-data smoke is healthy."
 
 while ($true) {
     $running = @(Get-RunningMt5DataProcess)
