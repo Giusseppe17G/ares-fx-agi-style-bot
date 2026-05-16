@@ -26,10 +26,14 @@ def build_master_validation_report(
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     summaries = {
+        "data_quality": _read_json(root / "data_quality" / "summary.json"),
+        "broker_cost_profile": _read_json(root / "broker_costs" / "broker_cost_profile.json"),
         "backtest": _read_json(root / "backtests" / "summary.json"),
         "walk_forward": _read_json(root / "walk_forward" / "summary.json"),
         "monte_carlo": _read_json(root / "monte_carlo" / "summary.json"),
         "stress": _read_json(root / "stress" / "summary.json"),
+        "benchmark": _read_json(root / "benchmarks" / "summary.json"),
+        "competitive_scorecard": _read_json(root / "competitive_scorecard" / "competitive_scorecard.json"),
     }
     final_decision, reasons = _final_decision(summaries)
     report = {
@@ -76,6 +80,10 @@ def _existing_summary_paths(root: Path) -> list[Path]:
             root / "walk_forward" / "summary.json",
             root / "monte_carlo" / "summary.json",
             root / "stress" / "summary.json",
+            root / "data_quality" / "summary.json",
+            root / "broker_costs" / "broker_cost_profile.json",
+            root / "benchmarks" / "summary.json",
+            root / "competitive_scorecard" / "competitive_scorecard.json",
         )
         if path.exists()
     ]
@@ -94,6 +102,22 @@ def _section_classification(section: str, summary: Mapping[str, Any]) -> str:
         if pf > 1.0 and expectancy >= 0:
             return "WATCHLIST"
         return "REJECTED"
+    if section == "data_quality":
+        value = str(summary.get("classification") or "REJECTED")
+        return "APPROVED_FOR_SHADOW_OBSERVATION" if value == "OK" else value
+    if section == "broker_cost_profile":
+        value = str(summary.get("classification") or "REJECTED")
+        return "APPROVED_FOR_SHADOW_OBSERVATION" if value == "OK" else value
+    if section == "competitive_scorecard":
+        value = str(summary.get("classification") or "REJECTED")
+        if value == "COMPETITIVE_CANDIDATE":
+            return "APPROVED_FOR_SHADOW_OBSERVATION"
+        if value in {"NEEDS_OPTIMIZATION", "WEAK_EDGE"}:
+            return "WATCHLIST"
+        return "REJECTED"
+    if section == "benchmark":
+        value = str(summary.get("classification") or "REJECTED")
+        return "WATCHLIST" if value == "WATCHLIST" else value
     return str(summary.get("classification") or "REJECTED")
 
 
@@ -103,10 +127,14 @@ def _final_decision(summaries: Mapping[str, Mapping[str, Any]]) -> tuple[str, li
         for section, summary in summaries.items()
     }
     reasons = [f"{section}: {classification}" for section, classification in classifications.items()]
+    if classifications.get("data_quality") == "REJECTED":
+        return "NEEDS_MORE_DATA", reasons
+    if classifications.get("benchmark") in {"REJECTED", "WATCHLIST"} or classifications.get("competitive_scorecard") in {"REJECTED", "WATCHLIST"}:
+        return "NEEDS_OPTIMIZATION", reasons
     if any(classification == "REJECTED" for classification in classifications.values()):
         return "REJECTED", reasons
     if any(classification == "WATCHLIST" for classification in classifications.values()):
-        return "WATCHLIST", reasons
+        return "NEEDS_OPTIMIZATION", reasons
     return "APPROVED_FOR_SHADOW_OBSERVATION", reasons
 
 

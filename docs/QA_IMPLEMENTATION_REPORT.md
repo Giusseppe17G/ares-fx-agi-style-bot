@@ -220,6 +220,37 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 
+## Phase 6 Data Pipeline And Competitive Benchmark Update
+
+Status: PASS.
+
+Integrated in Phase 6:
+
+- Added `data_pipeline` package with historical CSV quality checks, dataset manifest generation, and broker cost profile generation.
+- Added `benchmarks` package with simple baseline strategies, benchmark runner, and competitive scorecard.
+- Added CLI modes: `data-quality`, `build-cost-profile`, `benchmark`, and `competitive-scorecard`.
+- Updated master validation report to include data quality, broker costs, benchmark comparison, competitive scorecard, and final decision labels: `APPROVED_FOR_SHADOW_OBSERVATION`, `NEEDS_MORE_DATA`, `NEEDS_OPTIMIZATION`, `REJECTED`.
+- Added documentation: `docs/DATA_PIPELINE.md`, `docs/BENCHMARKING.md`, and `docs/COMPETITIVE_SCORECARD.md`.
+
+Additional Phase 6 tests:
+
+- Data quality detects gaps.
+- Data quality detects duplicate timestamps.
+- Dataset fingerprint is reproducible.
+- Broker cost profile calculates spread p95/p99.
+- Random benchmark baseline is reproducible with seed.
+- Benchmark runner generates baseline reports.
+- Competitive scorecard rejects weak baseline/OOS evidence.
+- Validation report includes data quality and benchmark summaries.
+- CLI accepts all Phase 6 modes and returns `execution_attempted=false`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+
 ## Phase 5 Advanced Validation Update
 
 Status: PASS.

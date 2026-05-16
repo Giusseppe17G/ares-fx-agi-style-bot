@@ -25,25 +25,39 @@ $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode export-hi
 $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode backtest --symbols EURUSD,GBPUSD,USDJPY --data-dir data\historical --report-dir data\reports\backtests
 ```
 
-3. Run walk-forward:
+3. Validate data quality and broker costs:
+
+```powershell
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode data-quality --data-dir data\historical --report-dir data\reports\data_quality
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode build-cost-profile --data-dir data\historical --report-dir data\reports\broker_costs
+```
+
+4. Run walk-forward:
 
 ```powershell
 $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode walk-forward --symbols EURUSD,GBPUSD,USDJPY --data-dir data\historical --report-dir data\reports\walk_forward
 ```
 
-4. Run Monte Carlo:
+5. Run Monte Carlo:
 
 ```powershell
 $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode monte-carlo --trades data\reports\backtests\trades.csv --report-dir data\reports\monte_carlo --simulations 2000 --seed 42
 ```
 
-5. Run stress test:
+6. Run stress test:
 
 ```powershell
 $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode stress-test --symbols EURUSD,GBPUSD,USDJPY --data-dir data\historical --report-dir data\reports\stress
 ```
 
-6. Build master validation report:
+7. Run benchmarks and competitive scorecard:
+
+```powershell
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode benchmark --symbols EURUSD,GBPUSD,USDJPY --data-dir data\historical --report-dir data\reports\benchmarks
+$env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode competitive-scorecard --reports-root data\reports --output-dir data\reports\competitive_scorecard
+```
+
+8. Build master validation report:
 
 ```powershell
 $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode validation-report --reports-root data\reports --output-dir data\reports\validation
@@ -62,6 +76,9 @@ Files:
 Demo execution remains blocked when:
 
 - Base backtest does not meet minimum metrics.
+- Data quality is rejected or broker cost profile is missing.
+- Strategy does not beat simple baselines after realistic costs.
+- Competitive scorecard is not acceptable.
 - Walk-forward test is negative or too sparse.
 - Monte Carlo shows excessive risk of ruin.
 - Stress test collapses under spread `x2`.

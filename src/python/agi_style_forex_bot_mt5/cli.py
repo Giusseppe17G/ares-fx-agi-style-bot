@@ -18,8 +18,10 @@ from .backtesting import (
     run_stress_report,
     run_walk_forward_for_symbols,
 )
+from .benchmarks import build_competitive_scorecard, run_benchmarks
 from .config import load_config
 from .contracts import AccountState, MarketSnapshot, utc_now
+from .data_pipeline import build_broker_cost_profile, build_dataset_manifest, cost_for_symbol
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
@@ -101,6 +103,10 @@ def main(argv: list[str] | None = None) -> int:
             "monte-carlo",
             "stress-test",
             "validation-report",
+            "data-quality",
+            "build-cost-profile",
+            "benchmark",
+            "competitive-scorecard",
         ],
         default="shadow",
     )
@@ -142,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         selected_symbols = _selected_symbols(args.symbol, args.symbols)
         if args.mode == "backtest":
+            cost_profile = _load_optional_json(args.reports_root / "broker_costs" / "broker_cost_profile.json")
+            spread_points = cost_for_symbol(cost_profile, selected_symbols[0], fallback=args.spread_points)
             result = run_backtest_for_symbols(
                 data_dir=args.data_dir,
                 symbols=selected_symbols,
@@ -149,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
                 config=config,
                 settings=BacktestSettings(
                     cost_model=CostModel(
-                        spread_points=args.spread_points,
+                        spread_points=spread_points,
                         slippage_points=args.slippage_points,
                         commission_per_lot_round_turn=args.commission,
                         max_spread_points=config.max_spread_points_default,
@@ -224,6 +232,45 @@ def main(argv: list[str] | None = None) -> int:
             print(_json_dumps(summary))
             return 0
 
+        if args.mode == "data-quality":
+            summary = build_dataset_manifest(
+                data_dir=args.data_dir,
+                report_dir=args.report_dir,
+                symbols=selected_symbols,
+                timeframes=tuple(item.strip() for item in args.timeframes.split(",") if item.strip()),
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "build-cost-profile":
+            summary = build_broker_cost_profile(
+                data_dir=args.data_dir,
+                report_dir=args.report_dir,
+                symbols=selected_symbols,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "benchmark":
+            cost_profile = _load_optional_json(args.reports_root / "broker_costs" / "broker_cost_profile.json")
+            summary = run_benchmarks(
+                data_dir=args.data_dir,
+                symbols=selected_symbols,
+                report_dir=args.report_dir,
+                broker_cost_profile=cost_profile,
+                seed=args.seed,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "competitive-scorecard":
+            summary = build_competitive_scorecard(
+                reports_root=args.reports_root,
+                output_dir=args.output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
         if args.mode in {"mt5-data", "mt5-diagnose"}:
             bot_cls = MT5DiagnoseBot if args.mode == "mt5-diagnose" else MT5DataOnlyBot
             bot = bot_cls(
@@ -291,6 +338,12 @@ def _json_dumps(payload: object) -> str:
 
 def math_is_inf(value: float) -> bool:
     return value == float("inf") or value == float("-inf")
+
+
+def _load_optional_json(path: Path) -> dict[str, object] | None:
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

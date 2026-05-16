@@ -484,9 +484,17 @@ def test_validation_report_consolidates_results(tmp_path: Path) -> None:
     (root / "walk_forward").mkdir()
     (root / "monte_carlo").mkdir()
     (root / "stress").mkdir()
+    (root / "data_quality").mkdir()
+    (root / "broker_costs").mkdir()
+    (root / "benchmarks").mkdir()
+    (root / "competitive_scorecard").mkdir()
     (root / "backtests" / "summary.json").write_text('{"total_trades":300,"profit_factor":1.5,"expectancy_r":0.1,"max_drawdown_pct":-5}', encoding="utf-8")
     for folder in ("walk_forward", "monte_carlo", "stress"):
         (root / folder / "summary.json").write_text('{"classification":"APPROVED_FOR_SHADOW_OBSERVATION"}', encoding="utf-8")
+    (root / "data_quality" / "summary.json").write_text('{"classification":"OK"}', encoding="utf-8")
+    (root / "broker_costs" / "broker_cost_profile.json").write_text('{"classification":"OK"}', encoding="utf-8")
+    (root / "benchmarks" / "summary.json").write_text('{"classification":"APPROVED_FOR_SHADOW_OBSERVATION"}', encoding="utf-8")
+    (root / "competitive_scorecard" / "competitive_scorecard.json").write_text('{"classification":"COMPETITIVE_CANDIDATE"}', encoding="utf-8")
 
     report = build_master_validation_report(reports_root=root, output_dir=root / "validation")
 
