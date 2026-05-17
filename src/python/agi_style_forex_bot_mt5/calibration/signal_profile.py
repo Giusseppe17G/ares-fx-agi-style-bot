@@ -12,6 +12,7 @@ class SignalProfile(str, Enum):
 
     CONSERVATIVE = "CONSERVATIVE"
     BALANCED = "BALANCED"
+    BALANCED_FILTERED = "BALANCED_FILTERED"
     ACTIVE = "ACTIVE"
     RESEARCH_ONLY = "RESEARCH_ONLY"
 
@@ -39,6 +40,7 @@ class SignalProfileSettings:
 PROFILES: dict[str, SignalProfileSettings] = {
     "CONSERVATIVE": SignalProfileSettings("CONSERVATIVE", 72, 60, 70, 65, 65, 60, 70, 5),
     "BALANCED": SignalProfileSettings("BALANCED", 62, 50, 55, 50, 50, 50, 60, 8),
+    "BALANCED_FILTERED": SignalProfileSettings("BALANCED_FILTERED", 62, 50, 55, 50, 50, 50, 60, 8),
     "ACTIVE": SignalProfileSettings("ACTIVE", 55, 45, 45, 45, 45, 45, 55, 10, research_only=True, not_for_demo_live=True),
     "RESEARCH_ONLY": SignalProfileSettings("RESEARCH_ONLY", 48, 35, 35, 35, 35, 35, 50, 15, research_only=True, not_for_demo_live=True),
 }
@@ -49,7 +51,7 @@ def get_signal_profile(name: str | SignalProfile) -> SignalProfileSettings:
 
     key = str(name.value if isinstance(name, SignalProfile) else name).strip().upper()
     if key not in PROFILES:
-        raise ValueError("SIGNAL_PROFILE must be CONSERVATIVE, BALANCED, ACTIVE, or RESEARCH_ONLY")
+        raise ValueError("SIGNAL_PROFILE must be CONSERVATIVE, BALANCED, BALANCED_FILTERED, ACTIVE, or RESEARCH_ONLY")
     return PROFILES[key]
 
 

@@ -53,6 +53,18 @@ Unknown strategy names are kept in the report as `UNKNOWN` rather than dropped.
 
 If only counts are available, strategies are marked `WATCHLIST_COUNTS_ONLY` instead of being disabled. Disabling a strategy requires actual performance evidence, not just missing metrics.
 
+## BALANCED_FILTERED
+
+Phase 21 uses the same evidence to build `BALANCED_FILTERED`:
+
+- symbols with positive edge become `KEEP`
+- clearly negative symbols become `DISABLE`
+- strategies with low profit factor become `DISABLE_IN_BALANCED`
+- rollover and negative sessions become blocked
+- negative regimes become blocked or watchlisted
+
+The filtered profile is a research overlay. It preserves global risk limits and cannot authorize demo/live execution.
+
 ## Session And Regime Decisions
 
 Sessions and regimes are grouped from `trades.csv` when those columns exist. Missing columns become `UNKNOWN`.

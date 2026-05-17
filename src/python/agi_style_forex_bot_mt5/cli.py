@@ -24,6 +24,7 @@ from .broker_quality import build_readiness_report, run_broker_quality
 from .config import load_config
 from .contracts import AccountState, MarketSnapshot, utc_now
 from .data_pipeline import audit_historical_data, audit_timestamps, build_broker_cost_profile, build_dataset_manifest, build_feature_availability_report, build_strategy_data_contract_report, cost_for_symbol
+from .edge_filtering import run_edge_filtering, run_filtered_profile_builder
 from .edge_evaluation import run_edge_evaluation, run_strategy_selection, run_symbol_selection
 from .execution_simulation import compare_paper_vs_backtest, run_simulation_calibration
 from .market_structure import run_strategy_diagnose, write_structure_report
@@ -165,6 +166,8 @@ def main(argv: list[str] | None = None) -> int:
             "edge-evaluation",
             "symbol-selection",
             "strategy-selection",
+            "edge-filtering",
+            "build-filtered-profile",
         ],
         default="shadow",
     )
@@ -183,6 +186,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-root", type=Path, default=Path("data/runs"), help="Root directory for real-data-research run folders.")
     parser.add_argument("--runs-root", type=Path, default=Path("data/runs"), help="Root directory for latest-run-summary.")
     parser.add_argument("--run-id", default="", help="Exact real-data-research run id for edge evaluation modes.")
+    parser.add_argument("--edge-dir", type=Path, default=Path("data/reports/edge"), help="Edge evaluation report directory.")
+    parser.add_argument("--base-profile", default="BALANCED", help="Base profile for filtered edge profile generation.")
+    parser.add_argument("--profile-config", type=Path, default=None, help="Profile overlay INI for BALANCED_FILTERED research runs.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
     parser.add_argument("--reports-root", type=Path, default=Path("data/reports"), help="Reports root for validation-report.")
     parser.add_argument("--trades", type=Path, default=None, help="Trades CSV for monte-carlo.")
@@ -217,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile", default="BALANCED", help="Signal profile for apply-signal-profile.")
     parser.add_argument(
         "--signal-profile",
-        choices=["CONSERVATIVE", "BALANCED", "ACTIVE", "RESEARCH_ONLY"],
+        choices=["CONSERVATIVE", "BALANCED", "BALANCED_FILTERED", "ACTIVE", "RESEARCH_ONLY"],
         default="",
         help="Research/backtest signal profile overlay.",
     )
@@ -344,6 +350,7 @@ def main(argv: list[str] | None = None) -> int:
                 skip_benchmark=args.skip_benchmark,
                 max_symbols=args.max_symbols,
                 max_bars=args.max_bars,
+                profile_config=str(args.profile_config) if args.profile_config else "",
             )
             summary = run_real_data_research(research_config, bot_config=config)
             print(_json_dumps(summary))
@@ -387,6 +394,18 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "strategy-selection":
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/edge")
             summary = run_strategy_selection(runs_root=args.runs_root, output_dir=output_dir, run_id=args.run_id or None)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "edge-filtering":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/edge_filtering")
+            summary = run_edge_filtering(runs_root=args.runs_root, edge_dir=args.edge_dir, output_dir=output_dir, base_profile=args.base_profile)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "build-filtered-profile":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/edge_filtering")
+            summary = run_filtered_profile_builder(runs_root=args.runs_root, edge_dir=args.edge_dir, output_dir=output_dir, base_profile=args.base_profile)
             print(_json_dumps(summary))
             return 0
 

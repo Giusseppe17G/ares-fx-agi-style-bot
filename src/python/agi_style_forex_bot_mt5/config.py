@@ -75,8 +75,8 @@ class BotConfig:
             raise ValueError("max open risk cannot exceed 5%")
         if not self.require_sl or not self.require_tp:
             raise ValueError("SL and TP must be required")
-        if self.signal_profile.upper() not in {"CONSERVATIVE", "BALANCED", "ACTIVE", "RESEARCH_ONLY"}:
-            raise ValueError("SIGNAL_PROFILE must be CONSERVATIVE, BALANCED, ACTIVE, or RESEARCH_ONLY")
+        if self.signal_profile.upper() not in {"CONSERVATIVE", "BALANCED", "BALANCED_FILTERED", "ACTIVE", "RESEARCH_ONLY"}:
+            raise ValueError("SIGNAL_PROFILE must be CONSERVATIVE, BALANCED, BALANCED_FILTERED, ACTIVE, or RESEARCH_ONLY")
 
 
 def load_config(path: str | Path | None = None) -> BotConfig:

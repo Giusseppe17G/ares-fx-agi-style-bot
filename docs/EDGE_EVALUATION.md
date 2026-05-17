@@ -82,6 +82,17 @@ When metrics are counts-only:
 
 To repair `COUNTS_ONLY`, verify that `reports/backtests/trades.csv` exists under the selected run and includes profit or R-multiple columns.
 
+## Next Step: Edge Filtering
+
+When `metrics_status=FULL_EDGE_METRICS` but the decision is `TEST_ACTIVE_RESEARCH_ONLY` or global edge is mixed, run:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode edge-filtering --runs-root data\runs --edge-dir data\reports\edge --output-dir data\reports\edge_filtering
+```
+
+This creates `BALANCED_FILTERED`, which keeps the safer BALANCED frequency while disabling weak symbols, strategies, sessions, and regimes. It does not enable demo/live trading.
+
 ## Outputs
 
 Reports are written to `data/reports/edge` unless another output directory is provided:

@@ -204,7 +204,7 @@ def profile_allowed_for_shadow(profile_name: str) -> bool:
     """Return True only for profiles allowed to create forward-shadow paper trades."""
 
     profile = get_signal_profile(profile_name)
-    return profile.name in {"CONSERVATIVE", "BALANCED"} and not profile.not_for_demo_live
+    return profile.name in {"CONSERVATIVE", "BALANCED", "BALANCED_FILTERED"} and not profile.not_for_demo_live
 
 
 def profile_trade_frequency_status(*, signals_generated: int, trades_generated: int) -> str:

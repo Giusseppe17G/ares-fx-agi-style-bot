@@ -942,3 +942,24 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## Phase 21 Edge Filtering Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 281 tests collected.
+
+Integrated in Phase 21:
+
+- Added `edge_filtering` package for symbol, strategy, session, regime and setup-quality pruning.
+- Added CLI modes `edge-filtering` and `build-filtered-profile`.
+- Added `BALANCED_FILTERED` as a safe research/backtest/forward-shadow paper profile.
+- Added `--profile-config` for `real-data-research` and summary field `filters_applied`.
+- Added reports: filter summary, by-symbol, by-strategy, by-session, by-regime, filtered profile JSON/INI, diff and HTML.
+- Updated latest-run summaries to expose filtered profile availability and rerun command.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

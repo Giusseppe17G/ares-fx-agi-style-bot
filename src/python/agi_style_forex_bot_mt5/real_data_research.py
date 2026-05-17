@@ -70,6 +70,7 @@ class RealDataResearchConfig:
     skip_benchmark: bool = False
     max_symbols: int = 0
     max_bars: int = 0
+    profile_config: str = ""
 
     def __post_init__(self) -> None:
         symbols = _coerce_symbols(self.symbols)
@@ -155,6 +156,7 @@ class RealDataResearchRunner:
             "symbols": list(self.config.symbols),
             "signal_profile_used": self.signal_profile.name,
             "thresholds_used": self.signal_profile.to_dict(),
+            "filters_applied": self._filters_applied(),
             "profile_not_for_demo_live": bool(self.signal_profile.not_for_demo_live),
             "profile_allowed_for_shadow": profile_allowed_for_shadow(self.signal_profile.name),
             "stages": [result.to_dict() for result in results],
@@ -242,6 +244,7 @@ class RealDataResearchRunner:
             summary["execution_attempted"] = False
             summary.setdefault("signal_profile_used", self.signal_profile.name)
             summary.setdefault("thresholds_used", self.signal_profile.to_dict())
+            summary.setdefault("filters_applied", self._filters_applied())
             summary.setdefault("profile_not_for_demo_live", bool(self.signal_profile.not_for_demo_live))
             summary.setdefault("profile_allowed_for_shadow", profile_allowed_for_shadow(self.signal_profile.name))
             status = self._status_for_summary(name, summary)
@@ -589,6 +592,8 @@ class RealDataResearchRunner:
             "mode": "backtest",
             "signal_profile_used": self.signal_profile.name,
             "thresholds_used": self.signal_profile.to_dict(),
+            "filters_applied": self._filters_applied(),
+            "profile_config": self.config.profile_config,
             "profile_not_for_demo_live": bool(self.signal_profile.not_for_demo_live),
             "profile_allowed_for_shadow": profile_allowed_for_shadow(self.signal_profile.name),
             "symbols_tested": 0,
@@ -738,6 +743,19 @@ class RealDataResearchRunner:
             "execution_attempted": False,
             "order_send_called": False,
             "order_check_called": False,
+        }
+
+    def _filters_applied(self) -> dict[str, Any]:
+        if self.signal_profile.name != "BALANCED_FILTERED":
+            return {"profile": self.signal_profile.name, "enabled": False}
+        path = Path(self.config.profile_config) if self.config.profile_config else Path("data/reports/edge_filtering/balanced_filtered.ini")
+        return {
+            "profile": "BALANCED_FILTERED",
+            "enabled": True,
+            "profile_config": str(path),
+            "profile_config_exists": path.exists(),
+            "research_only": True,
+            "execution_attempted": False,
         }
 
     def _historical_context(self, results: list[ResearchStageResult]) -> dict[str, Any]:
@@ -896,6 +914,11 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
         global_edge = _load_optional_json(Path("data/reports/edge/edge_summary.json")) or {}
         if str(global_edge.get("run_id", "")) == str(payload.get("run_id", latest.name)):
             edge = global_edge
+    filtered = _load_optional_json(latest / "reports" / "edge_filtering" / "filter_summary.json") or {}
+    if not filtered:
+        global_filtered = _load_optional_json(Path("data/reports/edge_filtering/filter_summary.json")) or {}
+        if not global_filtered.get("run_id") or str(global_filtered.get("run_id")) == str(payload.get("run_id", latest.name)):
+            filtered = global_filtered
     payload["historical_data_status"] = audit.get("historical_data_status", audit.get("classification", payload.get("historical_data_status", "")))
     payload["timestamp_status"] = audit.get("timestamp_status", payload.get("timestamp_status", ""))
     payload["h1_bars_status"] = audit.get("h1_bars_status", payload.get("h1_bars_status", ""))
@@ -920,6 +943,21 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
         payload["strategies_disable"] = edge.get("strategies_disable", [])
         if edge.get("decision"):
             payload["recommended_next_action"] = _edge_next_action(str(edge.get("decision")))
+    if filtered:
+        run_profile_path = latest / "reports" / "edge_filtering" / "balanced_filtered.ini"
+        profile_path = run_profile_path if run_profile_path.exists() else Path("data/reports/edge_filtering/balanced_filtered.ini")
+        payload["filtered_profile_available"] = bool(profile_path.exists() or filtered.get("reports_created"))
+        payload["filtered_profile_path"] = str(profile_path)
+        payload["symbols_keep"] = filtered.get("symbols_keep", payload.get("symbols_keep", []))
+        payload["symbols_disable"] = filtered.get("symbols_disable", [])
+        payload["strategies_keep"] = filtered.get("strategies_keep", payload.get("strategies_keep", []))
+        payload["strategies_disable"] = filtered.get("strategies_disable", payload.get("strategies_disable", []))
+        symbols = ",".join(payload.get("symbols_keep") or payload.get("data_valid_symbols") or ["EURUSD", "GBPUSD", "USDJPY"])
+        payload["recommended_filtered_run_command"] = (
+            "py -m agi_style_forex_bot_mt5.cli --mode real-data-research "
+            f"--symbols {symbols} --bars 20000 --output-root data\\runs --signal-profile BALANCED_FILTERED "
+            "--profile-config data\\reports\\edge_filtering\\balanced_filtered.ini --quick"
+        )
     if payload.get("timestamp_status") == "FAILED":
         payload["recommended_next_action"] = "Run FASE 18D timestamp normalization repair or re-export history."
     elif payload.get("data_contract_status") not in {"", "OK"}:

@@ -287,3 +287,21 @@ py -m agi_style_forex_bot_mt5.cli --mode edge-evaluation --runs-root data\runs -
 ```
 
 If edge evaluation reports `metrics_status=COUNTS_ONLY`, it aligned with the run's trade count but could not find trade-level PnL. For example, 213 trades without readable `profit_factor` or `expectancy_r` becomes `NEEDS_FULL_EDGE_METRICS`, not `NEEDS_MORE_TRADES`.
+
+## Phase 21 BALANCED_FILTERED Rerun
+
+Create a filtered profile from edge reports:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode build-filtered-profile --runs-root data\runs --edge-dir data\reports\edge --output-dir data\reports\edge_filtering --base-profile BALANCED
+```
+
+Then rerun a quick research pass:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBPUSD,USDJPY --bars 20000 --output-root data\runs --signal-profile BALANCED_FILTERED --profile-config data\reports\edge_filtering\balanced_filtered.ini --quick
+```
+
+The run summary records `filters_applied`. `BALANCED_FILTERED` is still research/backtest/forward-shadow paper only.
