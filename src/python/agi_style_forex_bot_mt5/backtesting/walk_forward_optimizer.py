@@ -19,6 +19,7 @@ from .backtester import (
     load_historical_csv,
     run_strategy_backtest,
 )
+from ..data_pipeline import resolve_historical_data
 
 
 BacktestCallback = Callable[[pd.DataFrame, Mapping[str, Any]], BacktestOutcome]
@@ -401,14 +402,10 @@ def _default_parameter_grid() -> tuple[Mapping[str, Any], ...]:
 
 
 def _find_history_csv(data_dir: Path, symbol: str) -> Path:
-    for candidate in (
-        data_dir / f"{symbol}_M5.csv",
-        data_dir / f"{symbol}.csv",
-        data_dir / f"{symbol.lower()}_m5.csv",
-    ):
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError(f"no M5 CSV found for {symbol} in {data_dir}")
+    resolution = resolve_historical_data(data_dir, symbol=symbol, timeframe="M5", min_bars=0)
+    if resolution.found:
+        return Path(resolution.path)
+    raise FileNotFoundError(f"no M5 CSV found for {symbol} in {data_dir}: {resolution.reason}")
 
 
 def _calendar_windows(

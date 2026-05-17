@@ -10,6 +10,7 @@ from typing import Any, Iterable
 import pandas as pd
 
 from agi_style_forex_bot_mt5.contracts import MarketSnapshot, utc_now
+from agi_style_forex_bot_mt5.data_pipeline.historical_csv_loader import load_historical_csv_contract
 from agi_style_forex_bot_mt5.data_pipeline.historical_data_resolver import CALIBRATION_MIN_BARS, resolve_historical_data
 from agi_style_forex_bot_mt5.strategy import evaluate_ensemble
 
@@ -142,10 +143,10 @@ def _load_symbol_frame(data_dir: Path, symbol: str) -> pd.DataFrame:
     resolution = resolve_historical_data(data_dir, symbol=symbol, timeframe="M5", min_bars=0)
     if not resolution.found:
         raise FileNotFoundError(f"no M5 CSV for {symbol}: {resolution.reason}")
-    frame = pd.read_csv(resolution.path)
-    if "time" in frame.columns:
-        frame = frame.sort_values("time")
-    return frame
+    loaded = load_historical_csv_contract(resolution.path, symbol=symbol, timeframe="M5")
+    if loaded.diagnostics["status"] != "OK":
+        raise ValueError(str(loaded.diagnostics["status"]))
+    return loaded.frame
 
 
 def _snapshot_from_frame(symbol: str, frame: pd.DataFrame) -> MarketSnapshot:

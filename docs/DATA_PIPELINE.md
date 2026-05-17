@@ -93,6 +93,31 @@ Full validation keeps the original recommended minimums: M5 50000 bars, M15 3000
 
 If `TIMESTAMP_PARSE_ERROR` appears, re-export history or repair the timestamp column before running strategy diagnostics. If H1 has a few hundred bars, calibration can continue, but full validation still needs more H1 history.
 
+## Strategy Data Contract
+
+Phase 18E adds one canonical CSV loader for strategy, calibration and backtest ingestion. The final DataFrame contract is:
+
+- `timestamp_utc`
+- `time`
+- `open`
+- `high`
+- `low`
+- `close`
+- `tick_volume`
+- `spread`
+- `real_volume`
+
+Run:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode strategy-data-contract --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --data-dir data\runs\<RUN_ID>\historical --report-dir data\runs\<RUN_ID>\reports\data_contract
+```
+
+Specific CSV blockers include `CSV_FILE_NOT_FOUND`, `CSV_EMPTY`, `CSV_READ_ERROR`, `CSV_MISSING_OHLC`, `CSV_NUMERIC_CONVERSION_ERROR`, `CSV_TIMESTAMP_PARSE_ERROR`, `CSV_TOO_FEW_ROWS`, `CSV_DUPLICATE_TIMESTAMPS`, `CSV_UNSORTED_FIXED`, and `CSV_SPREAD_MISSING_ASSUMED_ZERO`.
+
+If `spread` is missing, the loader creates `spread=0` and emits `CSV_SPREAD_MISSING_ASSUMED_ZERO`; this is acceptable for plumbing diagnostics but not enough for final cost validation. Do not tune thresholds until `data_contract_status=OK`.
+
 ## Broker Cost Profile
 
 ```powershell

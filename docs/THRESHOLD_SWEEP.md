@@ -68,3 +68,5 @@ Phase 18C distinguishes missing data from real strategy filters. If `top_blockin
 If H1 is insufficient for full validation but still above the calibration diagnostic minimum, threshold sweep can continue and the run summary will describe the dataset as partial but usable for calibration. That does not make it valid for full validation.
 
 If threshold sweep still returns zero signals after timestamp and feature availability are `OK`, the blocker is strategy context rather than data plumbing. The next step is to test a balanced profile against backtest/research, not to bypass safety gates.
+
+Phase 18E adds diagnostic candidates even when the final action is `NONE`. Every blocked candidate must include `symbol`, strategy/ensemble name, score, threshold, component scores when available, regime/session context, near-miss status, and non-empty blockers. `CSV_PARSE_ERROR` should not appear when `strategy-data-contract` is `OK`.

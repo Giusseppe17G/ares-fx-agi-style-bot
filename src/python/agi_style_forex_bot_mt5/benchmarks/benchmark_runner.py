@@ -9,7 +9,7 @@ from typing import Any, Iterable, Mapping
 import pandas as pd
 
 from ..backtesting import BacktestSettings, Backtester, CostModel, load_historical_csv, run_strategy_backtest
-from ..data_pipeline import cost_for_symbol
+from ..data_pipeline import cost_for_symbol, resolve_historical_data
 from .baseline_strategies import BASELINES, generate_baseline_candidates
 
 
@@ -94,10 +94,8 @@ def run_benchmarks(
 
 
 def _find_csv(data_dir: Path, symbol: str) -> Path | None:
-    for candidate in (data_dir / f"{symbol}_M5.csv", data_dir / f"{symbol}.csv"):
-        if candidate.exists():
-            return candidate
-    return None
+    resolution = resolve_historical_data(data_dir, symbol=symbol, timeframe="M5", min_bars=0)
+    return Path(resolution.path) if resolution.found else None
 
 
 def _coerce_symbols(symbols: Iterable[str] | str) -> tuple[str, ...]:

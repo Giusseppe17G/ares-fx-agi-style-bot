@@ -10,13 +10,15 @@ from agi_style_forex_bot_mt5.calibration import analyze_signal_frequency, get_si
 from agi_style_forex_bot_mt5.data_pipeline import (
     audit_historical_data,
     audit_timestamps,
+    build_strategy_data_contract_report,
     build_feature_availability_report,
+    load_historical_csv_contract,
     normalize_timestamps,
     resolve_historical_data,
 )
 from agi_style_forex_bot_mt5.mt5_history_exporter import MT5HistoryExporter
 from agi_style_forex_bot_mt5.market_structure import run_strategy_diagnose
-from agi_style_forex_bot_mt5.real_data_research import load_latest_run_summary
+from agi_style_forex_bot_mt5.real_data_research import RealDataResearchConfig, RealDataResearchRunner, load_latest_run_summary
 
 
 def test_resolver_finds_flat_symbol_timeframe_csv(tmp_path: Path) -> None:
@@ -27,6 +29,46 @@ def test_resolver_finds_flat_symbol_timeframe_csv(tmp_path: Path) -> None:
     assert result.found is True
     assert result.is_sufficient is True
     assert result.reason is None
+
+
+def test_historical_csv_loader_normalizes_contract(tmp_path: Path) -> None:
+    _write_history(tmp_path / "EURUSD_M5.csv", rows=5)
+
+    result = load_historical_csv_contract(tmp_path / "EURUSD_M5.csv", symbol="EURUSD", timeframe="M5")
+
+    assert result.diagnostics["status"] == "OK"
+    assert set(["timestamp_utc", "time", "open", "high", "low", "close", "tick_volume", "spread", "real_volume"]).issubset(result.frame.columns)
+
+
+def test_historical_csv_loader_converts_ohlc_strings(tmp_path: Path) -> None:
+    path = tmp_path / "EURUSD_M5.csv"
+    pd.DataFrame(
+        [{"time": "2026-05-16T12:00:00Z", "open": "1.1", "high": "1.2", "low": "1.0", "close": "1.15", "tick_volume": "100"}]
+    ).to_csv(path, index=False)
+
+    result = load_historical_csv_contract(path, symbol="EURUSD", timeframe="M5")
+
+    assert result.diagnostics["status"] == "OK"
+    assert result.frame["open"].dtype.kind in {"f", "i"}
+    assert "CSV_SPREAD_MISSING_ASSUMED_ZERO" in result.diagnostics["warnings"]
+
+
+def test_historical_csv_loader_detects_missing_ohlc(tmp_path: Path) -> None:
+    path = tmp_path / "bad.csv"
+    pd.DataFrame([{"time": "2026-05-16T12:00:00Z", "open": 1.1, "high": 1.2, "close": 1.15, "tick_volume": 100}]).to_csv(path, index=False)
+
+    result = load_historical_csv_contract(path, symbol="EURUSD", timeframe="M5")
+
+    assert result.diagnostics["status"] == "CSV_MISSING_OHLC"
+
+
+def test_historical_csv_loader_detects_invalid_timestamp(tmp_path: Path) -> None:
+    path = tmp_path / "bad_time.csv"
+    pd.DataFrame([{"time": "not-a-date", "open": 1.1, "high": 1.2, "low": 1.0, "close": 1.15, "tick_volume": 100}]).to_csv(path, index=False)
+
+    result = load_historical_csv_contract(path, symbol="EURUSD", timeframe="M5")
+
+    assert result.diagnostics["status"] == "CSV_TIMESTAMP_PARSE_ERROR"
 
 
 def test_timestamp_normalizer_parses_epoch_seconds() -> None:
@@ -174,6 +216,29 @@ def test_cli_accepts_historical_data_audit(tmp_path: Path, capsys) -> None:
     assert output["execution_attempted"] is False
 
 
+def test_strategy_data_contract_cli_generates_reports(tmp_path: Path, capsys) -> None:
+    report_dir = tmp_path / "contract"
+    _write_history(tmp_path / "EURUSD_M5.csv", rows=1200)
+
+    assert cli.main(["--mode", "strategy-data-contract", "--symbol", "EURUSD", "--data-dir", str(tmp_path), "--report-dir", str(report_dir), "--timeframes", "M5"]) == 0
+    output = json.loads(capsys.readouterr().out)
+
+    assert output["mode"] == "strategy-data-contract"
+    assert (report_dir / "data_contract_report.json").exists()
+    assert output["execution_attempted"] is False
+
+
+def test_threshold_sweep_no_csv_parse_error_when_loader_passes(tmp_path: Path) -> None:
+    report_dir = tmp_path / "sweep"
+    _write_history(tmp_path / "EURUSD_M5.csv", rows=1200)
+
+    summary = run_threshold_sweep_report(symbols=("EURUSD",), data_dir=tmp_path, report_dir=report_dir, profiles_value="BALANCED")
+    blockers = {row["blocking_reason"] for row in summary["top_blocking_reasons"]}
+
+    assert "CSV_PARSE_ERROR" not in blockers
+    assert summary["blocked_candidates"] > 0
+
+
 def test_timestamp_audit_generates_json_and_csv(tmp_path: Path, capsys) -> None:
     report_dir = tmp_path / "timestamps"
     _write_history(tmp_path / "EURUSD_M5.csv", rows=1200)
@@ -245,6 +310,14 @@ def test_latest_run_summary_includes_historical_data_status(tmp_path: Path) -> N
     assert summary["feature_availability_status"] == "PARTIAL"
     assert summary["main_data_blocker"] == "INSUFFICIENT_H1_BARS"
     assert summary["recommended_next_action"] == "Export more H1 bars or lower calibration diagnostic minimum only for research."
+
+
+def test_real_data_research_stage_list_includes_data_contract_audit(tmp_path: Path) -> None:
+    runner = RealDataResearchRunner(RealDataResearchConfig(symbols=("EURUSD",), output_root=str(tmp_path), run_id="contract-stage"))
+
+    stage_names = [name for name, _function in runner._stages()]
+
+    assert "DATA_CONTRACT_AUDIT" in stage_names
 
 
 def _write_history(path: Path, *, rows: int) -> None:

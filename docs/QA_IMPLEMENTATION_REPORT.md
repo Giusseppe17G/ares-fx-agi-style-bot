@@ -837,3 +837,24 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## Phase 18E CSV Contract Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 240 tests collected.
+
+Integrated in Phase 18E:
+
+- Added a single `HistoricalCSVLoader` that normalizes historical CSV ingestion for strategy, calibration and backtesting flows.
+- Added `--mode strategy-data-contract` to audit file discovery, columns, timestamp readiness, numeric OHLC conversion, feature build readiness and strategy input readiness.
+- The canonical DataFrame contract is now `timestamp_utc`, `time`, `open`, `high`, `low`, `close`, `tick_volume`, `spread`, and `real_volume`.
+- Replaced duplicate historical CSV readers in backtest, benchmark, research, walk-forward, market-structure, feature-availability and calibration paths where they affected strategy inputs.
+- Backtest now distinguishes data-valid/no-setup runs with `WARNING_NO_SIGNALS` from setups without trades with `WARNING_NO_TRADES`.
+- Real-data research now includes `DATA_CONTRACT_AUDIT` and compact summaries expose data contract status, CSV blockers and strategy-ready symbols.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

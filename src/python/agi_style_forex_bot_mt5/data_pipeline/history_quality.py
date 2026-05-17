@@ -11,8 +11,8 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 import pandas as pd
 
+from .historical_csv_loader import load_historical_csv_contract
 from .historical_data_resolver import resolve_historical_data
-from .timestamp_normalizer import normalize_timestamps
 
 
 REQUIRED_COLUMNS = {"time", "open", "high", "low", "close", "tick_volume"}
@@ -43,24 +43,11 @@ def load_history_csv(path: str | Path, *, symbol: str, timeframe: str) -> pd.Dat
     """Load a MT5-exported CSV and normalize timestamps to UTC."""
 
     csv_path = Path(path)
-    frame = pd.read_csv(csv_path)
-    if frame.empty:
-        raise ValueError("historical CSV is empty")
-    timestamp_present = any(column in frame.columns for column in ("timestamp_utc", "timestamp", "datetime", "date", "time"))
-    missing = (REQUIRED_COLUMNS - {"time"}) - set(frame.columns)
-    if not timestamp_present:
-        missing.add("time")
-    if missing:
-        raise ValueError(f"historical CSV missing required columns: {sorted(missing)}")
-    frame = frame.copy()
-    normalized = normalize_timestamps(frame)
-    frame = normalized.frame.copy()
+    loaded = load_historical_csv_contract(csv_path, symbol=symbol, timeframe=timeframe)
+    if loaded.diagnostics["status"] != "OK":
+        raise ValueError(str(loaded.diagnostics["status"]))
+    frame = loaded.frame.copy()
     frame["time"] = frame["timestamp_utc"]
-    if normalized.diagnosis["status"] == "FAILED":
-        raise ValueError("historical CSV contains invalid or non-UTC timestamps")
-    for column in ("open", "high", "low", "close", "tick_volume", "spread"):
-        if column in frame.columns:
-            frame[column] = pd.to_numeric(frame[column], errors="coerce")
     if frame[["open", "high", "low", "close", "tick_volume"]].isna().any().any():
         raise ValueError("historical CSV contains non-numeric OHLCV values")
     frame = frame.sort_values("time").drop_duplicates("time", keep="last").reset_index(drop=True)
@@ -80,7 +67,7 @@ def evaluate_history_quality(
 
     csv_path = Path(path)
     raw = pd.read_csv(csv_path)
-    duplicate_count = int(normalize_timestamps(raw).diagnosis.get("duplicates", 0) or 0)
+    duplicate_count = int(load_historical_csv_contract(csv_path, symbol=symbol, timeframe=timeframe).diagnostics.get("duplicates", 0) or 0)
     frame = load_history_csv(csv_path, symbol=symbol, timeframe=timeframe)
     expected_gap = timeframe_seconds(timeframe)
     gaps = _gap_frame(frame, expected_gap, symbol=symbol, timeframe=timeframe)

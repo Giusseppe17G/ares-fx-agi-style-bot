@@ -8,6 +8,7 @@ from typing import Any, Iterable
 
 from ..backtesting import BacktestSettings, CostModel, load_historical_csv, run_strategy_backtest
 from ..backtesting.stress_tester import StressTester
+from ..data_pipeline import resolve_historical_data
 from .candidate_registry import CandidateRegistry
 from .objective_functions import composite_score
 from .overfit_guard import assess_overfit
@@ -109,10 +110,10 @@ def run_research(
 
 
 def _find_csv(data_dir: Path, symbol: str) -> Path:
-    for candidate in (data_dir / f"{symbol}_M5.csv", data_dir / f"{symbol}.csv"):
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError(f"no M5 CSV for {symbol}")
+    resolution = resolve_historical_data(data_dir, symbol=symbol, timeframe="M5", min_bars=0)
+    if resolution.found:
+        return Path(resolution.path)
+    raise FileNotFoundError(f"no M5 CSV for {symbol}: {resolution.reason}")
 
 
 def _read_json(path: Path) -> dict[str, Any]:

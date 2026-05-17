@@ -169,6 +169,14 @@ py -m agi_style_forex_bot_mt5.cli --mode timestamp-audit --symbols EURUSD,GBPUSD
 
 If `h1_bars_status=CALIBRATION_ONLY`, threshold calibration may continue, but full validation still needs more H1 history.
 
+Phase 18E adds `DATA_CONTRACT_AUDIT` after historical data audit and before strategy/backtest stages. If this stage fails, the final decision remains `NEEDS_MORE_DATA` and `latest-run-summary` shows `data_contract_status`, `csv_blockers`, `data_valid_symbols`, and `strategy_input_ready_symbols`.
+
+Data states are interpreted as:
+
+- data invalid: fix CSV/timestamp/numeric columns first.
+- data valid but no setups: strategy research or threshold profile work is needed.
+- setups but no trades: inspect risk, SL/TP, spread, and execution simulation assumptions.
+
 If Monte Carlo is skipped:
 
 - First fix backtest trade generation.

@@ -84,3 +84,5 @@ Diagnostic minimums for calibration are M5 1000 bars, M15 500 bars, and H1 200 b
 Do not relax signals when blockers are `MISSING_REQUIRED_COLUMNS`, `EMPTY_CSV`, `CSV_PARSE_ERROR`, or missing M5 history. Fix data first.
 
 Phase 18D normalizes `time` into `timestamp_utc` before features. If `TIMESTAMP_PARSE_ERROR` appears, run `timestamp-audit` and repair/re-export history before changing signal profiles. H1 with at least 200 bars is enough for calibration diagnostics, even if it is not enough for full validation.
+
+Phase 18E makes threshold sweep consume the same normalized CSV contract used by backtest and strategy diagnostics. If `historical-data-audit` passes but threshold sweep reports a CSV blocker, run `strategy-data-contract`; do not change thresholds until the contract report is `OK`.

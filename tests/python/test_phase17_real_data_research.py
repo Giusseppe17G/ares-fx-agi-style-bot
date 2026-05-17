@@ -14,6 +14,8 @@ from agi_style_forex_bot_mt5.validation_pipeline import MasterDecisionEngine
 STAGE_NAMES = (
     "MT5_DIAGNOSE",
     "EXPORT_HISTORY",
+    "HISTORICAL_DATA_AUDIT",
+    "DATA_CONTRACT_AUDIT",
     "DATA_QUALITY",
     "BROKER_COST_PROFILE",
     "STRUCTURE_REPORT",
@@ -279,7 +281,7 @@ def test_compact_summary_includes_zero_trade_fields(tmp_path: Path) -> None:
     assert compact["zero_trade_detected"] is True
     assert compact["total_trades"] == 0
     assert compact["benchmark_classification"] == "NEEDS_MORE_DATA"
-    assert compact["likely_next_step"] == "Run FASE 18: Signal Frequency Calibration"
+    assert compact["likely_next_step"] == "Run FASE 19: Strategy Threshold Application / Balanced Profile Backtest."
 
 
 def _write_history(path: Path, *, rows: int) -> None:

@@ -11,8 +11,8 @@ import pandas as pd
 
 from ..data import add_indicators, add_regime_labels
 from ..market_structure import build_market_structure_features
+from .historical_csv_loader import load_historical_csv_contract
 from .historical_data_resolver import CALIBRATION_MIN_BARS, resolve_historical_data
-from .timestamp_normalizer import normalize_timestamps
 
 
 FEATURES = (
@@ -49,15 +49,14 @@ def build_feature_availability_report(
                 rows.append({"symbol": symbol, "feature": feature, "available": False, "status": _feature_status(resolution.reason), "reason": resolution.reason or "TIMEFRAME_PATH_NOT_FOUND"})
             continue
         try:
-            frame = pd.read_csv(resolution.path)
-            timestamps = normalize_timestamps(frame)
-            if timestamps.diagnosis["status"] == "FAILED":
-                raise ValueError("TIMESTAMP_PARSE_ERROR")
-            normalized = timestamps.frame.copy()
-            normalized["volume"] = normalized.get("volume", normalized.get("tick_volume", 0))
-            normalized["spread_points"] = normalized.get("spread_points", normalized.get("spread", 0))
+            loaded = load_historical_csv_contract(resolution.path, symbol=symbol, timeframe="M5")
+            if loaded.diagnostics["status"] != "OK":
+                raise ValueError(str(loaded.diagnostics["status"]))
+            normalized = loaded.frame.copy()
+            normalized["volume"] = normalized["tick_volume"]
+            normalized["spread_points"] = normalized["spread"]
             enriched = add_regime_labels(add_indicators(normalized))
-            structure = build_market_structure_features(frame)
+            structure = build_market_structure_features(loaded.frame)
             availability = _availability(enriched, structure)
         except Exception as exc:
             reason = str(exc)

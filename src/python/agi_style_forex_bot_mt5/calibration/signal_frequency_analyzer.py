@@ -26,6 +26,16 @@ SPECIFIC_DATA_BLOCKERS = {
     "INSUFFICIENT_H1_BARS",
     "EMPTY_CSV",
     "CSV_PARSE_ERROR",
+    "CSV_FILE_NOT_FOUND",
+    "CSV_EMPTY",
+    "CSV_READ_ERROR",
+    "CSV_MISSING_OHLC",
+    "CSV_NUMERIC_CONVERSION_ERROR",
+    "CSV_TIMESTAMP_PARSE_ERROR",
+    "CSV_TOO_FEW_ROWS",
+    "CSV_DUPLICATE_TIMESTAMPS",
+    "CSV_UNSORTED_FIXED",
+    "CSV_SPREAD_MISSING_ASSUMED_ZERO",
     "TIMESTAMP_PARSE_ERROR",
     "TIMEFRAME_PATH_NOT_FOUND",
     "DATA_PARTIAL_BUT_USABLE_FOR_CALIBRATION",
@@ -59,7 +69,7 @@ def analyze_signal_frequency(
             candles, _quality = load_historical_csv(m5.path, symbol=symbol, timeframe="M5")
             enriched = _enrich(candles)
         except Exception as exc:
-            records.append(_record(symbol=symbol, action="NONE", blocking_reason=f"CSV_PARSE_ERROR: {exc}", required_data_missing=True, resolutions=resolutions))
+            records.append(_record(symbol=symbol, action="NONE", blocking_reason=_csv_error_code(str(exc)), required_data_missing=True, resolutions=resolutions))
             continue
         partial_timeframes = tuple(
             timeframe
@@ -118,6 +128,8 @@ def analyze_signal_frequency(
                 )
             except Exception as exc:
                 records.append(_record(symbol=symbol, action="NONE", blocking_reason=f"analysis error: {exc}", required_data_missing=True, resolutions=resolutions))
+        if not any(record.get("symbol") == symbol for record in records):
+            records.append(_record(symbol=symbol, action="NONE", blocking_reason="NO_SETUP_DETECTED", required_data_missing=False, resolutions=resolutions))
     frame = pd.DataFrame(records)
     signals_found = int((frame.get("action", pd.Series(dtype=str)) != "NONE").sum()) if not frame.empty else 0
     near_misses = int(frame.get("near_miss", pd.Series(dtype=bool)).fillna(False).sum()) if not frame.empty else 0
@@ -266,6 +278,8 @@ def _canonical_blocker(
         return "VOLATILITY_BLOCK"
     if "score" in text or (threshold and setup_score < threshold):
         return "ENSEMBLE_SCORE_LOW"
+    if "no_setup" in text or "no setup" in text:
+        return "NO_SETUP_DETECTED"
     if component_scores:
         weakest = _weakest_component(component_scores)
         if weakest in {"cost_fit", "broker_fit"}:
@@ -281,6 +295,17 @@ def _canonical_blocker(
         if weakest in {"volatility_fit", "momentum_fit"}:
             return "VOLATILITY_BLOCK"
     return "UNKNOWN_BLOCKER"
+
+
+def _csv_error_code(message: str) -> str:
+    code = str(message or "").split(":", 1)[0].strip().upper()
+    if code.startswith("CSV_"):
+        return code
+    if "timestamp" in message.lower():
+        return "CSV_TIMESTAMP_PARSE_ERROR"
+    if "missing" in message.lower():
+        return "CSV_MISSING_OHLC"
+    return f"CSV_PARSE_ERROR: {message}"
 
 
 def _weakest_component(component_scores: Mapping[str, Any]) -> str:

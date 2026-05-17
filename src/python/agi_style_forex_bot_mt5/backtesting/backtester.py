@@ -21,7 +21,8 @@ import pandas as pd
 from ..config import BotConfig
 from ..contracts import Direction, MarketSnapshot, SignalAction
 from ..data import add_indicators, add_regime_labels, normalize_ohlcv_bars
-from ..data_pipeline.timestamp_normalizer import normalize_timestamps
+from ..data_pipeline.historical_csv_loader import load_historical_csv_contract
+from ..data_pipeline.historical_data_resolver import resolve_historical_data
 from ..strategy import evaluate_ensemble
 
 
@@ -544,21 +545,18 @@ def load_historical_csv(
     csv_path = Path(path)
     if not csv_path.exists():
         raise FileNotFoundError(f"historical CSV not found: {csv_path}")
-    raw = pd.read_csv(csv_path)
-    if raw.empty:
-        raise ValueError("historical CSV is empty")
-    required = {"open", "high", "low", "close", "tick_volume"}
-    has_timestamp = any(column in raw.columns for column in ("timestamp_utc", "timestamp", "datetime", "date", "time"))
-    missing = required - set(raw.columns)
-    if not has_timestamp:
-        missing.add("timestamp_utc")
-    if missing:
-        raise ValueError(f"historical CSV missing columns: {sorted(missing)}")
-    normalized_timestamps = normalize_timestamps(raw)
-    if normalized_timestamps.diagnosis["status"] == "FAILED":
-        raise ValueError("historical CSV timestamp parsing failed")
-    duplicate_count = int(normalized_timestamps.diagnosis.get("duplicates", 0) or 0)
-    frame = normalize_ohlcv_bars(normalized_timestamps.frame, symbol=symbol, timeframe=timeframe)
+    loaded = load_historical_csv_contract(csv_path, symbol=symbol, timeframe=timeframe)
+    if loaded.diagnostics["status"] != "OK":
+        status = str(loaded.diagnostics["status"])
+        if status == "CSV_EMPTY":
+            raise ValueError("historical CSV is empty")
+        if status in {"CSV_MISSING_OHLC", "CSV_NUMERIC_CONVERSION_ERROR"}:
+            raise ValueError(f"historical CSV missing columns or invalid numeric values: {status}")
+        raise ValueError(status)
+    duplicate_count = int(loaded.diagnostics.get("duplicates", 0) or 0)
+    normalized = loaded.frame.rename(columns={"tick_volume": "volume", "spread": "spread_points"}).copy()
+    normalized = normalized.drop(columns=["real_volume"], errors="ignore")
+    frame = normalize_ohlcv_bars(normalized, symbol=symbol, timeframe=timeframe)
     frame = frame.rename(columns={"timestamp_utc": "timestamp"})
     if "spread_points" not in frame.columns:
         frame["spread_points"] = np.nan
@@ -711,11 +709,15 @@ def run_backtest_for_symbols(
     all_equity: list[pd.DataFrame] = []
     qualities: list[DataQualityReport] = []
     promotions: dict[str, PromotionGateResult] = {}
+    data_valid_symbols: list[str] = []
+    signals_generated = 0
     for symbol in [item.strip().upper() for item in symbols if item.strip()]:
         path = _find_history_csv(Path(data_dir), symbol, timeframe)
         candles, quality = load_historical_csv(path, symbol=symbol, timeframe=timeframe)
         qualities.append(quality)
+        data_valid_symbols.append(symbol)
         outcome = run_strategy_backtest(candles, symbol=symbol, settings=run_settings, config=cfg, timeframe=timeframe)
+        signals_generated += len(outcome.trades) + len(outcome.rejected_candidates)
         trades = outcome.trades_frame()
         if not trades.empty:
             trades["symbol"] = symbol
@@ -733,9 +735,18 @@ def run_backtest_for_symbols(
     by_session = _group_metrics(trades_frame, "session")
     by_weekday = _group_metrics(_with_time_columns(trades_frame), "weekday")
     by_hour = _group_metrics(_with_time_columns(trades_frame), "hour_utc")
+    classification = "OK"
+    if signals_generated == 0:
+        classification = "WARNING_NO_SIGNALS"
+    elif metrics.trades_total == 0:
+        classification = "WARNING_NO_TRADES"
     summary: dict[str, Any] = {
         "mode": "backtest",
         "symbols_tested": len(qualities),
+        "data_valid_symbols": data_valid_symbols,
+        "signals_generated": signals_generated,
+        "trades_generated": metrics.trades_total,
+        "top_blocking_reasons": [{"blocking_reason": "NO_SETUP_DETECTED", "count": len(qualities)}] if signals_generated == 0 else [],
         "total_trades": metrics.trades_total,
         "net_return_pct": metrics.total_return_pct,
         "max_drawdown_pct": metrics.max_drawdown_pct,
@@ -744,7 +755,7 @@ def run_backtest_for_symbols(
         "expectancy_r": metrics.average_r,
         "sharpe": metrics.sharpe,
         "sortino": metrics.sortino,
-        "classification": "WARNING_NO_TRADES" if metrics.trades_total == 0 else "OK",
+        "classification": classification,
         "execution_attempted": False,
         "reports_created": [],
     }
@@ -1282,16 +1293,10 @@ def _features_from_row(
 
 
 def _find_history_csv(data_dir: Path, symbol: str, timeframe: str) -> Path:
-    candidates = (
-        data_dir / f"{symbol}_{timeframe}.csv",
-        data_dir / f"{symbol}-{timeframe}.csv",
-        data_dir / f"{symbol.lower()}_{timeframe.lower()}.csv",
-        data_dir / f"{symbol}.csv",
-    )
-    for path in candidates:
-        if path.exists():
-            return path
-    raise FileNotFoundError(f"no CSV found for {symbol} {timeframe} in {data_dir}")
+    resolution = resolve_historical_data(data_dir, symbol=symbol, timeframe=timeframe, min_bars=0)
+    if resolution.found:
+        return Path(resolution.path)
+    raise FileNotFoundError(f"no CSV found for {symbol} {timeframe} in {data_dir}: {resolution.reason}")
 
 
 def _empty_trades_frame() -> pd.DataFrame:

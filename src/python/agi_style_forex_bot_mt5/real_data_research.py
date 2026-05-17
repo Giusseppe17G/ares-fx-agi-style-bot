@@ -22,7 +22,7 @@ from .backtesting import (
 )
 from .benchmarks import build_competitive_scorecard, run_benchmarks
 from .config import BotConfig
-from .data_pipeline import audit_historical_data, build_broker_cost_profile, build_dataset_manifest, build_feature_availability_report, cost_for_symbol, resolve_historical_data
+from .data_pipeline import audit_historical_data, build_broker_cost_profile, build_dataset_manifest, build_feature_availability_report, build_strategy_data_contract_report, cost_for_symbol, resolve_historical_data
 from .market_structure import run_strategy_diagnose, write_structure_report
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter
@@ -178,6 +178,7 @@ class RealDataResearchRunner:
             ("MT5_DIAGNOSE", self._mt5_diagnose),
             ("EXPORT_HISTORY", self._export_history),
             ("HISTORICAL_DATA_AUDIT", self._historical_data_audit),
+            ("DATA_CONTRACT_AUDIT", self._data_contract_audit),
             ("DATA_QUALITY", self._data_quality),
             ("BROKER_COST_PROFILE", self._broker_cost_profile),
             ("STRUCTURE_REPORT", self._structure_report),
@@ -292,6 +293,14 @@ class RealDataResearchRunner:
         if not self._has_any_history():
             return self._write_skip_report("broker_costs", "NEEDS_MORE_DATA", "no historical CSV files found")
         return build_broker_cost_profile(data_dir=self.historical_dir, report_dir=self.reports_dir / "broker_costs", symbols=self.config.symbols)
+
+    def _data_contract_audit(self) -> dict[str, Any]:
+        return build_strategy_data_contract_report(
+            data_dir=self.historical_dir,
+            report_dir=self.reports_dir / "data_contract",
+            symbols=self.config.symbols,
+            timeframes=tuple(EXPORT_BAR_TARGETS),
+        )
 
     def _structure_report(self) -> dict[str, Any]:
         if self._missing_history("M5"):
@@ -611,6 +620,10 @@ class RealDataResearchRunner:
             "historical_data_status": self._historical_context(results).get("historical_data_status", ""),
             "timestamp_status": self._historical_context(results).get("timestamp_status", ""),
             "h1_bars_status": self._historical_context(results).get("h1_bars_status", ""),
+            "data_contract_status": self._data_contract_context(results).get("data_contract_status", ""),
+            "csv_blockers": self._data_contract_context(results).get("csv_blockers", []),
+            "data_valid_symbols": self._data_contract_context(results).get("data_valid_symbols", []),
+            "strategy_input_ready_symbols": self._data_contract_context(results).get("strategy_input_ready_symbols", []),
             "missing_timeframes": self._historical_context(results).get("missing_timeframes", []),
             "insufficient_timeframes": self._historical_context(results).get("insufficient_timeframes", []),
             "feature_availability_status": self._historical_context(results).get("feature_availability_status", ""),
@@ -623,6 +636,8 @@ class RealDataResearchRunner:
             "likely_next_step": self._recommended_next_action(results, zero_trade_detected=zero_trade_detected, data_quality_ok=data_quality_ok, final_decision=final_decision),
             "recommended_next_action": self._recommended_next_action(results, zero_trade_detected=zero_trade_detected, data_quality_ok=data_quality_ok, final_decision=final_decision),
             "calibration": self._calibration_context(),
+            "signals_generated": int(backtest.get("signals_generated", 0) or 0),
+            "top_strategy_blockers": backtest.get("top_blocking_reasons", []),
             "stages_passed": sum(1 for result in results if result.status == "PASSED"),
             "stages_warning": sum(1 for result in results if result.status == "WARNING"),
             "stages_failed": sum(1 for result in results if result.status == "FAILED"),
@@ -648,11 +663,25 @@ class RealDataResearchRunner:
             "main_data_blocker": audit.get("main_data_blocker", ""),
         }
 
+    def _data_contract_context(self, results: list[ResearchStageResult]) -> dict[str, Any]:
+        contract = self._stage_summary(results, "DATA_CONTRACT_AUDIT")
+        return {
+            "data_contract_status": contract.get("data_contract_status", contract.get("classification", "")),
+            "csv_blockers": contract.get("csv_blockers", []),
+            "data_valid_symbols": contract.get("data_valid_symbols", []),
+            "strategy_input_ready_symbols": contract.get("strategy_input_ready_symbols", []),
+        }
+
     def _recommended_next_action(self, results: list[ResearchStageResult], *, zero_trade_detected: bool, data_quality_ok: bool, final_decision: str) -> str:
         context = self._historical_context(results)
         main_blocker = str(context.get("main_data_blocker", ""))
         if context.get("timestamp_status") == "FAILED":
             return "Run FASE 18D timestamp normalization repair or re-export history."
+        contract = self._data_contract_context(results)
+        if contract.get("data_contract_status") not in {"", "OK"}:
+            blockers = contract.get("csv_blockers", [])
+            first = blockers[0].get("blocker") if blockers and isinstance(blockers[0], Mapping) else "CSV contract failed"
+            return f"Fix historical CSV contract before threshold tuning: {first}."
         if main_blocker == "INSUFFICIENT_H1_BARS":
             return "Export more H1 bars or lower calibration diagnostic minimum only for research."
         if context.get("h1_bars_status") == "CALIBRATION_ONLY":
@@ -728,6 +757,7 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
     payload["suggested_threshold_changes"] = calibration.get("suggested_threshold_changes", payload.get("suggested_threshold_changes", {}))
     audit = _load_optional_json(latest / "reports" / "data_audit" / "historical_data_audit.json") or {}
     feature = _load_optional_json(latest / "reports" / "data_audit" / "feature_availability.json") or {}
+    contract = _load_optional_json(latest / "reports" / "data_contract" / "data_contract_report.json") or {}
     payload["historical_data_status"] = audit.get("historical_data_status", audit.get("classification", payload.get("historical_data_status", "")))
     payload["timestamp_status"] = audit.get("timestamp_status", payload.get("timestamp_status", ""))
     payload["h1_bars_status"] = audit.get("h1_bars_status", payload.get("h1_bars_status", ""))
@@ -736,8 +766,16 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
     payload["feature_availability_status"] = feature.get("feature_availability_status", feature.get("classification", payload.get("feature_availability_status", "")))
     payload["main_feature_blocker"] = feature.get("main_feature_blocker", payload.get("main_feature_blocker", ""))
     payload["main_data_blocker"] = audit.get("main_data_blocker", payload.get("main_data_blocker", ""))
+    payload["data_contract_status"] = contract.get("data_contract_status", contract.get("classification", payload.get("data_contract_status", "")))
+    payload["csv_blockers"] = contract.get("csv_blockers", payload.get("csv_blockers", []))
+    payload["data_valid_symbols"] = contract.get("data_valid_symbols", payload.get("data_valid_symbols", []))
+    payload["strategy_input_ready_symbols"] = contract.get("strategy_input_ready_symbols", payload.get("strategy_input_ready_symbols", []))
     if payload.get("timestamp_status") == "FAILED":
         payload["recommended_next_action"] = "Run FASE 18D timestamp normalization repair or re-export history."
+    elif payload.get("data_contract_status") not in {"", "OK"}:
+        blockers = payload.get("csv_blockers", [])
+        first = blockers[0].get("blocker") if blockers and isinstance(blockers[0], Mapping) else "CSV contract failed"
+        payload["recommended_next_action"] = f"Fix historical CSV contract before threshold tuning: {first}."
     elif payload.get("main_data_blocker") == "INSUFFICIENT_H1_BARS":
         payload["recommended_next_action"] = "Export more H1 bars or lower calibration diagnostic minimum only for research."
     elif payload.get("h1_bars_status") == "CALIBRATION_ONLY":
