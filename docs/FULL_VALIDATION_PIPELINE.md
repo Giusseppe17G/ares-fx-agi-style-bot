@@ -93,3 +93,16 @@ Phase 19B normalizes small samples so they are warnings, not software bugs:
 - `>=300` trades: `PROMOTION_SAMPLE_SIZE`.
 
 Walk-forward can return `NEEDS_MORE_TRADES` when the backtest sample is too small. Monte Carlo and stress can still run on small samples, but they must classify as `LOW_SAMPLE_WARNING`. Full validation must not approve low-sample evidence.
+
+## Fast Decision Layer
+
+Phase 20 adds `edge-evaluation` for quick decisions from already generated artifacts. It is useful when a `BALANCED` run has enough simulated trades and a full rerun would be slow.
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode edge-evaluation --runs-root data\runs --output-dir data\reports\edge
+```
+
+The fast decision layer can return `FORWARD_SHADOW_CANDIDATE`, `CONTINUE_BALANCED_RESEARCH`, `TEST_ACTIVE_RESEARCH_ONLY`, `NEEDS_MORE_TRADES`, `NEEDS_STRATEGY_FIX`, `NEEDS_BROKER_COST_FIX`, or `REJECT_CURRENT_CONFIG`.
+
+It never replaces full validation for promotion gates. It only narrows the next research action and keeps `execution_attempted=false`.

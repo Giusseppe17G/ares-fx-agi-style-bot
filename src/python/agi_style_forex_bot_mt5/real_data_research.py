@@ -891,6 +891,11 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
     audit = _load_optional_json(latest / "reports" / "data_audit" / "historical_data_audit.json") or {}
     feature = _load_optional_json(latest / "reports" / "data_audit" / "feature_availability.json") or {}
     contract = _load_optional_json(latest / "reports" / "data_contract" / "data_contract_report.json") or {}
+    edge = _load_optional_json(latest / "reports" / "edge" / "edge_summary.json") or {}
+    if not edge:
+        global_edge = _load_optional_json(Path("data/reports/edge/edge_summary.json")) or {}
+        if str(global_edge.get("run_id", "")) == str(payload.get("run_id", latest.name)):
+            edge = global_edge
     payload["historical_data_status"] = audit.get("historical_data_status", audit.get("classification", payload.get("historical_data_status", "")))
     payload["timestamp_status"] = audit.get("timestamp_status", payload.get("timestamp_status", ""))
     payload["h1_bars_status"] = audit.get("h1_bars_status", payload.get("h1_bars_status", ""))
@@ -903,6 +908,14 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
     payload["csv_blockers"] = contract.get("csv_blockers", payload.get("csv_blockers", []))
     payload["data_valid_symbols"] = contract.get("data_valid_symbols", payload.get("data_valid_symbols", []))
     payload["strategy_input_ready_symbols"] = contract.get("strategy_input_ready_symbols", payload.get("strategy_input_ready_symbols", []))
+    if edge:
+        payload["edge_decision"] = edge.get("decision", "")
+        payload["symbols_keep"] = edge.get("symbols_keep", [])
+        payload["symbols_reject"] = edge.get("symbols_reject", [])
+        payload["strategies_keep"] = edge.get("strategies_keep", [])
+        payload["strategies_disable"] = edge.get("strategies_disable", [])
+        if edge.get("decision"):
+            payload["recommended_next_action"] = _edge_next_action(str(edge.get("decision")))
     if payload.get("timestamp_status") == "FAILED":
         payload["recommended_next_action"] = "Run FASE 18D timestamp normalization repair or re-export history."
     elif payload.get("data_contract_status") not in {"", "OK"}:
@@ -916,6 +929,19 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
     elif int(payload.get("total_trades", 0) or 0) == 0 and not payload.get("main_data_blocker"):
         payload["recommended_next_action"] = "Run FASE 19: Strategy Threshold Application / Balanced Profile Backtest."
     return {"mode": "latest-run-summary", "run_dir": str(latest), **payload, "execution_attempted": False}
+
+
+def _edge_next_action(decision: str) -> str:
+    mapping = {
+        "FORWARD_SHADOW_CANDIDATE": "Continue paper-only forward-shadow for selected symbols; no demo/live execution.",
+        "CONTINUE_BALANCED_RESEARCH": "Run BALANCED quick research on more symbols/bars.",
+        "TEST_ACTIVE_RESEARCH_ONLY": "Test ACTIVE only in research/profile-comparison; never demo/live.",
+        "NEEDS_MORE_TRADES": "Run more BALANCED research history or symbols to reach at least 30 trades.",
+        "NEEDS_STRATEGY_FIX": "Inspect strategy/session/regime selectors and blockers.",
+        "NEEDS_BROKER_COST_FIX": "Review spread/cost blockers and broker cost profile.",
+        "REJECT_CURRENT_CONFIG": "Reject current config and return to strategy research.",
+    }
+    return mapping.get(decision, "Review edge evaluation report.")
 
 
 def _now() -> str:

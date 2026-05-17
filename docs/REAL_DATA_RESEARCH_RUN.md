@@ -264,3 +264,17 @@ py -m agi_style_forex_bot_mt5.cli --mode profile-comparison-run --symbols EURUSD
 - `REJECTED`: do not promote the current candidate set.
 
 No decision authorizes demo or live execution.
+
+## Phase 20 Fast Edge Evaluation
+
+After a run has generated trades, use the fast edge layer instead of rerunning the heavy stack:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode edge-evaluation --runs-root data\runs --output-dir data\reports\edge
+py -m agi_style_forex_bot_mt5.cli --mode latest-run-summary --runs-root data\runs
+```
+
+The edge report classifies symbols, strategies, sessions, regimes, and blockers from existing artifacts. `latest-run-summary` surfaces `edge_decision`, `symbols_keep`, `symbols_reject`, `strategies_keep`, and `strategies_disable` when the edge report belongs to the same run.
+
+If `edge_decision=FORWARD_SHADOW_CANDIDATE`, the meaning is paper-only forward-shadow observation. It does not authorize demo/live execution.

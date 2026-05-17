@@ -901,3 +901,23 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## Phase 20 Edge Evaluation Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 268 tests collected.
+
+Integrated in Phase 20:
+
+- Added `edge_evaluation` package for fast metrics, symbol selection, strategy selection, session/regime analysis, blocker analysis, fast decisions, and report generation.
+- Added CLI modes `edge-evaluation`, `symbol-selection`, and `strategy-selection`.
+- Added reports under `data/reports/edge`: summary, by-symbol, by-strategy, by-session, by-regime, blockers, recommendations, HTML, and config suggestions.
+- Added `balanced_filtered.ini` and `research_active.ini`; `ACTIVE` remains marked `NOT FOR DEMO/LIVE EXECUTION`.
+- Updated `latest-run-summary` to surface edge decisions only when the edge report matches the latest run.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

@@ -24,6 +24,7 @@ from .broker_quality import build_readiness_report, run_broker_quality
 from .config import load_config
 from .contracts import AccountState, MarketSnapshot, utc_now
 from .data_pipeline import audit_historical_data, audit_timestamps, build_broker_cost_profile, build_dataset_manifest, build_feature_availability_report, build_strategy_data_contract_report, cost_for_symbol
+from .edge_evaluation import run_edge_evaluation, run_strategy_selection, run_symbol_selection
 from .execution_simulation import compare_paper_vs_backtest, run_simulation_calibration
 from .market_structure import run_strategy_diagnose, write_structure_report
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
@@ -161,6 +162,9 @@ def main(argv: list[str] | None = None) -> int:
             "strategy-data-contract",
             "apply-signal-profile",
             "profile-comparison-run",
+            "edge-evaluation",
+            "symbol-selection",
+            "strategy-selection",
         ],
         default="shadow",
     )
@@ -364,6 +368,24 @@ def main(argv: list[str] | None = None) -> int:
                 output_dir=args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/profile_runs"),
                 base_config=config,
             )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "edge-evaluation":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/edge")
+            summary = run_edge_evaluation(runs_root=args.runs_root, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "symbol-selection":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/edge")
+            summary = run_symbol_selection(runs_root=args.runs_root, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "strategy-selection":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/edge")
+            summary = run_strategy_selection(runs_root=args.runs_root, output_dir=output_dir)
             print(_json_dumps(summary))
             return 0
 
