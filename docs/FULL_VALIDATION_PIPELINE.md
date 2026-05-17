@@ -70,3 +70,5 @@ py -m agi_style_forex_bot_mt5.cli --mode latest-run-summary --runs-root data\run
 ```
 
 Stages that depend on closed simulated trades may report `SKIPPED_NO_TRADES` when `reports/backtests/trades.csv` is missing or empty. That is a blocking research condition, not approval.
+
+If benchmark reports `NEEDS_MORE_DATA`, the competitive scorecard and master decision remain blocked. If data quality is OK but backtest has zero trades, the master decision should move toward `NEEDS_STRATEGY_RESEARCH`, which is the expected path into signal frequency calibration.

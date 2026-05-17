@@ -25,6 +25,8 @@ def build_competitive_scorecard(
     stress = _read_json(root / "stress" / "summary.json")
     walk_forward = _read_json(root / "walk_forward" / "summary.json")
     baseline_count = int(benchmark.get("baselines_beaten_global", 0) or 0)
+    reasons: list[str] = []
+    benchmark_classification = str(benchmark.get("classification", "")).upper()
     oos_ok = str(walk_forward.get("classification", "REJECTED")) == "APPROVED_FOR_SHADOW_OBSERVATION"
     monte_ok = str(monte_carlo.get("classification", "REJECTED")) != "REJECTED"
     stress_ok = str(stress.get("classification", "REJECTED")) != "REJECTED"
@@ -38,7 +40,10 @@ def build_competitive_scorecard(
         top5_ok=top5_ok,
         base_edge=base_edge,
     )
-    if baseline_count >= 3 and oos_ok and monte_ok and stress_ok and top5_ok and base_edge:
+    if benchmark_classification == "NEEDS_MORE_DATA":
+        classification = "NEEDS_MORE_DATA"
+        reasons.append("benchmark data insufficient")
+    elif baseline_count >= 3 and oos_ok and monte_ok and stress_ok and top5_ok and base_edge:
         classification = "COMPETITIVE_CANDIDATE"
     elif base_edge and baseline_count >= 2:
         classification = "NEEDS_OPTIMIZATION"
@@ -69,6 +74,7 @@ def build_competitive_scorecard(
     summary = {
         "mode": "competitive-scorecard",
         "classification": classification,
+        "reasons": reasons,
         "scorecard": row,
         "reports_created": [str(json_path), str(csv_path), str(html_path)],
         "execution_attempted": False,

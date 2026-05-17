@@ -6,7 +6,9 @@ from pathlib import Path
 import pandas as pd
 
 from agi_style_forex_bot_mt5 import cli
+from agi_style_forex_bot_mt5.benchmarks import build_competitive_scorecard, run_benchmarks
 from agi_style_forex_bot_mt5.real_data_research import RealDataResearchConfig, RealDataResearchRunner
+from agi_style_forex_bot_mt5.validation_pipeline import MasterDecisionEngine
 
 
 STAGE_NAMES = (
@@ -216,6 +218,68 @@ def test_stage_statuses_are_normalized(tmp_path: Path) -> None:
     statuses = {stage["status"] for stage in summary["stages"]}
     assert statuses <= {"PASSED", "WARNING", "FAILED", "SKIPPED"}
     assert any(stage["stage_name"] == "MONTE_CARLO" and stage["status"] == "SKIPPED" for stage in summary["stages"])
+
+
+def test_benchmark_handles_empty_and_string_symbols(tmp_path: Path) -> None:
+    data_dir = tmp_path / "historical"
+    report_dir = tmp_path / "benchmarks"
+    data_dir.mkdir()
+    (data_dir / "EURUSD_M5.csv").write_text("time,open,high,low,close,tick_volume,spread\n", encoding="utf-8")
+
+    summary = run_benchmarks(data_dir=data_dir, symbols="EURUSD", report_dir=report_dir)
+
+    assert summary["classification"] == "NEEDS_MORE_DATA"
+    assert summary["baselines_run"] == 0
+    assert summary["baselines_skipped"] > 0
+    assert (report_dir / "summary.json").exists()
+    assert (report_dir / "by_symbol.csv").exists()
+    assert (report_dir / "baselines.csv").exists()
+    assert summary["execution_attempted"] is False
+
+
+def test_competitive_scorecard_handles_benchmark_needs_more_data(tmp_path: Path) -> None:
+    root = tmp_path / "reports"
+    (root / "benchmarks").mkdir(parents=True)
+    (root / "backtests").mkdir(parents=True)
+    (root / "benchmarks" / "summary.json").write_text('{"classification":"NEEDS_MORE_DATA"}', encoding="utf-8")
+    (root / "backtests" / "summary.json").write_text('{"total_trades":0}', encoding="utf-8")
+
+    summary = build_competitive_scorecard(reports_root=root, output_dir=root / "competitive_scorecard")
+
+    assert summary["classification"] == "NEEDS_MORE_DATA"
+    assert "benchmark data insufficient" in summary["reasons"]
+    assert summary["execution_attempted"] is False
+
+
+def test_full_validation_decision_distinguishes_missing_data_and_zero_trades(tmp_path: Path) -> None:
+    root = tmp_path / "reports"
+    engine = MasterDecisionEngine()
+    assert engine.decide(reports_root=root, output_dir=tmp_path / "full", symbols=("EURUSD",)).final_decision == "NEEDS_MORE_DATA"
+
+    (root / "data_quality").mkdir(parents=True)
+    (root / "broker_costs").mkdir(parents=True)
+    (root / "backtests").mkdir(parents=True)
+    (root / "data_quality" / "summary.json").write_text('{"classification":"OK"}', encoding="utf-8")
+    (root / "broker_costs" / "broker_cost_profile.json").write_text('{"classification":"OK"}', encoding="utf-8")
+    (root / "backtests" / "summary.json").write_text('{"total_trades":0,"classification":"WARNING_NO_TRADES"}', encoding="utf-8")
+
+    assert engine.decide(reports_root=root, output_dir=tmp_path / "full", symbols=("EURUSD",)).final_decision == "NEEDS_STRATEGY_RESEARCH"
+
+
+def test_compact_summary_includes_zero_trade_fields(tmp_path: Path) -> None:
+    config = RealDataResearchConfig(symbols=("EURUSD",), output_root=str(tmp_path), bars=10, run_id="compact-zero")
+    overrides = {name: _override(name) for name in STAGE_NAMES}
+    overrides["DATA_QUALITY"] = lambda: {"classification": "OK", "execution_attempted": False}
+    overrides["BACKTEST"] = lambda: {"classification": "WARNING_NO_TRADES", "total_trades": 0, "execution_attempted": False}
+    overrides["BENCHMARK"] = lambda: {"classification": "NEEDS_MORE_DATA", "execution_attempted": False}
+
+    summary = RealDataResearchRunner(config, stage_overrides=overrides).run()
+    compact = summary["compact_summary"]
+
+    assert compact["zero_trade_detected"] is True
+    assert compact["total_trades"] == 0
+    assert compact["benchmark_classification"] == "NEEDS_MORE_DATA"
+    assert compact["likely_next_step"] == "Run FASE 18: Signal Frequency Calibration"
 
 
 def _write_history(path: Path, *, rows: int) -> None:

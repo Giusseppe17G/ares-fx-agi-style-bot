@@ -217,6 +217,36 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 17C Benchmark And Zero-Trade Pipeline Repair
+
+Status: PASS. Full suite result: 202 collected, 202 passed.
+
+Integrated in Phase 17C:
+
+- Hardened benchmark runner so missing, empty, or invalid CSV inputs return `classification=NEEDS_MORE_DATA` instead of crashing.
+- Benchmark now writes `summary.json`, `by_symbol.csv`, and `baselines.csv` even when no baseline can run.
+- Individual baselines can be marked `SKIPPED` without failing the whole benchmark stage.
+- Competitive scorecard now handles benchmark `NEEDS_MORE_DATA` with reason `benchmark data insufficient`.
+- Full validation now distinguishes benchmark data insufficiency from weak strategy edge.
+- Compact run summary now includes `total_trades`, `benchmark_status`, `benchmark_classification`, `zero_trade_detected`, and `likely_next_step`.
+
+Additional Phase 17C tests:
+
+- Benchmark does not crash with an empty CSV.
+- Benchmark accepts symbols as comma-separated string.
+- Benchmark returns `NEEDS_MORE_DATA` and writes reports when data is insufficient.
+- Competitive scorecard handles benchmark `NEEDS_MORE_DATA`.
+- Master decision distinguishes missing data from zero-trade strategy output.
+- Compact summary includes zero-trade fields and suggests FASE 18 when data quality is OK.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 15 Full Validation Pipeline Update
 
 Status: PASS. Full suite result: 179 collected, 179 passed.

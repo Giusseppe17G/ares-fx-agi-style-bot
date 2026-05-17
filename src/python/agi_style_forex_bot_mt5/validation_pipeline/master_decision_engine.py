@@ -72,6 +72,9 @@ class MasterDecisionEngine:
             return "NEEDS_COST_RECALIBRATION"
         benchmark = summaries.get("benchmark", {})
         competitive = summaries.get("competitive_scorecard", {})
+        if str(benchmark.get("classification", "")).upper() == "NEEDS_MORE_DATA":
+            reasons.append("benchmark data insufficient")
+            return "NEEDS_MORE_DATA"
         if str(benchmark.get("classification", "")).upper() == "REJECTED" or str(competitive.get("classification", "")).upper() in {"REJECTED", "WEAK_EDGE"}:
             reasons.append("strategy does not beat benchmarks")
             return "NEEDS_STRATEGY_RESEARCH"
@@ -103,4 +106,3 @@ def _read_json(path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return {}
-

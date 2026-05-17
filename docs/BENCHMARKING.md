@@ -31,9 +31,21 @@ The benchmark runner uses the same backtesting machinery and cost assumptions. I
 ## Reports
 
 - `data/reports/benchmarks/summary.json`
+- `data/reports/benchmarks/by_symbol.csv`
+- `data/reports/benchmarks/baselines.csv`
 - `data/reports/benchmarks/benchmark_results.csv`
 - `data/reports/benchmarks/comparison.csv`
 
 ## Interpretation
 
 The ensemble must beat at least three simple baselines after costs before it can be considered competitive. If it does not, the result should be `WATCHLIST`, `NEEDS_OPTIMIZATION`, or `REJECTED`.
+
+## Insufficient Data
+
+The benchmark runner is fail-soft for research runs:
+
+- Missing or empty CSV files produce `classification=NEEDS_MORE_DATA`.
+- A baseline that cannot be calculated is marked `SKIPPED` in `baselines.csv`.
+- The benchmark stage still writes `summary.json`, `by_symbol.csv`, and `baselines.csv`.
+
+`NEEDS_MORE_DATA` means the benchmark is not valid yet. It is not approval, and it should block competitive classification until clean M5 history is available.

@@ -395,8 +395,13 @@ class RealDataResearchRunner:
             return self._write_skip_report("research", "NEEDS_MORE_DATA", f"research input validation failed: {exc}")
 
     def _benchmark(self) -> dict[str, Any]:
+        if self._missing_history("M5"):
+            return self._write_skip_report("benchmarks", "NEEDS_MORE_DATA", "missing M5 historical CSV files")
         profile = _load_optional_json(self.reports_dir / "broker_costs" / "broker_cost_profile.json")
-        return run_benchmarks(data_dir=self.historical_dir, symbols=list(self.config.symbols), report_dir=self.reports_dir / "benchmarks", broker_cost_profile=profile, seed=self.config.seed)
+        try:
+            return run_benchmarks(data_dir=self.historical_dir, symbols=list(self.config.symbols), report_dir=self.reports_dir / "benchmarks", broker_cost_profile=profile, seed=self.config.seed)
+        except Exception as exc:
+            return self._write_skip_report("benchmarks", "NEEDS_MORE_DATA", f"benchmark input validation failed: {exc}")
 
     def _competitive_scorecard(self) -> dict[str, Any]:
         return build_competitive_scorecard(reports_root=self.reports_dir, output_dir=self.reports_dir / "competitive_scorecard")
@@ -585,11 +590,21 @@ class RealDataResearchRunner:
         return "CONTINUE_FORWARD_SHADOW", issues or ["evidence collected; continue paper observation"], _actions_for_decision("CONTINUE_FORWARD_SHADOW")
 
     def _compact_summary(self, results: list[ResearchStageResult], final_decision: str, issues: list[str], actions: list[str]) -> dict[str, Any]:
+        backtest = self._stage_summary(results, "BACKTEST")
+        benchmark = self._stage_summary(results, "BENCHMARK")
+        total_trades = int(backtest.get("total_trades", 0) or 0)
+        data_quality_ok = str(self._stage_classification(results, "DATA_QUALITY")).upper() == "OK"
+        zero_trade_detected = total_trades == 0
         return {
             "run_id": self.config.run_id,
             "final_decision": final_decision,
             "symbols_exported": self._symbols_exported(),
             "bars_by_symbol_timeframe": self._bars_by_symbol_timeframe(),
+            "total_trades": total_trades,
+            "benchmark_status": next((result.status for result in results if result.name == "BENCHMARK"), ""),
+            "benchmark_classification": str(benchmark.get("classification", "")),
+            "zero_trade_detected": zero_trade_detected,
+            "likely_next_step": "Run FASE 18: Signal Frequency Calibration" if zero_trade_detected and data_quality_ok else _likely_next_step(final_decision),
             "stages_passed": sum(1 for result in results if result.status == "PASSED"),
             "stages_warning": sum(1 for result in results if result.status == "WARNING"),
             "stages_failed": sum(1 for result in results if result.status == "FAILED"),
@@ -697,6 +712,17 @@ def _actions_for_decision(decision: str) -> list[str]:
         "REJECTED": ["Do not promote candidates.", "Return to strategy research with stricter filters."],
         "CONTINUE_FORWARD_SHADOW": ["Continue forward-shadow observation.", "Collect more paper trades before any future demo execution review."],
     }.get(decision, ["Review final_summary.json manually."])
+
+
+def _likely_next_step(decision: str) -> str:
+    return {
+        "NEEDS_MORE_DATA": "Collect/export more MT5 history and rerun real-data-research",
+        "NEEDS_STRATEGY_RESEARCH": "Run strategy research and signal calibration",
+        "NEEDS_BROKER_FIX": "Review broker quality and symbol readiness",
+        "NEEDS_COST_RECALIBRATION": "Recalibrate spread/slippage/commission assumptions",
+        "REJECTED": "Reject current candidate set and redesign strategy filters",
+        "CONTINUE_FORWARD_SHADOW": "Continue forward-shadow observation",
+    }.get(decision, "Review final summary manually")
 
 
 def _summary_html(summary: Mapping[str, Any]) -> str:

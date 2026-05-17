@@ -50,6 +50,7 @@ It compares:
 - `COMPETITIVE_CANDIDATE`
 - `NEEDS_OPTIMIZATION`
 - `WEAK_EDGE`
+- `NEEDS_MORE_DATA`
 - `REJECTED`
 
 Hard blocks:
@@ -58,5 +59,6 @@ Hard blocks:
 - Cannot be `COMPETITIVE_CANDIDATE` if walk-forward OOS is negative.
 - Cannot be `COMPETITIVE_CANDIDATE` if Monte Carlo or stress testing fail.
 - Cannot be `COMPETITIVE_CANDIDATE` if removing the top `5%` of trades destroys profitability.
+- If benchmark summary is `NEEDS_MORE_DATA`, the scorecard returns `NEEDS_MORE_DATA` with reason `benchmark data insufficient`.
 
 This moves the project closer to institutional discipline by requiring evidence quality, not just attractive equity curves.

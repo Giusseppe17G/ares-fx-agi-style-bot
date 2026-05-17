@@ -92,6 +92,11 @@ If any required symbol/timeframe has fewer bars, the final decision is `NEEDS_MO
 - `final_decision`
 - `symbols_exported`
 - `bars_by_symbol_timeframe`
+- `total_trades`
+- `benchmark_status`
+- `benchmark_classification`
+- `zero_trade_detected`
+- `likely_next_step`
 - `stages_passed`
 - `stages_warning`
 - `stages_failed`
@@ -119,6 +124,7 @@ If backtest generates `0` trades:
 - Check whether market-structure, session, spread, or setup-score filters are too strict.
 - Confirm exported history has enough bars and realistic spread columns.
 - Keep final decision at `NEEDS_MORE_DATA` or `NEEDS_STRATEGY_RESEARCH`.
+- If data quality is `OK`, `likely_next_step` becomes `Run FASE 18: Signal Frequency Calibration`.
 
 If Monte Carlo is skipped:
 
@@ -131,6 +137,12 @@ If Research returns `NEEDS_MORE_DATA`:
 - Confirm M5 CSVs exist for each symbol.
 - Rerun data-quality and broker cost profile.
 - Inspect rejected candidates and ablation reports once enough data exists.
+
+If Benchmark returns `NEEDS_MORE_DATA`:
+
+- Confirm M5 files exist and are non-empty for all configured symbols.
+- Inspect `reports/benchmarks/baselines.csv` for skipped baselines and skip reasons.
+- Do not use the competitive scorecard as approval until benchmark data is sufficient.
 
 ## Decisions
 
