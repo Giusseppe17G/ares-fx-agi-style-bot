@@ -21,6 +21,7 @@ import pandas as pd
 from ..config import BotConfig
 from ..contracts import Direction, MarketSnapshot, SignalAction
 from ..data import add_indicators, add_regime_labels, normalize_ohlcv_bars
+from ..data_pipeline.timestamp_normalizer import normalize_timestamps
 from ..strategy import evaluate_ensemble
 
 
@@ -546,12 +547,18 @@ def load_historical_csv(
     raw = pd.read_csv(csv_path)
     if raw.empty:
         raise ValueError("historical CSV is empty")
-    required = {"time", "open", "high", "low", "close", "tick_volume"}
+    required = {"open", "high", "low", "close", "tick_volume"}
+    has_timestamp = any(column in raw.columns for column in ("timestamp_utc", "timestamp", "datetime", "date", "time"))
     missing = required - set(raw.columns)
+    if not has_timestamp:
+        missing.add("timestamp_utc")
     if missing:
         raise ValueError(f"historical CSV missing columns: {sorted(missing)}")
-    duplicate_count = int(pd.to_datetime(raw["time"], utc=True, errors="coerce").duplicated().sum())
-    frame = normalize_ohlcv_bars(raw, symbol=symbol, timeframe=timeframe)
+    normalized_timestamps = normalize_timestamps(raw)
+    if normalized_timestamps.diagnosis["status"] == "FAILED":
+        raise ValueError("historical CSV timestamp parsing failed")
+    duplicate_count = int(normalized_timestamps.diagnosis.get("duplicates", 0) or 0)
+    frame = normalize_ohlcv_bars(normalized_timestamps.frame, symbol=symbol, timeframe=timeframe)
     frame = frame.rename(columns={"timestamp_utc": "timestamp"})
     if "spread_points" not in frame.columns:
         frame["spread_points"] = np.nan

@@ -23,7 +23,7 @@ from .calibration import run_blocking_reasons_report, run_signal_calibration, ru
 from .broker_quality import build_readiness_report, run_broker_quality
 from .config import load_config
 from .contracts import AccountState, MarketSnapshot, utc_now
-from .data_pipeline import build_broker_cost_profile, build_dataset_manifest, cost_for_symbol
+from .data_pipeline import audit_historical_data, audit_timestamps, build_broker_cost_profile, build_dataset_manifest, build_feature_availability_report, cost_for_symbol
 from .execution_simulation import compare_paper_vs_backtest, run_simulation_calibration
 from .market_structure import run_strategy_diagnose, write_structure_report
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
@@ -156,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
             "signal-calibration",
             "threshold-sweep",
             "blocking-reasons",
+            "historical-data-audit",
+            "timestamp-audit",
         ],
         default="shadow",
     )
@@ -333,6 +335,27 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "blocking-reasons":
             reports_root = _resolve_calibration_reports_root(args.reports_root, args.runs_root)
             summary = run_blocking_reasons_report(reports_root=reports_root, output_dir=args.output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "historical-data-audit":
+            audit = audit_historical_data(
+                data_dir=args.data_dir,
+                report_dir=args.report_dir,
+                symbols=selected_symbols,
+                timeframes=tuple(item.strip() for item in args.timeframes.split(",") if item.strip()),
+            )
+            feature = build_feature_availability_report(data_dir=args.data_dir, report_dir=args.report_dir, symbols=selected_symbols)
+            print(_json_dumps({**audit, "feature_availability": feature, "reports_created": [*audit.get("reports_created", []), *feature.get("reports_created", [])]}))
+            return 0
+
+        if args.mode == "timestamp-audit":
+            summary = audit_timestamps(
+                data_dir=args.data_dir,
+                report_dir=args.report_dir,
+                symbols=selected_symbols,
+                timeframes=tuple(item.strip() for item in args.timeframes.split(",") if item.strip()),
+            )
             print(_json_dumps(summary))
             return 0
 

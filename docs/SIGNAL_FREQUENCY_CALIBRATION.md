@@ -74,3 +74,13 @@ If `zero_trade_detected=true` and data quality is OK, run threshold sweep next. 
 - `UNKNOWN_BLOCKER`
 
 If all profiles still generate zero signals, the recommended profile becomes `RESEARCH_ONLY` and the classification becomes `NEEDS_STRATEGY_RESEARCH`. `RESEARCH_ONLY` is diagnostic only and remains marked `NOT FOR DEMO/LIVE EXECUTION`.
+
+## Phase 18C Data Resolution
+
+Before relaxing thresholds, run `historical-data-audit` to prove the CSV files are actually available and feature-ready. Calibration now uses the shared HistoricalDataResolver and reports specific file/format issues instead of generic `DATA_MISSING`.
+
+Diagnostic minimums for calibration are M5 1000 bars, M15 500 bars, and H1 200 bars. Full validation still expects the larger research targets. If the CSV exists but is not detected, check filename/layout against the supported patterns in `docs/DATA_PIPELINE.md`.
+
+Do not relax signals when blockers are `MISSING_REQUIRED_COLUMNS`, `EMPTY_CSV`, `CSV_PARSE_ERROR`, or missing M5 history. Fix data first.
+
+Phase 18D normalizes `time` into `timestamp_utc` before features. If `TIMESTAMP_PARSE_ERROR` appears, run `timestamp-audit` and repair/re-export history before changing signal profiles. H1 with at least 200 bars is enough for calibration diagnostics, even if it is not enough for full validation.

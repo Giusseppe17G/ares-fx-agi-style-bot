@@ -60,3 +60,11 @@ Sweep suggestions never bypass:
 - portfolio guard outside diagnostics
 
 `ACTIVE` and `RESEARCH_ONLY` configs are explicitly marked `NOT FOR DEMO/LIVE EXECUTION`.
+
+## Data Blockers
+
+Phase 18C distinguishes missing data from real strategy filters. If `top_blocking_reasons` shows `MISSING_M5_FILE`, `MISSING_REQUIRED_COLUMNS`, `EMPTY_CSV`, or `CSV_PARSE_ERROR`, fix historical data before changing thresholds.
+
+If H1 is insufficient for full validation but still above the calibration diagnostic minimum, threshold sweep can continue and the run summary will describe the dataset as partial but usable for calibration. That does not make it valid for full validation.
+
+If threshold sweep still returns zero signals after timestamp and feature availability are `OK`, the blocker is strategy context rather than data plumbing. The next step is to test a balanced profile against backtest/research, not to bypass safety gates.

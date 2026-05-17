@@ -12,8 +12,24 @@ from ..backtesting.backtester import _features_from_row, _snapshot_from_row, loa
 from ..config import BotConfig
 from ..contracts import SignalAction
 from ..data import add_indicators, add_regime_labels
+from ..data_pipeline import CALIBRATION_MIN_BARS, resolve_historical_data
 from ..strategy import evaluate_ensemble
 from .signal_profile import SignalProfileSettings
+
+SPECIFIC_DATA_BLOCKERS = {
+    "MISSING_M5_FILE",
+    "MISSING_M15_FILE",
+    "MISSING_H1_FILE",
+    "MISSING_REQUIRED_COLUMNS",
+    "INSUFFICIENT_M5_BARS",
+    "INSUFFICIENT_M15_BARS",
+    "INSUFFICIENT_H1_BARS",
+    "EMPTY_CSV",
+    "CSV_PARSE_ERROR",
+    "TIMESTAMP_PARSE_ERROR",
+    "TIMEFRAME_PATH_NOT_FOUND",
+    "DATA_PARTIAL_BUT_USABLE_FOR_CALIBRATION",
+}
 
 
 def analyze_signal_frequency(
@@ -28,16 +44,28 @@ def analyze_signal_frequency(
     records: list[dict[str, Any]] = []
     data_dir_path = Path(data_dir)
     for symbol in [str(item).strip().upper() for item in symbols if str(item).strip()]:
-        csv_path = _find_csv(data_dir_path, symbol)
-        if csv_path is None:
-            records.append(_record(symbol=symbol, action="NONE", blocking_reason="missing M5 CSV", required_data_missing=True))
+        resolutions = {
+            timeframe: resolve_historical_data(data_dir_path, symbol=symbol, timeframe=timeframe, min_bars=CALIBRATION_MIN_BARS[timeframe])
+            for timeframe in ("M5", "M15", "H1")
+        }
+        m5 = resolutions["M5"]
+        if not m5.found or m5.reason in {"MISSING_REQUIRED_COLUMNS", "EMPTY_CSV"} or str(m5.reason or "").startswith("CSV_PARSE"):
+            records.append(_record(symbol=symbol, action="NONE", blocking_reason=m5.reason or "TIMEFRAME_PATH_NOT_FOUND", required_data_missing=True, resolutions=resolutions))
+            continue
+        if not m5.is_sufficient:
+            records.append(_record(symbol=symbol, action="NONE", blocking_reason=m5.reason or "INSUFFICIENT_M5_BARS", required_data_missing=True, resolutions=resolutions))
             continue
         try:
-            candles, _quality = load_historical_csv(csv_path, symbol=symbol, timeframe="M5")
+            candles, _quality = load_historical_csv(m5.path, symbol=symbol, timeframe="M5")
             enriched = _enrich(candles)
         except Exception as exc:
-            records.append(_record(symbol=symbol, action="NONE", blocking_reason=f"invalid history: {exc}", required_data_missing=True))
+            records.append(_record(symbol=symbol, action="NONE", blocking_reason=f"CSV_PARSE_ERROR: {exc}", required_data_missing=True, resolutions=resolutions))
             continue
+        partial_timeframes = tuple(
+            timeframe
+            for timeframe, resolution in resolutions.items()
+            if timeframe != "M5" and resolution.found and not resolution.is_sufficient and str(resolution.reason or "").startswith("INSUFFICIENT")
+        )
         cfg = BotConfig()
         start = 220 if len(enriched) > 240 else max(0, len(enriched) // 2)
         indexes = list(range(start, max(start, len(enriched) - 1), max(1, int(max(1, len(enriched) - start) / max_rows_per_symbol))))
@@ -82,11 +110,14 @@ def analyze_signal_frequency(
                         "regime": str(features.get("regime", "")),
                         "session": str(features.get("session", "")),
                         "component_scores": component_scores,
+                        "historical_resolutions": {key: value.to_dict() for key, value in resolutions.items()},
+                        "data_status": "DATA_PARTIAL_BUT_USABLE_FOR_CALIBRATION" if partial_timeframes else "OK",
+                        "partial_timeframes": partial_timeframes,
                         "execution_attempted": False,
                     }
                 )
             except Exception as exc:
-                records.append(_record(symbol=symbol, action="NONE", blocking_reason=f"analysis error: {exc}", required_data_missing=True))
+                records.append(_record(symbol=symbol, action="NONE", blocking_reason=f"analysis error: {exc}", required_data_missing=True, resolutions=resolutions))
     frame = pd.DataFrame(records)
     signals_found = int((frame.get("action", pd.Series(dtype=str)) != "NONE").sum()) if not frame.empty else 0
     near_misses = int(frame.get("near_miss", pd.Series(dtype=bool)).fillna(False).sum()) if not frame.empty else 0
@@ -165,13 +196,6 @@ def _suggested_relaxation(component_scores: Mapping[str, Any], profile: SignalPr
     return "none"
 
 
-def _find_csv(data_dir: Path, symbol: str) -> Path | None:
-    for candidate in (data_dir / f"{symbol}_M5.csv", data_dir / f"{symbol}.csv"):
-        if candidate.exists():
-            return candidate
-    return None
-
-
 def _first(value: Any) -> str:
     if isinstance(value, str):
         return value
@@ -181,7 +205,7 @@ def _first(value: Any) -> str:
         return str(value)
 
 
-def _record(*, symbol: str, action: str, blocking_reason: str, required_data_missing: bool = False) -> dict[str, Any]:
+def _record(*, symbol: str, action: str, blocking_reason: str, required_data_missing: bool = False, resolutions: Mapping[str, Any] | None = None) -> dict[str, Any]:
     blocker = _canonical_blocker(
         blocking_reason,
         component_scores={},
@@ -206,6 +230,8 @@ def _record(*, symbol: str, action: str, blocking_reason: str, required_data_mis
         "session": "",
         "component_scores": {},
         "required_data_missing": required_data_missing,
+        "historical_resolutions": {key: value.to_dict() for key, value in dict(resolutions or {}).items() if hasattr(value, "to_dict")},
+        "data_status": "NEEDS_MORE_DATA" if required_data_missing else "OK",
         "execution_attempted": False,
     }
 
@@ -218,16 +244,23 @@ def _canonical_blocker(
     threshold: float,
     required_data_missing: bool,
 ) -> str:
+    code = str(reason or "").split(":", 1)[0].strip().upper()
+    if code in SPECIFIC_DATA_BLOCKERS:
+        return code
     text = str(reason or "").lower()
     if required_data_missing or "missing" in text or "invalid history" in text or "data" in text:
         return "DATA_MISSING"
-    if "spread" in text or "cost" in text:
+    if "cost" in text:
+        return "COST_BLOCK"
+    if "spread" in text:
         return "SPREAD_BLOCK"
     if "session" in text or "rollover" in text:
         return "SESSION_BLOCK"
     if "regime" in text or "trend" in text or "range" in text:
         return "REGIME_MISMATCH"
-    if "structure" in text or "swing" in text or "reclaim" in text or "liquidity" in text:
+    if "liquidity" in text:
+        return "LIQUIDITY_BLOCK"
+    if "structure" in text or "swing" in text or "reclaim" in text:
         return "STRUCTURE_BLOCK"
     if "volatility" in text or "atr" in text or "compression" in text:
         return "VOLATILITY_BLOCK"
@@ -236,12 +269,14 @@ def _canonical_blocker(
     if component_scores:
         weakest = _weakest_component(component_scores)
         if weakest in {"cost_fit", "broker_fit"}:
-            return "SPREAD_BLOCK"
+            return "COST_BLOCK"
         if weakest in {"session_fit"}:
             return "SESSION_BLOCK"
         if weakest in {"regime_fit"}:
             return "REGIME_MISMATCH"
-        if weakest in {"structure_fit", "liquidity_fit"}:
+        if weakest in {"liquidity_fit"}:
+            return "LIQUIDITY_BLOCK"
+        if weakest in {"structure_fit"}:
             return "STRUCTURE_BLOCK"
         if weakest in {"volatility_fit", "momentum_fit"}:
             return "VOLATILITY_BLOCK"

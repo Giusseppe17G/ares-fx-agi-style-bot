@@ -22,7 +22,7 @@ from .backtesting import (
 )
 from .benchmarks import build_competitive_scorecard, run_benchmarks
 from .config import BotConfig
-from .data_pipeline import build_broker_cost_profile, build_dataset_manifest, cost_for_symbol
+from .data_pipeline import audit_historical_data, build_broker_cost_profile, build_dataset_manifest, build_feature_availability_report, cost_for_symbol, resolve_historical_data
 from .market_structure import run_strategy_diagnose, write_structure_report
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter
@@ -136,6 +136,8 @@ class RealDataResearchRunner:
             "stages": [result.to_dict() for result in results],
             "symbols_exported": self._symbols_exported(),
             "bars_by_symbol_timeframe": self._bars_by_symbol_timeframe(),
+            "historical_data_status": self._stage_summary(results, "HISTORICAL_DATA_AUDIT").get("classification", ""),
+            "feature_availability_status": self._stage_summary(results, "HISTORICAL_DATA_AUDIT").get("feature_availability", {}).get("classification", ""),
             "data_quality_status": self._stage_classification(results, "DATA_QUALITY"),
             "broker_cost_status": self._stage_classification(results, "BROKER_COST_PROFILE"),
             "strategy_diagnostics": self._stage_summary(results, "STRATEGY_DIAGNOSE"),
@@ -175,6 +177,7 @@ class RealDataResearchRunner:
         return (
             ("MT5_DIAGNOSE", self._mt5_diagnose),
             ("EXPORT_HISTORY", self._export_history),
+            ("HISTORICAL_DATA_AUDIT", self._historical_data_audit),
             ("DATA_QUALITY", self._data_quality),
             ("BROKER_COST_PROFILE", self._broker_cost_profile),
             ("STRUCTURE_REPORT", self._structure_report),
@@ -274,6 +277,16 @@ class RealDataResearchRunner:
             symbols=self.config.symbols,
             timeframes=tuple(EXPORT_BAR_TARGETS),
         )
+
+    def _historical_data_audit(self) -> dict[str, Any]:
+        audit = audit_historical_data(
+            data_dir=self.historical_dir,
+            report_dir=self.reports_dir / "data_audit",
+            symbols=self.config.symbols,
+            timeframes=tuple(EXPORT_BAR_TARGETS),
+        )
+        feature = build_feature_availability_report(data_dir=self.historical_dir, report_dir=self.reports_dir / "data_audit", symbols=self.config.symbols)
+        return {**audit, "feature_availability": feature, "reports_created": [*audit.get("reports_created", []), *feature.get("reports_created", [])], "execution_attempted": False}
 
     def _broker_cost_profile(self) -> dict[str, Any]:
         if not self._has_any_history():
@@ -453,26 +466,21 @@ class RealDataResearchRunner:
 
     def _bars_by_symbol_timeframe(self) -> dict[str, dict[str, int]]:
         result: dict[str, dict[str, int]] = {}
-        for path in sorted(self.historical_dir.glob("*.csv")):
-            parts = path.stem.upper().replace("-", "_").split("_")
-            if len(parts) < 2:
-                continue
-            symbol, timeframe = parts[0], parts[1]
-            try:
-                rows = len(pd.read_csv(path, usecols=["time"]))
-            except Exception:
-                rows = 0
-            result.setdefault(symbol, {})[timeframe] = rows
+        for symbol in self.config.symbols:
+            for timeframe in EXPORT_BAR_TARGETS:
+                resolution = resolve_historical_data(self.historical_dir, symbol=symbol, timeframe=timeframe, min_bars=0)
+                if resolution.found:
+                    result.setdefault(symbol, {})[timeframe] = resolution.rows
         return result
 
     def _symbols_exported(self) -> list[str]:
         return sorted(self._bars_by_symbol_timeframe())
 
     def _has_any_history(self) -> bool:
-        return any(self.historical_dir.glob("*.csv"))
+        return any(self.historical_dir.rglob("*.csv"))
 
     def _missing_history(self, timeframe: str) -> list[str]:
-        return [symbol for symbol in self.config.symbols if not (self.historical_dir / f"{symbol}_{timeframe}.csv").exists()]
+        return [symbol for symbol in self.config.symbols if not resolve_historical_data(self.historical_dir, symbol=symbol, timeframe=timeframe, min_bars=0).found]
 
     def _find_trades_csv(self) -> Path | None:
         preferred = self.reports_dir / "backtests" / "trades.csv"
@@ -600,11 +608,20 @@ class RealDataResearchRunner:
             "final_decision": final_decision,
             "symbols_exported": self._symbols_exported(),
             "bars_by_symbol_timeframe": self._bars_by_symbol_timeframe(),
+            "historical_data_status": self._historical_context(results).get("historical_data_status", ""),
+            "timestamp_status": self._historical_context(results).get("timestamp_status", ""),
+            "h1_bars_status": self._historical_context(results).get("h1_bars_status", ""),
+            "missing_timeframes": self._historical_context(results).get("missing_timeframes", []),
+            "insufficient_timeframes": self._historical_context(results).get("insufficient_timeframes", []),
+            "feature_availability_status": self._historical_context(results).get("feature_availability_status", ""),
+            "main_feature_blocker": self._historical_context(results).get("main_feature_blocker", ""),
+            "main_data_blocker": self._historical_context(results).get("main_data_blocker", ""),
             "total_trades": total_trades,
             "benchmark_status": next((result.status for result in results if result.name == "BENCHMARK"), ""),
             "benchmark_classification": str(benchmark.get("classification", "")),
             "zero_trade_detected": zero_trade_detected,
-            "likely_next_step": "Run FASE 18: Signal Frequency Calibration" if zero_trade_detected and data_quality_ok else _likely_next_step(final_decision),
+            "likely_next_step": self._recommended_next_action(results, zero_trade_detected=zero_trade_detected, data_quality_ok=data_quality_ok, final_decision=final_decision),
+            "recommended_next_action": self._recommended_next_action(results, zero_trade_detected=zero_trade_detected, data_quality_ok=data_quality_ok, final_decision=final_decision),
             "calibration": self._calibration_context(),
             "stages_passed": sum(1 for result in results if result.status == "PASSED"),
             "stages_warning": sum(1 for result in results if result.status == "WARNING"),
@@ -616,6 +633,35 @@ class RealDataResearchRunner:
             "order_send_called": False,
             "order_check_called": False,
         }
+
+    def _historical_context(self, results: list[ResearchStageResult]) -> dict[str, Any]:
+        audit = self._stage_summary(results, "HISTORICAL_DATA_AUDIT")
+        feature = audit.get("feature_availability", {}) if isinstance(audit.get("feature_availability"), Mapping) else {}
+        return {
+            "historical_data_status": audit.get("historical_data_status", audit.get("classification", "")),
+            "timestamp_status": audit.get("timestamp_status", ""),
+            "h1_bars_status": audit.get("h1_bars_status", ""),
+            "missing_timeframes": audit.get("missing_timeframes", []),
+            "insufficient_timeframes": audit.get("insufficient_timeframes", []),
+            "feature_availability_status": feature.get("feature_availability_status", feature.get("classification", "")),
+            "main_feature_blocker": feature.get("main_feature_blocker", ""),
+            "main_data_blocker": audit.get("main_data_blocker", ""),
+        }
+
+    def _recommended_next_action(self, results: list[ResearchStageResult], *, zero_trade_detected: bool, data_quality_ok: bool, final_decision: str) -> str:
+        context = self._historical_context(results)
+        main_blocker = str(context.get("main_data_blocker", ""))
+        if context.get("timestamp_status") == "FAILED":
+            return "Run FASE 18D timestamp normalization repair or re-export history."
+        if main_blocker == "INSUFFICIENT_H1_BARS":
+            return "Export more H1 bars or lower calibration diagnostic minimum only for research."
+        if context.get("h1_bars_status") == "CALIBRATION_ONLY":
+            return "Export more H1 bars for full validation; calibration may continue."
+        if zero_trade_detected and data_quality_ok and not context.get("main_data_blocker"):
+            return "Run FASE 19: Strategy Threshold Application / Balanced Profile Backtest."
+        if zero_trade_detected and data_quality_ok:
+            return "Run FASE 18: Signal Frequency Calibration"
+        return _likely_next_step(final_decision)
 
     def _calibration_context(self) -> dict[str, Any]:
         summary = _load_optional_json(self.reports_dir / "calibration" / "summary.json") or _load_optional_json(self.reports_dir / "calibration" / "threshold_sweep_summary.json")
@@ -680,6 +726,24 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
     payload["near_misses"] = calibration.get("near_misses", payload.get("near_misses", 0))
     payload["top_blocking_reasons"] = calibration.get("top_blocking_reasons") or calibration.get("top_blockers") or payload.get("top_blocking_reasons", [])
     payload["suggested_threshold_changes"] = calibration.get("suggested_threshold_changes", payload.get("suggested_threshold_changes", {}))
+    audit = _load_optional_json(latest / "reports" / "data_audit" / "historical_data_audit.json") or {}
+    feature = _load_optional_json(latest / "reports" / "data_audit" / "feature_availability.json") or {}
+    payload["historical_data_status"] = audit.get("historical_data_status", audit.get("classification", payload.get("historical_data_status", "")))
+    payload["timestamp_status"] = audit.get("timestamp_status", payload.get("timestamp_status", ""))
+    payload["h1_bars_status"] = audit.get("h1_bars_status", payload.get("h1_bars_status", ""))
+    payload["missing_timeframes"] = audit.get("missing_timeframes", payload.get("missing_timeframes", []))
+    payload["insufficient_timeframes"] = audit.get("insufficient_timeframes", payload.get("insufficient_timeframes", []))
+    payload["feature_availability_status"] = feature.get("feature_availability_status", feature.get("classification", payload.get("feature_availability_status", "")))
+    payload["main_feature_blocker"] = feature.get("main_feature_blocker", payload.get("main_feature_blocker", ""))
+    payload["main_data_blocker"] = audit.get("main_data_blocker", payload.get("main_data_blocker", ""))
+    if payload.get("timestamp_status") == "FAILED":
+        payload["recommended_next_action"] = "Run FASE 18D timestamp normalization repair or re-export history."
+    elif payload.get("main_data_blocker") == "INSUFFICIENT_H1_BARS":
+        payload["recommended_next_action"] = "Export more H1 bars or lower calibration diagnostic minimum only for research."
+    elif payload.get("h1_bars_status") == "CALIBRATION_ONLY":
+        payload["recommended_next_action"] = "Export more H1 bars for full validation; calibration may continue."
+    elif int(payload.get("total_trades", 0) or 0) == 0 and not payload.get("main_data_blocker"):
+        payload["recommended_next_action"] = "Run FASE 19: Strategy Threshold Application / Balanced Profile Backtest."
     return {"mode": "latest-run-summary", "run_dir": str(latest), **payload, "execution_attempted": False}
 
 

@@ -109,7 +109,7 @@ def test_blocked_candidates_produce_blocking_reasons(tmp_path: Path) -> None:
 
     assert summary["blocked_candidates"] > 0
     assert summary["top_blocking_reasons"]
-    assert summary["top_blocking_reasons"][0]["blocking_reason"] == "DATA_MISSING"
+    assert summary["top_blocking_reasons"][0]["blocking_reason"] == "MISSING_M5_FILE"
     assert (report_dir / "blocking_reasons.csv").exists()
 
 
@@ -164,7 +164,7 @@ def test_real_data_research_recommends_phase18_when_zero_trades(tmp_path: Path) 
 
     compact = runner._compact_summary(results, "NEEDS_STRATEGY_RESEARCH", [], [])
 
-    assert compact["likely_next_step"] == "Run FASE 18: Signal Frequency Calibration"
+    assert compact["likely_next_step"] == "Run FASE 19: Strategy Threshold Application / Balanced Profile Backtest."
     assert compact["calibration"]["recommended_profile"] == "BALANCED"
     assert compact["execution_attempted"] is False
 

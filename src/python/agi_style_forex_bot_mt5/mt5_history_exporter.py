@@ -96,7 +96,9 @@ class MT5HistoryExporter:
                     continue
                 frame = pd.DataFrame(raw)
                 if "time" in frame.columns:
-                    frame["time"] = pd.to_datetime(frame["time"], unit="s", utc=True).dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    timestamp_utc = pd.to_datetime(frame["time"], unit="s", utc=True)
+                    frame["timestamp_utc"] = timestamp_utc.dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    frame["time"] = frame["timestamp_utc"]
                 output_path = self.output_dir / f"{canonical_symbol}_{timeframe}.csv"
                 frame.to_csv(output_path, index=False)
                 files_created += 1

@@ -10,6 +10,7 @@ from typing import Any, Iterable
 import pandas as pd
 
 from agi_style_forex_bot_mt5.contracts import MarketSnapshot, utc_now
+from agi_style_forex_bot_mt5.data_pipeline.historical_data_resolver import CALIBRATION_MIN_BARS, resolve_historical_data
 from agi_style_forex_bot_mt5.strategy import evaluate_ensemble
 
 from .liquidity_zones import detect_liquidity_zones
@@ -62,6 +63,10 @@ def write_structure_report(*, symbols: Iterable[str], data_dir: str | Path, repo
     output.mkdir(parents=True, exist_ok=True)
     rows = []
     for symbol in [item.strip().upper() for item in symbols if item.strip()]:
+        resolution = resolve_historical_data(data_dir, symbol=symbol, timeframe="M5", min_bars=CALIBRATION_MIN_BARS["M5"])
+        if not resolution.found or not resolution.is_sufficient:
+            rows.append({"symbol": symbol, "status": "REJECTED", "blocking_reason": resolution.reason or "TIMEFRAME_PATH_NOT_FOUND"})
+            continue
         frame = _load_symbol_frame(Path(data_dir), symbol)
         features = build_market_structure_features(frame)
         rows.append(
@@ -88,7 +93,30 @@ def write_structure_report(*, symbols: Iterable[str], data_dir: str | Path, repo
 def run_strategy_diagnose(*, symbol: str, data_dir: str | Path, report_dir: str | Path) -> dict[str, Any]:
     output = Path(report_dir)
     output.mkdir(parents=True, exist_ok=True)
-    frame = _load_symbol_frame(Path(data_dir), symbol.upper())
+    canonical_symbol = symbol.upper()
+    resolutions = {
+        timeframe: resolve_historical_data(data_dir, symbol=canonical_symbol, timeframe=timeframe, min_bars=CALIBRATION_MIN_BARS[timeframe])
+        for timeframe in ("M5", "M15", "H1")
+    }
+    m5 = resolutions["M5"]
+    json_path = output / f"{canonical_symbol}_strategy_diagnose.json"
+    if not m5.found or not m5.is_sufficient:
+        payload = {
+            "mode": "strategy-diagnose",
+            "symbol": canonical_symbol,
+            "signal": "NONE",
+            "score": 0.0,
+            "required_data_missing": True,
+            "blocking_reasons": [m5.reason or "TIMEFRAME_PATH_NOT_FOUND"],
+            "metadata": {
+                "blocking_reasons": [m5.reason or "TIMEFRAME_PATH_NOT_FOUND"],
+                "historical_resolutions": {key: value.to_dict() for key, value in resolutions.items()},
+            },
+            "execution_attempted": False,
+        }
+        json_path.write_text(json.dumps(_jsonable(payload), indent=2, sort_keys=True), encoding="utf-8")
+        return {**payload, "reports_created": [str(json_path)]}
+    frame = _load_symbol_frame(Path(data_dir), canonical_symbol)
     features = build_market_structure_features(frame)
     features.setdefault("regime", "TREND_UP" if features.get("trend_structure") == "UP" else "TREND_DOWN" if features.get("trend_structure") == "DOWN" else "RANGE")
     features.setdefault("ema_fast", features.get("close", 1.0))
@@ -98,26 +126,26 @@ def run_strategy_diagnose(*, symbol: str, data_dir: str | Path, report_dir: str 
     signal = evaluate_ensemble(snapshot, features, mode="shadow")
     payload = {
         "mode": "strategy-diagnose",
-        "symbol": symbol.upper(),
+        "symbol": canonical_symbol,
         "signal": signal.action.value,
         "score": signal.score,
         "reasons": signal.reasons,
-        "metadata": dict(signal.metadata),
+        "required_data_missing": False,
+        "metadata": {**dict(signal.metadata), "historical_resolutions": {key: value.to_dict() for key, value in resolutions.items()}},
         "execution_attempted": False,
     }
-    json_path = output / f"{symbol.upper()}_strategy_diagnose.json"
     json_path.write_text(json.dumps(_jsonable(payload), indent=2, sort_keys=True), encoding="utf-8")
     return {**payload, "reports_created": [str(json_path)]}
 
 
 def _load_symbol_frame(data_dir: Path, symbol: str) -> pd.DataFrame:
-    for candidate in (data_dir / f"{symbol}_M5.csv", data_dir / f"{symbol}.csv"):
-        if candidate.exists():
-            frame = pd.read_csv(candidate)
-            if "time" in frame.columns:
-                frame = frame.sort_values("time")
-            return frame
-    raise FileNotFoundError(f"no M5 CSV for {symbol}")
+    resolution = resolve_historical_data(data_dir, symbol=symbol, timeframe="M5", min_bars=0)
+    if not resolution.found:
+        raise FileNotFoundError(f"no M5 CSV for {symbol}: {resolution.reason}")
+    frame = pd.read_csv(resolution.path)
+    if "time" in frame.columns:
+        frame = frame.sort_values("time")
+    return frame
 
 
 def _snapshot_from_frame(symbol: str, frame: pd.DataFrame) -> MarketSnapshot:
@@ -142,4 +170,3 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_jsonable(item) for item in value]
     return value
-

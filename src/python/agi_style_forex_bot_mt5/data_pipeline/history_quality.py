@@ -11,6 +11,9 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 import pandas as pd
 
+from .historical_data_resolver import resolve_historical_data
+from .timestamp_normalizer import normalize_timestamps
+
 
 REQUIRED_COLUMNS = {"time", "open", "high", "low", "close", "tick_volume"}
 
@@ -43,12 +46,17 @@ def load_history_csv(path: str | Path, *, symbol: str, timeframe: str) -> pd.Dat
     frame = pd.read_csv(csv_path)
     if frame.empty:
         raise ValueError("historical CSV is empty")
-    missing = REQUIRED_COLUMNS - set(frame.columns)
+    timestamp_present = any(column in frame.columns for column in ("timestamp_utc", "timestamp", "datetime", "date", "time"))
+    missing = (REQUIRED_COLUMNS - {"time"}) - set(frame.columns)
+    if not timestamp_present:
+        missing.add("time")
     if missing:
         raise ValueError(f"historical CSV missing required columns: {sorted(missing)}")
     frame = frame.copy()
-    frame["time"] = pd.to_datetime(frame["time"], utc=True, errors="coerce")
-    if frame["time"].isna().any():
+    normalized = normalize_timestamps(frame)
+    frame = normalized.frame.copy()
+    frame["time"] = frame["timestamp_utc"]
+    if normalized.diagnosis["status"] == "FAILED":
         raise ValueError("historical CSV contains invalid or non-UTC timestamps")
     for column in ("open", "high", "low", "close", "tick_volume", "spread"):
         if column in frame.columns:
@@ -72,7 +80,7 @@ def evaluate_history_quality(
 
     csv_path = Path(path)
     raw = pd.read_csv(csv_path)
-    duplicate_count = int(pd.to_datetime(raw.get("time"), utc=True, errors="coerce").duplicated().sum()) if "time" in raw else 0
+    duplicate_count = int(normalize_timestamps(raw).diagnosis.get("duplicates", 0) or 0)
     frame = load_history_csv(csv_path, symbol=symbol, timeframe=timeframe)
     expected_gap = timeframe_seconds(timeframe)
     gaps = _gap_frame(frame, expected_gap, symbol=symbol, timeframe=timeframe)
@@ -118,15 +126,24 @@ def scan_history_directory(
     results: list[HistoryQualityResult] = []
     gap_frames: list[pd.DataFrame] = []
     anomaly_frames: list[pd.DataFrame] = []
-    for csv_path in sorted(data_path.glob("*.csv")):
-        parsed = parse_history_filename(csv_path)
-        if parsed is None:
-            continue
-        symbol, timeframe = parsed
-        if selected_symbols and symbol not in selected_symbols:
-            continue
-        if timeframe not in {tf.upper() for tf in timeframes}:
-            continue
+    requested_timeframes = {tf.upper() for tf in timeframes}
+    paths: list[tuple[Path, str, str]] = []
+    if selected_symbols:
+        for symbol in sorted(selected_symbols):
+            for timeframe in sorted(requested_timeframes):
+                resolution = resolve_historical_data(data_path, symbol=symbol, timeframe=timeframe, min_bars=0)
+                if resolution.found and resolution.reason not in {"MISSING_REQUIRED_COLUMNS", "EMPTY_CSV"} and not str(resolution.reason or "").startswith("CSV_PARSE"):
+                    paths.append((Path(resolution.path), symbol, timeframe))
+    else:
+        for csv_path in sorted(data_path.rglob("*.csv")):
+            parsed = parse_history_filename(csv_path)
+            if parsed is None:
+                continue
+            symbol, timeframe = parsed
+            if timeframe not in requested_timeframes:
+                continue
+            paths.append((csv_path, symbol, timeframe))
+    for csv_path, symbol, timeframe in paths:
         result, gaps, anomalies = evaluate_history_quality(csv_path, symbol=symbol, timeframe=timeframe)
         results.append(result)
         gap_frames.append(gaps)

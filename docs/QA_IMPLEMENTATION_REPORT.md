@@ -794,3 +794,46 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## Phase 18C Historical Data Resolution Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 226 tests collected.
+
+Integrated in Phase 18C:
+
+- Added `HistoricalDataResolver` for supported MT5 CSV layouts including flat, dashed, rates suffix, double underscore, timeframe folder, and symbol folder formats.
+- Added `--mode historical-data-audit` with JSON/CSV/HTML outputs plus missing-data reporting.
+- Added feature availability reporting for indicators, market structure, session levels, liquidity sweep, and regime detection.
+- Calibration and strategy diagnostics now use the resolver instead of manual `SYMBOL_M5.csv` path assumptions.
+- Replaced generic `DATA_MISSING` where possible with specific blockers such as `MISSING_M5_FILE`, `MISSING_H1_FILE`, `INSUFFICIENT_H1_BARS`, `MISSING_REQUIRED_COLUMNS`, `EMPTY_CSV`, and `CSV_PARSE_ERROR`.
+- Real-data research now includes a `HISTORICAL_DATA_AUDIT` stage and exposes historical/feature status in compact summaries.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
+## Phase 18D Timestamp Normalization Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 233 tests collected.
+
+Integrated in Phase 18D:
+
+- Added `TimestampNormalizer` for `timestamp_utc`, `timestamp`, `datetime`, `date`, and `time` columns.
+- Timestamp parsing now supports epoch seconds, epoch milliseconds, ISO strings, plain datetime strings, and pandas datetime values.
+- Historical resolution now audits timestamp source, status, min/max timestamps, duplicate timestamps, calibration sufficiency, and full-validation sufficiency.
+- Feature availability now normalizes timestamps before indicator and market-structure feature builds, preventing `timestamp_utc must be datetime-like` when MT5 CSVs contain parseable `time`.
+- Added `--mode timestamp-audit` with JSON/CSV/HTML reports.
+- `export-history` now writes both `time` and normalized `timestamp_utc` columns.
+- Compact run summaries include `timestamp_status`, `h1_bars_status`, `feature_availability_status`, and `main_feature_blocker`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

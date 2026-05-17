@@ -149,6 +149,26 @@ Use `--runs-root data\runs` with calibration commands when the root `data\histor
 
 If threshold sweep returns `RESEARCH_ONLY`, treat it as a diagnosis state, not an execution profile. Inspect `blocking_reasons.csv`, `near_misses.csv`, and the strategy diagnostics before changing thresholds.
 
+Phase 18C adds `HISTORICAL_DATA_AUDIT` before strategy diagnostics and backtesting. `latest-run-summary` now also exposes:
+
+- `historical_data_status`
+- `missing_timeframes`
+- `insufficient_timeframes`
+- `feature_availability_status`
+- `main_data_blocker`
+- `recommended_next_action`
+
+If `main_data_blocker=INSUFFICIENT_H1_BARS`, export more H1 bars or lower only the calibration diagnostic minimum for research. If historical data is sufficient and zero trades remain, the next step becomes `Run FASE 19: Strategy Threshold Application / Balanced Profile Backtest.`
+
+Phase 18D adds timestamp normalization diagnostics. `time` from MT5 is acceptable when parseable; the pipeline normalizes it into `timestamp_utc` before features. If `timestamp_status=FAILED`, re-export history or run:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode timestamp-audit --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --data-dir data\runs\<RUN_ID>\historical --report-dir data\runs\<RUN_ID>\reports\timestamp_audit
+```
+
+If `h1_bars_status=CALIBRATION_ONLY`, threshold calibration may continue, but full validation still needs more H1 history.
+
 If Monte Carlo is skipped:
 
 - First fix backtest trade generation.
