@@ -54,6 +54,10 @@ class MasterDecisionEngine:
             reasons.append("broker cost profile missing")
             return "NEEDS_MORE_DATA"
         backtest = summaries.get("backtest", {})
+        signal_profile = str(backtest.get("signal_profile_used") or backtest.get("settings", {}).get("parameters", {}).get("SIGNAL_PROFILE", "")).upper()
+        if signal_profile in {"ACTIVE", "RESEARCH_ONLY"}:
+            reasons.append(f"{signal_profile} profile is NOT_FOR_DEMO_LIVE and cannot promote to forward-shadow continuation")
+            return "NEEDS_STRATEGY_RESEARCH"
         if int(backtest.get("total_trades", 0) or 0) < 100:
             reasons.append("backtest has insufficient trades")
             return "NEEDS_STRATEGY_RESEARCH"

@@ -134,3 +134,14 @@ Required shadow evidence:
 - Dynamic risk never raises risk above the RiskEngine-approved amount.
 
 If portfolio evidence is missing, correlation data is required but unavailable, or exposure controls reject the setup, the candidate remains `WATCHLIST` or `REJECTED`.
+
+## Phase 19 Signal Profile Guard
+
+Calibrated profiles can improve research sample size, but they do not authorize execution.
+
+- `CONSERVATIVE`: eligible for research/backtest and forward-shadow paper observation.
+- `BALANCED`: eligible for research/backtest and forward-shadow paper observation.
+- `ACTIVE`: research/backtest diagnostics only, `NOT FOR DEMO/LIVE EXECUTION`.
+- `RESEARCH_ONLY`: diagnostics only, `NOT FOR DEMO/LIVE EXECUTION`.
+
+The promotion gate must reject or downgrade any `ACTIVE` or `RESEARCH_ONLY` result that attempts to become `CONTINUE_FORWARD_SHADOW`. These profiles are useful for finding signal frequency and blockers, not for proving deployable behavior.

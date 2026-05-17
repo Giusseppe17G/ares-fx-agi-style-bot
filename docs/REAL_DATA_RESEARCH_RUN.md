@@ -195,6 +195,28 @@ If Benchmark returns `NEEDS_MORE_DATA`:
 - Inspect `reports/benchmarks/baselines.csv` for skipped baselines and skip reasons.
 - Do not use the competitive scorecard as approval until benchmark data is sufficient.
 
+## Applying A Calibrated Profile
+
+Phase 19 lets the run use a calibrated signal profile without changing global defaults:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode apply-signal-profile --profile BALANCED --runs-root data\runs --output-dir data\reports\applied_profiles
+
+py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --bars 50000 --output-root data\runs --signal-profile BALANCED
+```
+
+The run metadata and `final_summary_compact.json` include:
+
+- `signal_profile_used`
+- `thresholds_used`
+- `signals_generated`
+- `trades_generated`
+- `trade_frequency_status`
+- `next_recommended_profile`
+
+`CONSERVATIVE` and `BALANCED` can be used for research/backtest and forward-shadow paper observation. `ACTIVE` and `RESEARCH_ONLY` are blocked from forward-shadow promotion and remain `NOT FOR DEMO/LIVE EXECUTION`.
+
 ## Decisions
 
 - `NEEDS_MORE_DATA`: export more history, check MT5 symbols, and rerun.

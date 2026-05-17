@@ -72,3 +72,13 @@ py -m agi_style_forex_bot_mt5.cli --mode latest-run-summary --runs-root data\run
 Stages that depend on closed simulated trades may report `SKIPPED_NO_TRADES` when `reports/backtests/trades.csv` is missing or empty. That is a blocking research condition, not approval.
 
 If benchmark reports `NEEDS_MORE_DATA`, the competitive scorecard and master decision remain blocked. If data quality is OK but backtest has zero trades, the master decision should move toward `NEEDS_STRATEGY_RESEARCH`, which is the expected path into signal frequency calibration.
+
+## Signal Profiles In Master Decision
+
+Phase 19 adds `signal_profile_used` and `thresholds_used` to backtest and real-data research summaries. The master decision remains conservative:
+
+- `CONSERVATIVE` and `BALANCED` may continue research/backtest and forward-shadow paper observation.
+- `ACTIVE` and `RESEARCH_ONLY` are `NOT_FOR_DEMO_LIVE`.
+- If `ACTIVE` or `RESEARCH_ONLY` appears in validation evidence, the final decision cannot be `CONTINUE_FORWARD_SHADOW`; it is downgraded to `NEEDS_STRATEGY_RESEARCH`.
+
+This profile control only changes signal frequency for research and simulation. It does not disable spread, timestamp, market-closed, risk, broker-readiness, ML, portfolio, SL, or TP guards.

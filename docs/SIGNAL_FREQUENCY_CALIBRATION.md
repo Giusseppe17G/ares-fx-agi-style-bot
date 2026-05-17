@@ -86,3 +86,31 @@ Do not relax signals when blockers are `MISSING_REQUIRED_COLUMNS`, `EMPTY_CSV`, 
 Phase 18D normalizes `time` into `timestamp_utc` before features. If `TIMESTAMP_PARSE_ERROR` appears, run `timestamp-audit` and repair/re-export history before changing signal profiles. H1 with at least 200 bars is enough for calibration diagnostics, even if it is not enough for full validation.
 
 Phase 18E makes threshold sweep consume the same normalized CSV contract used by backtest and strategy diagnostics. If `historical-data-audit` passes but threshold sweep reports a CSV blocker, run `strategy-data-contract`; do not change thresholds until the contract report is `OK`.
+
+## Phase 19 Profile Application
+
+After threshold sweep proves that a profile generates enough candidates, apply it as a per-run research overlay:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode apply-signal-profile --profile BALANCED --runs-root data\runs --output-dir data\reports\applied_profiles
+```
+
+This writes:
+
+- `applied_profile.json`
+- `applied_profile.ini`
+- `profile_diff.json`
+- `data/reports/profile_runs/profile_comparison.json`
+- `data/reports/profile_runs/profile_comparison.csv`
+
+`BALANCED` is the normal first calibrated profile to test after `zero_trade_detected=true`. `ACTIVE` and `RESEARCH_ONLY` remain marked `NOT FOR DEMO/LIVE EXECUTION`; they are research diagnostics only and cannot promote to forward-shadow continuation.
+
+Run the calibrated real-data research pipeline with:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --bars 50000 --output-root data\runs --signal-profile BALANCED
+```
+
+Compare `signals_generated` and `trades_generated`. If signals are generated but no trades are created, inspect `top_blocking_reasons` for conversion blockers such as `SPREAD_BLOCK`, `MISSING_SL_TP`, `INVALID_RR`, `RISK_REJECTED`, or `PORTFOLIO_BLOCK`.

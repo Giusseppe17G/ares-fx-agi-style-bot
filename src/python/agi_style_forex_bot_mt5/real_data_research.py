@@ -21,6 +21,7 @@ from .backtesting import (
     run_walk_forward_for_symbols,
 )
 from .benchmarks import build_competitive_scorecard, run_benchmarks
+from .calibration import bot_config_with_signal_profile, get_signal_profile, profile_allowed_for_shadow, profile_trade_frequency_status, write_profile_comparison
 from .config import BotConfig
 from .data_pipeline import audit_historical_data, build_broker_cost_profile, build_dataset_manifest, build_feature_availability_report, build_strategy_data_contract_report, cost_for_symbol, resolve_historical_data
 from .market_structure import run_strategy_diagnose, write_structure_report
@@ -59,9 +60,12 @@ class RealDataResearchConfig:
     seed: int = 0
     fail_fast: bool = False
     run_id: str = ""
+    signal_profile: str = "CONSERVATIVE"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbols", _coerce_symbols(self.symbols))
+        profile = get_signal_profile(self.signal_profile)
+        object.__setattr__(self, "signal_profile", profile.name)
         if not self.run_id:
             stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
             object.__setattr__(self, "run_id", f"{stamp}-real-data-research")
@@ -105,7 +109,8 @@ class RealDataResearchRunner:
         stage_overrides: Mapping[str, Callable[[], dict[str, Any]]] | None = None,
     ) -> None:
         self.config = config
-        self.bot_config = bot_config or BotConfig()
+        self.signal_profile = get_signal_profile(config.signal_profile)
+        self.bot_config = bot_config_with_signal_profile(bot_config or BotConfig(), self.signal_profile.name)
         self.bot_config.validate_safety()
         self.stage_overrides = dict(stage_overrides or {})
         self.run_dir = Path(config.output_root) / config.run_id
@@ -128,11 +133,16 @@ class RealDataResearchRunner:
 
         final_decision, issues, next_actions = self._final_decision(results)
         compact = self._compact_summary(results, final_decision, issues, next_actions)
+        profile_reports = self._write_profile_comparison(results, final_decision)
         summary = {
             "mode": "real-data-research",
             "run_id": self.config.run_id,
             "run_dir": str(self.run_dir),
             "symbols": list(self.config.symbols),
+            "signal_profile_used": self.signal_profile.name,
+            "thresholds_used": self.signal_profile.to_dict(),
+            "profile_not_for_demo_live": bool(self.signal_profile.not_for_demo_live),
+            "profile_allowed_for_shadow": profile_allowed_for_shadow(self.signal_profile.name),
             "stages": [result.to_dict() for result in results],
             "symbols_exported": self._symbols_exported(),
             "bars_by_symbol_timeframe": self._bars_by_symbol_timeframe(),
@@ -158,6 +168,7 @@ class RealDataResearchRunner:
                 str(self.run_dir / "final_summary.html"),
                 str(self.run_dir / "final_summary_compact.json"),
                 str(self.run_dir / "final_summary_compact.txt"),
+                *profile_reports,
             ],
             "execution_attempted": False,
             "order_send_called": False,
@@ -200,6 +211,10 @@ class RealDataResearchRunner:
             stage_function = self.stage_overrides.get(name, function)
             summary = dict(stage_function())
             summary["execution_attempted"] = False
+            summary.setdefault("signal_profile_used", self.signal_profile.name)
+            summary.setdefault("thresholds_used", self.signal_profile.to_dict())
+            summary.setdefault("profile_not_for_demo_live", bool(self.signal_profile.not_for_demo_live))
+            summary.setdefault("profile_allowed_for_shadow", profile_allowed_for_shadow(self.signal_profile.name))
             status = self._status_for_summary(name, summary)
             error = ""
             if summary.get("mt5_connected") is False and name in {"MT5_DIAGNOSE", "EXPORT_HISTORY"}:
@@ -345,7 +360,11 @@ class RealDataResearchRunner:
                         max_spread_points=self.bot_config.max_spread_points_default,
                     ),
                     data_source=str(self.historical_dir),
-                    parameters={"execution_attempted": False},
+                    parameters={
+                        "execution_attempted": False,
+                        "SIGNAL_PROFILE": self.signal_profile.name,
+                        "thresholds_used": self.signal_profile.to_dict(),
+                    },
                 ),
             )
         except Exception as exc:
@@ -356,8 +375,12 @@ class RealDataResearchRunner:
             )
         summary = dict(result.summary)
         if int(summary.get("total_trades", 0) or 0) == 0:
-            summary["classification"] = "WARNING_NO_TRADES"
-            summary["error_message"] = "backtest completed but generated zero trades"
+            if int(summary.get("signals_generated", 0) or 0) > 0:
+                summary["classification"] = "WARNING_SIGNALS_NO_TRADES"
+                summary["error_message"] = "backtest generated signals but no simulated trades"
+            else:
+                summary["classification"] = "WARNING_NO_TRADES"
+                summary["error_message"] = "backtest completed but generated zero trades"
             self._ensure_empty_backtest_outputs(summary)
         return summary
 
@@ -531,7 +554,13 @@ class RealDataResearchRunner:
         pd.DataFrame({"timestamp": [datetime.now(timezone.utc).isoformat()], "equity": [10_000.0]}).to_csv(equity_path, index=False)
         summary = {
             "mode": "backtest",
+            "signal_profile_used": self.signal_profile.name,
+            "thresholds_used": self.signal_profile.to_dict(),
+            "profile_not_for_demo_live": bool(self.signal_profile.not_for_demo_live),
+            "profile_allowed_for_shadow": profile_allowed_for_shadow(self.signal_profile.name),
             "symbols_tested": 0,
+            "signals_generated": 0,
+            "trades_generated": 0,
             "total_trades": 0,
             "classification": classification,
             "error_message": reason,
@@ -600,21 +629,33 @@ class RealDataResearchRunner:
         full = self._stage_summary(results, "FULL_VALIDATION")
         decision = str(full.get("final_decision") or "")
         if decision:
+            if decision == "CONTINUE_FORWARD_SHADOW" and self.signal_profile.name in {"ACTIVE", "RESEARCH_ONLY"}:
+                issues.append(f"{self.signal_profile.name} is NOT_FOR_DEMO_LIVE and cannot promote to forward-shadow continuation")
+                return "NEEDS_STRATEGY_RESEARCH", issues, _actions_for_decision("NEEDS_STRATEGY_RESEARCH")
             return decision, issues or _issues_for_decision(decision), _actions_for_decision(decision)
         competitive = self._stage_summary(results, "COMPETITIVE_SCORECARD")
         if str(competitive.get("classification", "")).upper() in {"REJECTED", "WEAK_EDGE"}:
             return "NEEDS_STRATEGY_RESEARCH", ["competitive scorecard did not show durable edge"], _actions_for_decision("NEEDS_STRATEGY_RESEARCH")
+        if self.signal_profile.name in {"ACTIVE", "RESEARCH_ONLY"}:
+            issues.append(f"{self.signal_profile.name} is NOT_FOR_DEMO_LIVE and limited to research diagnostics")
+            return "NEEDS_STRATEGY_RESEARCH", issues, _actions_for_decision("NEEDS_STRATEGY_RESEARCH")
         return "CONTINUE_FORWARD_SHADOW", issues or ["evidence collected; continue paper observation"], _actions_for_decision("CONTINUE_FORWARD_SHADOW")
 
     def _compact_summary(self, results: list[ResearchStageResult], final_decision: str, issues: list[str], actions: list[str]) -> dict[str, Any]:
         backtest = self._stage_summary(results, "BACKTEST")
         benchmark = self._stage_summary(results, "BENCHMARK")
         total_trades = int(backtest.get("total_trades", 0) or 0)
+        signals_generated = int(backtest.get("signals_generated", 0) or 0)
+        trades_generated = int(backtest.get("trades_generated", total_trades) or 0)
         data_quality_ok = str(self._stage_classification(results, "DATA_QUALITY")).upper() == "OK"
         zero_trade_detected = total_trades == 0
         return {
             "run_id": self.config.run_id,
             "final_decision": final_decision,
+            "signal_profile_used": self.signal_profile.name,
+            "thresholds_used": self.signal_profile.to_dict(),
+            "profile_not_for_demo_live": bool(self.signal_profile.not_for_demo_live),
+            "profile_allowed_for_shadow": profile_allowed_for_shadow(self.signal_profile.name),
             "symbols_exported": self._symbols_exported(),
             "bars_by_symbol_timeframe": self._bars_by_symbol_timeframe(),
             "historical_data_status": self._historical_context(results).get("historical_data_status", ""),
@@ -633,10 +674,13 @@ class RealDataResearchRunner:
             "benchmark_status": next((result.status for result in results if result.name == "BENCHMARK"), ""),
             "benchmark_classification": str(benchmark.get("classification", "")),
             "zero_trade_detected": zero_trade_detected,
+            "signals_generated": signals_generated,
+            "trades_generated": trades_generated,
+            "trade_frequency_status": profile_trade_frequency_status(signals_generated=signals_generated, trades_generated=trades_generated),
+            "next_recommended_profile": self._next_recommended_profile(signals_generated=signals_generated, trades_generated=trades_generated),
             "likely_next_step": self._recommended_next_action(results, zero_trade_detected=zero_trade_detected, data_quality_ok=data_quality_ok, final_decision=final_decision),
             "recommended_next_action": self._recommended_next_action(results, zero_trade_detected=zero_trade_detected, data_quality_ok=data_quality_ok, final_decision=final_decision),
             "calibration": self._calibration_context(),
-            "signals_generated": int(backtest.get("signals_generated", 0) or 0),
             "top_strategy_blockers": backtest.get("top_blocking_reasons", []),
             "stages_passed": sum(1 for result in results if result.status == "PASSED"),
             "stages_warning": sum(1 for result in results if result.status == "WARNING"),
@@ -706,6 +750,30 @@ class RealDataResearchRunner:
             "top_blocking_reasons": summary.get("top_blocking_reasons", []),
             "top_blockers": summary.get("top_blocking_reasons", []),
         }
+
+    def _next_recommended_profile(self, *, signals_generated: int, trades_generated: int) -> str:
+        if signals_generated <= 0:
+            return "BALANCED" if self.signal_profile.name == "CONSERVATIVE" else "ACTIVE"
+        if trades_generated <= 0:
+            return self.signal_profile.name if self.signal_profile.name in {"BALANCED", "ACTIVE"} else "BALANCED"
+        return self.signal_profile.name
+
+    def _write_profile_comparison(self, results: list[ResearchStageResult], final_decision: str) -> list[str]:
+        backtest = self._stage_summary(results, "BACKTEST")
+        benchmark = self._stage_summary(results, "BENCHMARK")
+        metrics = {
+            self.signal_profile.name: {
+                "signals_generated": backtest.get("signals_generated", 0),
+                "trades_generated": backtest.get("trades_generated", backtest.get("total_trades", 0)),
+                "winrate": backtest.get("winrate", 0.0),
+                "profit_factor": backtest.get("profit_factor", 0.0),
+                "expectancy_r": backtest.get("expectancy_r", 0.0),
+                "max_drawdown_pct": backtest.get("max_drawdown_pct", 0.0),
+                "benchmark_classification": benchmark.get("classification", ""),
+                "validation_decision": final_decision,
+            }
+        }
+        return write_profile_comparison(self.reports_dir / "profile_runs", metrics)
 
 
 def run_real_data_research(

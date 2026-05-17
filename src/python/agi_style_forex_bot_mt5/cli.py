@@ -19,7 +19,7 @@ from .backtesting import (
     run_walk_forward_for_symbols,
 )
 from .benchmarks import build_competitive_scorecard, run_benchmarks
-from .calibration import run_blocking_reasons_report, run_signal_calibration, run_threshold_sweep_report
+from .calibration import apply_signal_profile, profile_allowed_for_shadow, run_blocking_reasons_report, run_signal_calibration, run_threshold_sweep_report
 from .broker_quality import build_readiness_report, run_broker_quality
 from .config import load_config
 from .contracts import AccountState, MarketSnapshot, utc_now
@@ -159,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
             "historical-data-audit",
             "timestamp-audit",
             "strategy-data-contract",
+            "apply-signal-profile",
         ],
         default="shadow",
     )
@@ -198,6 +199,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-export-history", action="store_true", help="Run MT5 history export in full-validation.")
     parser.add_argument("--fail-fast", action="store_true", help="Stop full-validation at the first failed stage.")
     parser.add_argument("--profiles", default="", help="Comma-separated signal profiles for threshold-sweep.")
+    parser.add_argument("--profile", default="BALANCED", help="Signal profile for apply-signal-profile.")
+    parser.add_argument(
+        "--signal-profile",
+        choices=["CONSERVATIVE", "BALANCED", "ACTIVE", "RESEARCH_ONLY"],
+        default="",
+        help="Research/backtest signal profile overlay.",
+    )
     parser.add_argument(
         "--telegram",
         action="store_true",
@@ -312,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
                 bars=args.bars,
                 seed=args.seed,
                 fail_fast=args.fail_fast,
+                signal_profile=args.signal_profile or config.signal_profile,
             )
             summary = run_real_data_research(research_config, bot_config=config)
             print(_json_dumps(summary))
@@ -319,6 +328,12 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.mode == "latest-run-summary":
             print(_json_dumps(load_latest_run_summary(args.runs_root)))
+            return 0
+
+        if args.mode == "apply-signal-profile":
+            output_dir = Path("data/reports/applied_profiles") if args.output_dir == Path("data/historical") else args.output_dir
+            summary = apply_signal_profile(profile_name=args.profile, runs_root=args.runs_root, output_dir=output_dir)
+            print(_json_dumps(summary))
             return 0
 
         if args.mode == "signal-calibration":
@@ -371,6 +386,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.mode == "backtest":
+            if args.signal_profile:
+                from .calibration import bot_config_with_signal_profile
+
+                config = bot_config_with_signal_profile(config, args.signal_profile)
             cost_profile = _load_optional_json(args.reports_root / "broker_costs" / "broker_cost_profile.json")
             spread_points = cost_for_symbol(cost_profile, selected_symbols[0], fallback=args.spread_points)
             result = run_backtest_for_symbols(
@@ -393,6 +412,7 @@ def main(argv: list[str] | None = None) -> int:
                     parameters={
                         "DEMO_ONLY": config.demo_only,
                         "LIVE_TRADING_APPROVED": config.live_trading_approved,
+                        "SIGNAL_PROFILE": config.signal_profile,
                         "execution_attempted": False,
                     },
                 ),
@@ -508,6 +528,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "forward-shadow":
             if database is None:
                 parser.error("--mode forward-shadow requires --sqlite for paper lifecycle persistence")
+            if not profile_allowed_for_shadow(config.signal_profile):
+                parser.error(f"SIGNAL_PROFILE={config.signal_profile} is not allowed to create forward-shadow paper trades")
             bot = ForwardShadowBot(
                 config=config,
                 symbols=selected_symbols,

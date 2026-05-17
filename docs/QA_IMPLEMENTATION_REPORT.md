@@ -156,6 +156,27 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 19 Calibrated Signal Profile Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 249 tests collected.
+
+Integrated in Phase 19:
+
+- Added safe signal profile application through `--mode apply-signal-profile`.
+- Added `profile_application.py` to load generated profile suggestions, write `applied_profile.json`, `applied_profile.ini`, `profile_diff.json`, and profile comparison reports.
+- Added `--signal-profile` to `real-data-research` so each run can use `CONSERVATIVE`, `BALANCED`, `ACTIVE`, or `RESEARCH_ONLY` as a research overlay.
+- Backtest now records `signal_profile_used`, `thresholds_used`, `signals_generated`, `trades_generated`, and `profile_not_for_demo_live`.
+- Real-data research compact summaries now include signal/trade frequency status and next recommended profile.
+- Master decision blocks `ACTIVE` and `RESEARCH_ONLY` from `CONTINUE_FORWARD_SHADOW`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 17 Real Data Research Run
 
 Status: PASS. Full suite result: 191 collected, 191 passed.

@@ -24,6 +24,7 @@ from ..data import add_indicators, add_regime_labels, normalize_ohlcv_bars
 from ..data_pipeline.historical_csv_loader import load_historical_csv_contract
 from ..data_pipeline.historical_data_resolver import resolve_historical_data
 from ..strategy import evaluate_ensemble
+from ..strategy.strategy_ensemble import EnsembleConfig
 
 
 ENGINE_VERSION = "0.1.0"
@@ -638,6 +639,7 @@ def generate_strategy_candidates(
     )
     candidates: list[TradeCandidate] = []
     last_candidate_idx = -999
+    profile = _signal_profile_settings(config.signal_profile)
     for idx in range(220, len(enriched) - 1):
         row = enriched.iloc[idx]
         if pd.isna(row[["ema20", "ema50", "ema200", "rsi14", "atr14"]]).any():
@@ -646,8 +648,15 @@ def generate_strategy_candidates(
             continue
         snapshot = _snapshot_from_row(row, symbol=symbol, timeframe=timeframe, point=point, config=config)
         features = _features_from_row(enriched, idx, snapshot, config)
-        signal = evaluate_ensemble(snapshot, features, mode="shadow")
+        signal = evaluate_ensemble(
+            snapshot,
+            features,
+            mode="shadow",
+            config=EnsembleConfig(mode="shadow", threshold=float(profile["ensemble_min_score"])),
+        )
         if signal.action == SignalAction.NONE:
+            continue
+        if not _profile_allows_signal(signal.metadata, profile):
             continue
         direction = Direction.BUY if signal.action == SignalAction.BUY else Direction.SELL
         reference = snapshot.ask if direction == Direction.BUY else snapshot.bid
@@ -675,11 +684,76 @@ def generate_strategy_candidates(
                     "session": session_for_timestamp(pd.Timestamp(row["timestamp_utc"])),
                     "score": signal.score,
                     "reasons": tuple(signal.reasons),
+                    "signal_profile": profile["name"],
+                    "thresholds_used": dict(profile),
+                    "setup_quality": signal.metadata.get("setup_quality", ""),
+                    "component_scores": dict(signal.metadata.get("component_scores") or {}),
                 },
             )
         )
         last_candidate_idx = idx
     return tuple(candidates)
+
+
+def _profile_allows_signal(metadata: Mapping[str, Any], profile: Mapping[str, Any]) -> bool:
+    """Apply calibrated research thresholds without disabling safety gates."""
+
+    component_scores = dict(metadata.get("component_scores") or {})
+    setup_score = float(metadata.get("setup_quality_score", 0.0) or 0.0)
+    if setup_score and setup_score < float(profile["min_setup_score"]):
+        return False
+    if component_scores:
+        if min(float(value) for value in component_scores.values()) < float(profile["min_component_score"]):
+            return False
+        checks = {
+            "cost_fit": profile["cost_fit_min"],
+            "structure_fit": profile["structure_fit_min"],
+            "volatility_fit": profile["volatility_fit_min"],
+            "session_fit": profile["session_fit_min"],
+        }
+        for name, threshold in checks.items():
+            if float(component_scores.get(name, 0.0) or 0.0) < float(threshold):
+                return False
+    return True
+
+
+def _signal_profile_settings(name: str) -> dict[str, Any]:
+    profiles = {
+        "CONSERVATIVE": {"name": "CONSERVATIVE", "min_setup_score": 72.0, "min_component_score": 60.0, "cost_fit_min": 70.0, "structure_fit_min": 65.0, "volatility_fit_min": 65.0, "session_fit_min": 60.0, "ensemble_min_score": 70.0, "near_miss_window": 5.0, "research_only": False, "not_for_demo_live": False},
+        "BALANCED": {"name": "BALANCED", "min_setup_score": 62.0, "min_component_score": 50.0, "cost_fit_min": 55.0, "structure_fit_min": 50.0, "volatility_fit_min": 50.0, "session_fit_min": 50.0, "ensemble_min_score": 60.0, "near_miss_window": 8.0, "research_only": False, "not_for_demo_live": False},
+        "ACTIVE": {"name": "ACTIVE", "min_setup_score": 55.0, "min_component_score": 45.0, "cost_fit_min": 45.0, "structure_fit_min": 45.0, "volatility_fit_min": 45.0, "session_fit_min": 45.0, "ensemble_min_score": 55.0, "near_miss_window": 10.0, "research_only": True, "not_for_demo_live": True},
+        "RESEARCH_ONLY": {"name": "RESEARCH_ONLY", "min_setup_score": 48.0, "min_component_score": 35.0, "cost_fit_min": 35.0, "structure_fit_min": 35.0, "volatility_fit_min": 35.0, "session_fit_min": 35.0, "ensemble_min_score": 50.0, "near_miss_window": 15.0, "research_only": True, "not_for_demo_live": True},
+    }
+    key = str(name or "CONSERVATIVE").strip().upper()
+    if key not in profiles:
+        key = "CONSERVATIVE"
+    return profiles[key]
+
+
+def _top_rejection_reasons(rejections: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    for rejection in rejections:
+        reason = _canonical_trade_blocker(str(rejection.get("reason", "")))
+        counts[reason] = counts.get(reason, 0) + 1
+    return [
+        {"blocking_reason": reason, "count": count}
+        for reason, count in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:10]
+    ]
+
+
+def _canonical_trade_blocker(reason: str) -> str:
+    text = reason.lower()
+    if "sl" in text or "tp" in text or "directional" in text:
+        return "MISSING_SL_TP" if "positive sl" in text or "positive sl and tp" in text else "INVALID_RR"
+    if "spread" in text:
+        return "SPREAD_BLOCK"
+    if "risk" in text:
+        return "RISK_REJECTED"
+    if "portfolio" in text:
+        return "PORTFOLIO_BLOCK"
+    if "session" in text:
+        return "SESSION_BLOCK"
+    return "TRADE_SIMULATION_REJECTED"
 
 
 def run_backtest_for_symbols(
@@ -703,10 +777,16 @@ def run_backtest_for_symbols(
         trailing_start_r=0.8,
         trailing_distance_points=80,
         max_bars_in_trade=96,
-        parameters={"DEMO_ONLY": cfg.demo_only, "LIVE_TRADING_APPROVED": cfg.live_trading_approved},
+        parameters={
+            "DEMO_ONLY": cfg.demo_only,
+            "LIVE_TRADING_APPROVED": cfg.live_trading_approved,
+            "SIGNAL_PROFILE": cfg.signal_profile,
+        },
     )
+    profile = _signal_profile_settings(cfg.signal_profile)
     all_trades: list[pd.DataFrame] = []
     all_equity: list[pd.DataFrame] = []
+    all_rejections: list[dict[str, Any]] = []
     qualities: list[DataQualityReport] = []
     promotions: dict[str, PromotionGateResult] = {}
     data_valid_symbols: list[str] = []
@@ -718,6 +798,7 @@ def run_backtest_for_symbols(
         data_valid_symbols.append(symbol)
         outcome = run_strategy_backtest(candles, symbol=symbol, settings=run_settings, config=cfg, timeframe=timeframe)
         signals_generated += len(outcome.trades) + len(outcome.rejected_candidates)
+        all_rejections.extend(dict(item) | {"symbol": symbol} for item in outcome.rejected_candidates)
         trades = outcome.trades_frame()
         if not trades.empty:
             trades["symbol"] = symbol
@@ -735,6 +816,7 @@ def run_backtest_for_symbols(
     by_session = _group_metrics(trades_frame, "session")
     by_weekday = _group_metrics(_with_time_columns(trades_frame), "weekday")
     by_hour = _group_metrics(_with_time_columns(trades_frame), "hour_utc")
+    rejection_blockers = _top_rejection_reasons(all_rejections)
     classification = "OK"
     if signals_generated == 0:
         classification = "WARNING_NO_SIGNALS"
@@ -742,11 +824,15 @@ def run_backtest_for_symbols(
         classification = "WARNING_NO_TRADES"
     summary: dict[str, Any] = {
         "mode": "backtest",
+        "signal_profile_used": profile["name"],
+        "thresholds_used": dict(profile),
+        "profile_not_for_demo_live": bool(profile["not_for_demo_live"]),
+        "profile_allowed_for_shadow": profile["name"] in {"CONSERVATIVE", "BALANCED"} and not bool(profile["not_for_demo_live"]),
         "symbols_tested": len(qualities),
         "data_valid_symbols": data_valid_symbols,
         "signals_generated": signals_generated,
         "trades_generated": metrics.trades_total,
-        "top_blocking_reasons": [{"blocking_reason": "NO_SETUP_DETECTED", "count": len(qualities)}] if signals_generated == 0 else [],
+        "top_blocking_reasons": [{"blocking_reason": "NO_SETUP_DETECTED", "count": len(qualities)}] if signals_generated == 0 else rejection_blockers,
         "total_trades": metrics.trades_total,
         "net_return_pct": metrics.total_return_pct,
         "max_drawdown_pct": metrics.max_drawdown_pct,
@@ -755,7 +841,7 @@ def run_backtest_for_symbols(
         "expectancy_r": metrics.average_r,
         "sharpe": metrics.sharpe,
         "sortino": metrics.sortino,
-        "classification": classification,
+        "classification": "WARNING_SIGNALS_NO_TRADES" if signals_generated > 0 and metrics.trades_total == 0 else classification,
         "execution_attempted": False,
         "reports_created": [],
     }
