@@ -47,6 +47,7 @@ from .profile_validation import run_balanced_candidate_gate, run_profile_integri
 from .real_data_research import RealDataResearchConfig, load_latest_run_summary, run_real_data_research
 from .research import run_research
 from .robustness_validation import run_robustness_fast
+from .stability_repair import run_build_stable_profile, run_stability_repair, run_walk_forward_failure_analysis
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
 from .validation_pipeline import PipelineConfig, run_full_validation
 
@@ -174,6 +175,9 @@ def main(argv: list[str] | None = None) -> int:
             "balanced-candidate-gate",
             "profile-threshold-audit",
             "robustness-fast",
+            "walk-forward-failure-analysis",
+            "stability-repair",
+            "build-stable-profile",
         ],
         default="shadow",
     )
@@ -199,6 +203,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
     parser.add_argument("--reports-root", type=Path, default=Path("data/reports"), help="Reports root for validation-report.")
     parser.add_argument("--profile-runs-dir", type=Path, default=Path("data/reports/profile_runs"), help="Profile comparison report directory.")
+    parser.add_argument("--robustness-dir", type=Path, default=Path("data/reports/robustness"), help="Robustness fast-track report directory.")
+    parser.add_argument("--stability-dir", type=Path, default=Path("data/reports/stability_repair"), help="Stability repair report directory.")
     parser.add_argument("--trades", type=Path, default=None, help="Trades CSV for monte-carlo.")
     parser.add_argument("--dataset", type=Path, default=None, help="ML dataset CSV for train-ml-filter.")
     parser.add_argument("--model-dir", type=Path, default=Path("data/models/ml_filter"), help="ML model registry directory.")
@@ -231,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile", default="BALANCED", help="Signal profile for apply-signal-profile.")
     parser.add_argument(
         "--signal-profile",
-        choices=["CONSERVATIVE", "BALANCED", "BALANCED_FILTERED", "ACTIVE", "RESEARCH_ONLY"],
+        choices=["CONSERVATIVE", "BALANCED", "BALANCED_FILTERED", "BALANCED_STABLE", "ACTIVE", "RESEARCH_ONLY"],
         default="",
         help="Research/backtest signal profile overlay.",
     )
@@ -445,6 +451,34 @@ def main(argv: list[str] | None = None) -> int:
                 simulations=args.simulations,
                 seed=args.seed,
             )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "walk-forward-failure-analysis":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/stability_repair")
+            summary = run_walk_forward_failure_analysis(
+                runs_root=args.runs_root,
+                robustness_dir=args.robustness_dir,
+                profile_runs_dir=args.profile_runs_dir,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "stability-repair":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/stability_repair")
+            summary = run_stability_repair(
+                runs_root=args.runs_root,
+                robustness_dir=args.robustness_dir,
+                profile_runs_dir=args.profile_runs_dir,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "build-stable-profile":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/stability_repair")
+            summary = run_build_stable_profile(runs_root=args.runs_root, stability_dir=args.stability_dir, output_dir=output_dir)
             print(_json_dumps(summary))
             return 0
 

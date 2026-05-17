@@ -156,6 +156,26 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 24 Walk-Forward Failure Analysis & Stability Repair
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 318 tests collected.
+
+Integrated in Phase 24:
+
+- Added `stability_repair` package for fold diagnostics, temporal edge decay, symbol/strategy/session/regime stability and stable profile building.
+- Added CLI modes `walk-forward-failure-analysis`, `stability-repair`, and `build-stable-profile`.
+- Added `BALANCED_STABLE` as research/backtest-only with `NOT_FOR_DEMO_LIVE=true`.
+- `real-data-research` accepts `--signal-profile BALANCED_STABLE --profile-config ...`.
+- `latest-run-summary` exposes stability repair decision, stability scores, disabled filters and rerun command.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 23 Robustness Validation Fast Track
 
 Status: PASS. Verification: `py -m pytest -q` completed successfully, 307 tests collected.

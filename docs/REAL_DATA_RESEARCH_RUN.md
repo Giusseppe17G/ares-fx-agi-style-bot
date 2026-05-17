@@ -322,3 +322,21 @@ py -m agi_style_forex_bot_mt5.cli --mode balanced-candidate-gate --runs-root dat
 ```
 
 If the gate returns `BALANCED_NEEDS_ROBUSTNESS_VALIDATION`, run walk-forward, Monte Carlo, stress testing, and full validation before any paper-only forward-shadow expansion.
+
+## Phase 24 BALANCED_STABLE Rerun
+
+If `robustness-fast` returns `NEEDS_STRATEGY_REWORK` because walk-forward folds are negative, run stability repair:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode stability-repair --runs-root data\runs --robustness-dir data\reports\robustness --profile-runs-dir data\reports\profile_runs --output-dir data\reports\stability_repair
+```
+
+Then rerun a quick research pass with the stable overlay:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBPUSD,USDJPY --bars 20000 --output-root data\runs --signal-profile BALANCED_STABLE --profile-config data\reports\stability_repair\balanced_stable.ini --quick
+```
+
+`BALANCED_STABLE` is research/backtest-only, marked `NOT_FOR_DEMO_LIVE=true`, and must rerun robustness validation before any paper-only forward-shadow consideration.

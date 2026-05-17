@@ -1,0 +1,43 @@
+# Stability Repair
+
+Phase 24 creates a conservative `BALANCED_STABLE` research profile after walk-forward instability.
+
+`BALANCED_STABLE` keeps BALANCED thresholds but adds stability filters for weak symbols, strategies, sessions and regimes. It is marked:
+
+- `PROFILE_TYPE=RESEARCH_BACKTEST_ONLY`
+- `NOT_FOR_DEMO_LIVE=true`
+- `REQUIRES_ROBUSTNESS_RERUN=true`
+
+It does not enable forward-shadow, demo or live execution.
+
+## Commands
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode stability-repair --runs-root data\runs --robustness-dir data\reports\robustness --profile-runs-dir data\reports\profile_runs --output-dir data\reports\stability_repair
+
+py -m agi_style_forex_bot_mt5.cli --mode build-stable-profile --runs-root data\runs --stability-dir data\reports\stability_repair --output-dir data\reports\stability_repair
+```
+
+## Rerun With BALANCED_STABLE
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBPUSD,USDJPY --bars 20000 --output-root data\runs --signal-profile BALANCED_STABLE --profile-config data\reports\stability_repair\balanced_stable.ini --quick
+```
+
+The rerun is still research/backtest only. After it, rerun edge evaluation and `robustness-fast`.
+
+## Outputs
+
+- `walk_forward_failure_summary.json`
+- `fold_diagnostics.csv`
+- `by_symbol_stability.csv`
+- `by_strategy_stability.csv`
+- `by_session_stability.csv`
+- `by_regime_stability.csv`
+- `edge_decay.json`
+- `balanced_stable.ini`
+- `balanced_stable.json`
+- `stability_filter_diff.json`
+- `report.html`

@@ -65,6 +65,14 @@ Cost sensitivity:
 
 The positive decision requires at least 100 trades, positive BALANCED edge metrics, Monte Carlo positive-profit probability >= 0.60, controlled stress/cost sensitivity, and BALANCED safety flags allowing paper/shadow observation.
 
+If the decision is `NEEDS_STRATEGY_REWORK` because walk-forward folds are negative, run Phase 24:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode walk-forward-failure-analysis --runs-root data\runs --robustness-dir data\reports\robustness --profile-runs-dir data\reports\profile_runs --output-dir data\reports\stability_repair
+py -m agi_style_forex_bot_mt5.cli --mode stability-repair --runs-root data\runs --robustness-dir data\reports\robustness --profile-runs-dir data\reports\profile_runs --output-dir data\reports\stability_repair
+```
+
 ## Reports
 
 - `robustness_summary.json`

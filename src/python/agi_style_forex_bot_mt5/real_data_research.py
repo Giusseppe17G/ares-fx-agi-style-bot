@@ -157,6 +157,7 @@ class RealDataResearchRunner:
             "signal_profile_used": self.signal_profile.name,
             "thresholds_used": self.signal_profile.to_dict(),
             "filters_applied": self._filters_applied(),
+            "stable_filters_applied": self._stable_filters_applied(),
             "profile_not_for_demo_live": bool(self.signal_profile.not_for_demo_live),
             "profile_allowed_for_shadow": profile_allowed_for_shadow(self.signal_profile.name),
             "stages": [result.to_dict() for result in results],
@@ -245,6 +246,7 @@ class RealDataResearchRunner:
             summary.setdefault("signal_profile_used", self.signal_profile.name)
             summary.setdefault("thresholds_used", self.signal_profile.to_dict())
             summary.setdefault("filters_applied", self._filters_applied())
+            summary.setdefault("stable_filters_applied", self._stable_filters_applied())
             summary.setdefault("profile_not_for_demo_live", bool(self.signal_profile.not_for_demo_live))
             summary.setdefault("profile_allowed_for_shadow", profile_allowed_for_shadow(self.signal_profile.name))
             status = self._status_for_summary(name, summary)
@@ -593,6 +595,7 @@ class RealDataResearchRunner:
             "signal_profile_used": self.signal_profile.name,
             "thresholds_used": self.signal_profile.to_dict(),
             "filters_applied": self._filters_applied(),
+            "stable_filters_applied": self._stable_filters_applied(),
             "profile_config": self.config.profile_config,
             "profile_not_for_demo_live": bool(self.signal_profile.not_for_demo_live),
             "profile_allowed_for_shadow": profile_allowed_for_shadow(self.signal_profile.name),
@@ -702,6 +705,7 @@ class RealDataResearchRunner:
             "thresholds_used": self.signal_profile.to_dict(),
             "profile_not_for_demo_live": bool(self.signal_profile.not_for_demo_live),
             "profile_allowed_for_shadow": profile_allowed_for_shadow(self.signal_profile.name),
+            "stable_filters_applied": self._stable_filters_applied(),
             "symbols_exported": self._symbols_exported(),
             "bars_by_symbol_timeframe": self._bars_by_symbol_timeframe(),
             "historical_data_status": self._historical_context(results).get("historical_data_status", ""),
@@ -746,6 +750,8 @@ class RealDataResearchRunner:
         }
 
     def _filters_applied(self) -> dict[str, Any]:
+        if self.signal_profile.name == "BALANCED_STABLE":
+            return self._stable_filters_applied()
         if self.signal_profile.name != "BALANCED_FILTERED":
             return {"profile": self.signal_profile.name, "enabled": False}
         path = Path(self.config.profile_config) if self.config.profile_config else Path("data/reports/edge_filtering/balanced_filtered.ini")
@@ -760,6 +766,29 @@ class RealDataResearchRunner:
             "apply_filters": apply_filters,
             "filtering_decision": filtering_decision,
             "status": "FILTERED_PROFILE_APPLIED" if apply_filters else "FILTERED_PROFILE_NOT_ACTIONABLE",
+            "research_only": True,
+            "execution_attempted": False,
+        }
+
+    def _stable_filters_applied(self) -> dict[str, Any]:
+        if self.signal_profile.name != "BALANCED_STABLE":
+            return {"profile": self.signal_profile.name, "enabled": False}
+        path = Path(self.config.profile_config) if self.config.profile_config else Path("data/reports/stability_repair/balanced_stable.ini")
+        values = _read_simple_ini(path)
+        enabled = str(values.get("APPLY_STABILITY_FILTERS", "false")).strip().lower() == "true"
+        return {
+            "profile": "BALANCED_STABLE",
+            "enabled": enabled,
+            "profile_config": str(path),
+            "profile_config_exists": path.exists(),
+            "status": "STABLE_PROFILE_APPLIED" if enabled else "STABLE_PROFILE_NOT_ACTIONABLE",
+            "profile_type": values.get("PROFILE_TYPE", "RESEARCH_BACKTEST_ONLY"),
+            "not_for_demo_live": str(values.get("NOT_FOR_DEMO_LIVE", "true")).strip().lower() == "true",
+            "requires_robustness_rerun": str(values.get("REQUIRES_ROBUSTNESS_RERUN", "true")).strip().lower() == "true",
+            "disabled_symbols": _csv_values(values.get("DISABLED_SYMBOLS", "")),
+            "disabled_strategies": _csv_values(values.get("DISABLED_STRATEGIES", "")),
+            "blocked_sessions": _csv_values(values.get("BLOCKED_SESSIONS", "")),
+            "blocked_regimes": _csv_values(values.get("BLOCKED_REGIMES", "")),
             "research_only": True,
             "execution_attempted": False,
         }
@@ -997,6 +1026,26 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
             payload["recommended_next_action"] = "Start/continue paper-only forward-shadow observation for BALANCED; no demo/live execution."
         elif robustness.get("robustness_decision"):
             payload["recommended_next_action"] = _robustness_next_action(str(robustness.get("robustness_decision")))
+    stability = _load_optional_json(latest / "reports" / "stability_repair" / "walk_forward_failure_summary.json") or _load_optional_json(Path("data/reports/stability_repair/walk_forward_failure_summary.json")) or {}
+    if stability:
+        payload["stability_repair_decision"] = stability.get("stability_repair_decision", "")
+        payload["fold_stability_score"] = stability.get("fold_stability_score", 0.0)
+        payload["overfit_risk_score"] = stability.get("overfit_risk_score", 0.0)
+        payload["disabled_symbols_stable"] = stability.get("disabled_symbols_stable", [])
+        payload["disabled_strategies_stable"] = stability.get("disabled_strategies_stable", [])
+        payload["blocked_sessions_stable"] = stability.get("blocked_sessions_stable", [])
+        payload["blocked_regimes_stable"] = stability.get("blocked_regimes_stable", [])
+        stable_path = latest / "reports" / "stability_repair" / "balanced_stable.ini"
+        if not stable_path.exists():
+            stable_path = Path("data/reports/stability_repair/balanced_stable.ini")
+        payload["balanced_stable_profile_path"] = str(stable_path)
+        symbols = ",".join(payload.get("data_valid_symbols") or ["EURUSD", "GBPUSD", "USDJPY"])
+        payload["recommended_stable_rerun_command"] = (
+            "py -m agi_style_forex_bot_mt5.cli --mode real-data-research "
+            f"--symbols {symbols} --bars 20000 --output-root data\\runs --signal-profile BALANCED_STABLE "
+            "--profile-config data\\reports\\stability_repair\\balanced_stable.ini --quick"
+        )
+        payload["recommended_next_action"] = "Rerun BALANCED_STABLE in research/backtest only and then rerun robustness-fast."
     if payload.get("timestamp_status") == "FAILED":
         payload["recommended_next_action"] = "Run FASE 18D timestamp normalization repair or re-export history."
     elif payload.get("data_contract_status") not in {"", "OK"}:
@@ -1083,6 +1132,10 @@ def _read_simple_ini(path: Path) -> dict[str, str]:
         key, value = line.split("=", 1)
         values[key.strip().upper()] = value.strip()
     return values
+
+
+def _csv_values(value: str) -> list[str]:
+    return [item.strip() for item in str(value or "").split(",") if item.strip()]
 
 
 def _issues_for_decision(decision: str) -> list[str]:
