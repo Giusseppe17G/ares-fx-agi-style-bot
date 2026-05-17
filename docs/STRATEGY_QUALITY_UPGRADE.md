@@ -37,3 +37,14 @@ Research reports now include:
 
 These compare the old reference behavior against the new context-aware strategy version and filter ablations.
 
+## Phase 18 Calibration
+
+If the upgraded strategy stack produces zero trades on real exported data, run signal calibration before loosening rules manually:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode signal-calibration --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --data-dir data\historical --report-dir data\reports\calibration
+py -m agi_style_forex_bot_mt5.cli --mode threshold-sweep --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --data-dir data\historical --report-dir data\reports\calibration --profiles CONSERVATIVE,BALANCED,ACTIVE,RESEARCH_ONLY
+```
+
+Calibration compares profiles and explains near misses without disabling safety gates.

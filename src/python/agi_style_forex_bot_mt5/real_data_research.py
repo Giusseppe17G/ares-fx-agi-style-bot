@@ -605,6 +605,7 @@ class RealDataResearchRunner:
             "benchmark_classification": str(benchmark.get("classification", "")),
             "zero_trade_detected": zero_trade_detected,
             "likely_next_step": "Run FASE 18: Signal Frequency Calibration" if zero_trade_detected and data_quality_ok else _likely_next_step(final_decision),
+            "calibration": self._calibration_context(),
             "stages_passed": sum(1 for result in results if result.status == "PASSED"),
             "stages_warning": sum(1 for result in results if result.status == "WARNING"),
             "stages_failed": sum(1 for result in results if result.status == "FAILED"),
@@ -614,6 +615,17 @@ class RealDataResearchRunner:
             "execution_attempted": False,
             "order_send_called": False,
             "order_check_called": False,
+        }
+
+    def _calibration_context(self) -> dict[str, Any]:
+        summary = _load_optional_json(self.reports_dir / "calibration" / "summary.json") or _load_optional_json(self.reports_dir / "calibration" / "threshold_sweep_summary.json")
+        if not summary:
+            return {}
+        return {
+            "recommended_profile": summary.get("recommended_profile", ""),
+            "suggested_threshold_changes": summary.get("suggested_threshold_changes", {}),
+            "expected_signal_frequency": summary.get("expected_signal_frequency", summary.get("signals_found", 0)),
+            "top_blockers": summary.get("top_blocking_reasons", []),
         }
 
 

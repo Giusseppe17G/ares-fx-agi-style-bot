@@ -126,6 +126,16 @@ If backtest generates `0` trades:
 - Keep final decision at `NEEDS_MORE_DATA` or `NEEDS_STRATEGY_RESEARCH`.
 - If data quality is `OK`, `likely_next_step` becomes `Run FASE 18: Signal Frequency Calibration`.
 
+Run calibration:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode signal-calibration --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --data-dir data\historical --report-dir data\reports\calibration
+py -m agi_style_forex_bot_mt5.cli --mode threshold-sweep --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --data-dir data\historical --report-dir data\reports\calibration --profiles CONSERVATIVE,BALANCED,ACTIVE,RESEARCH_ONLY
+```
+
+If a calibration report exists under the run reports folder, `final_summary_compact.json` includes recommended profile, expected signal frequency, suggested threshold changes, and top blockers.
+
 If Monte Carlo is skipped:
 
 - First fix backtest trade generation.

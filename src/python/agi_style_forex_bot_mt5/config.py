@@ -60,6 +60,7 @@ class BotConfig:
     use_advanced_setup_scoring: bool = True
     min_setup_score_by_strategy: str = ""
     min_setup_score_by_regime: str = ""
+    signal_profile: str = "CONSERVATIVE"
 
     def validate_safety(self) -> None:
         """Raise ValueError when config weakens mandatory safety defaults."""
@@ -74,6 +75,8 @@ class BotConfig:
             raise ValueError("max open risk cannot exceed 5%")
         if not self.require_sl or not self.require_tp:
             raise ValueError("SL and TP must be required")
+        if self.signal_profile.upper() not in {"CONSERVATIVE", "BALANCED", "ACTIVE", "RESEARCH_ONLY"}:
+            raise ValueError("SIGNAL_PROFILE must be CONSERVATIVE, BALANCED, ACTIVE, or RESEARCH_ONLY")
 
 
 def load_config(path: str | Path | None = None) -> BotConfig:
@@ -123,6 +126,7 @@ def load_config(path: str | Path | None = None) -> BotConfig:
         use_advanced_setup_scoring=bool(values.get("USE_ADVANCED_SETUP_SCORING", True)),
         min_setup_score_by_strategy=str(values.get("MIN_SETUP_SCORE_BY_STRATEGY", "")),
         min_setup_score_by_regime=str(values.get("MIN_SETUP_SCORE_BY_REGIME", "")),
+        signal_profile=str(values.get("SIGNAL_PROFILE", "CONSERVATIVE")).upper(),
     )
     cfg.validate_safety()
     return cfg

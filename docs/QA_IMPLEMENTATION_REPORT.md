@@ -247,6 +247,39 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 18 Signal Frequency Calibration
+
+Status: PASS. Full suite result: 210 collected, 210 passed.
+
+Integrated in Phase 18:
+
+- Added `SIGNAL_PROFILE` config with `CONSERVATIVE`, `BALANCED`, `ACTIVE`, and `RESEARCH_ONLY`.
+- Added `calibration` package with signal profiles, threshold config, signal frequency analyzer, blocking reason analyzer, threshold sweeper, and report writers.
+- Added CLI modes: `signal-calibration`, `threshold-sweep`, and `blocking-reasons`.
+- Added near-miss detection for blocked setups close to threshold.
+- Added config suggestions for all profiles, with `ACTIVE` and `RESEARCH_ONLY` marked `NOT FOR DEMO/LIVE EXECUTION`.
+- Real-data compact summaries can include calibration context when reports exist.
+- Added docs: `SIGNAL_FREQUENCY_CALIBRATION.md` and `THRESHOLD_SWEEP.md`.
+
+Additional Phase 18 tests:
+
+- Valid and invalid signal profiles.
+- Threshold grid generation.
+- Near-miss detection.
+- Blocking reason aggregation.
+- Signal calibration report generation.
+- Threshold sweep CLI.
+- Blocking reasons CLI.
+- Real-data research recommends Fase 18 and includes calibration context.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 15 Full Validation Pipeline Update
 
 Status: PASS. Full suite result: 179 collected, 179 passed.

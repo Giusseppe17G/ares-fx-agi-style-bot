@@ -19,6 +19,7 @@ from .backtesting import (
     run_walk_forward_for_symbols,
 )
 from .benchmarks import build_competitive_scorecard, run_benchmarks
+from .calibration import run_blocking_reasons_report, run_signal_calibration, run_threshold_sweep_report
 from .broker_quality import build_readiness_report, run_broker_quality
 from .config import load_config
 from .contracts import AccountState, MarketSnapshot, utc_now
@@ -152,6 +153,9 @@ def main(argv: list[str] | None = None) -> int:
             "structure-report",
             "real-data-research",
             "latest-run-summary",
+            "signal-calibration",
+            "threshold-sweep",
+            "blocking-reasons",
         ],
         default="shadow",
     )
@@ -190,6 +194,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-export-history", action="store_true", help="Skip MT5 history export in full-validation.")
     parser.add_argument("--run-export-history", action="store_true", help="Run MT5 history export in full-validation.")
     parser.add_argument("--fail-fast", action="store_true", help="Stop full-validation at the first failed stage.")
+    parser.add_argument("--profiles", default="", help="Comma-separated signal profiles for threshold-sweep.")
     parser.add_argument(
         "--telegram",
         action="store_true",
@@ -311,6 +316,21 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.mode == "latest-run-summary":
             print(_json_dumps(load_latest_run_summary(args.runs_root)))
+            return 0
+
+        if args.mode == "signal-calibration":
+            summary = run_signal_calibration(symbols=selected_symbols, data_dir=args.data_dir, report_dir=args.report_dir, profile_name=config.signal_profile)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "threshold-sweep":
+            summary = run_threshold_sweep_report(symbols=selected_symbols, data_dir=args.data_dir, report_dir=args.report_dir, profiles_value=args.profiles or None)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "blocking-reasons":
+            summary = run_blocking_reasons_report(reports_root=args.reports_root, output_dir=args.output_dir)
+            print(_json_dumps(summary))
             return 0
 
         if args.mode == "backtest":
