@@ -156,6 +156,28 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 19B Low-Sample And Quick Research Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 257 tests collected.
+
+Integrated in Phase 19B:
+
+- Stress tests now tolerate trade dictionaries with extra context fields such as `regime`, `session`, and `strategy_name`.
+- Added sample status classes: `LOW_SAMPLE`, `SMALL_SAMPLE`, `USABLE_SAMPLE`, and `PROMOTION_SAMPLE_SIZE`.
+- Monte Carlo and stress return `LOW_SAMPLE_WARNING` when they run on fewer than 30 trades.
+- Walk-forward returns `NEEDS_MORE_TRADES` for low-sample backtests instead of treating the condition as a bug.
+- Real-data research compact summaries include `sample_status`, `min_required_trades`, trade breakdowns, failed stage codes, and `next_best_command`.
+- Added `--quick` and skip flags for incremental real-data research.
+- Added `--mode profile-comparison-run` for fast profile backtest comparison.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 19 Calibrated Signal Profile Update
 
 Status: PASS. Verification: `py -m pytest -q` completed successfully, 249 tests collected.

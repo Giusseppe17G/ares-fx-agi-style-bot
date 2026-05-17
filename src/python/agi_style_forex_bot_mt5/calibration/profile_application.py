@@ -129,6 +129,59 @@ def write_profile_comparison(output_dir: str | Path, metrics_by_profile: Mapping
     return [str(json_path), str(csv_path)]
 
 
+def run_profile_comparison(
+    *,
+    profiles_value: str,
+    data_dir: str | Path,
+    symbols: Any,
+    output_dir: str | Path,
+    base_config: BotConfig | None = None,
+) -> dict[str, Any]:
+    """Run a quick backtest comparison across calibrated signal profiles."""
+
+    from ..backtesting import run_backtest_for_symbols
+    from .signal_profile import parse_profiles
+
+    metrics: dict[str, Mapping[str, Any]] = {}
+    reports_created: list[str] = []
+    for profile in parse_profiles(profiles_value):
+        cfg = bot_config_with_signal_profile(base_config or BotConfig(), profile.name)
+        profile_dir = Path(output_dir) / profile.name.lower()
+        try:
+            result = run_backtest_for_symbols(data_dir=data_dir, symbols=_coerce_symbols(symbols), report_dir=profile_dir, config=cfg)
+            summary = result.summary
+            reports_created.extend(summary.get("reports_created", []))
+            metrics[profile.name] = {
+                "signals_generated": summary.get("signals_generated", 0),
+                "trades_generated": summary.get("trades_generated", summary.get("total_trades", 0)),
+                "winrate": summary.get("winrate", 0.0),
+                "profit_factor": summary.get("profit_factor", 0.0),
+                "expectancy_r": summary.get("expectancy_r", 0.0),
+                "max_drawdown_pct": summary.get("max_drawdown_pct", 0.0),
+                "benchmark_classification": "",
+                "validation_decision": summary.get("classification", ""),
+                "average_setup_score": 0.0,
+                "top_blockers": summary.get("top_blocking_reasons", []),
+            }
+        except Exception as exc:
+            metrics[profile.name] = {
+                "signals_generated": 0,
+                "trades_generated": 0,
+                "validation_decision": "NEEDS_MORE_DATA",
+                "top_blockers": [{"blocking_reason": str(exc), "count": 1}],
+            }
+    comparison_paths = write_profile_comparison(output_dir, metrics)
+    reports_created.extend(comparison_paths)
+    best = _best_profile(metrics)
+    return {
+        "mode": "profile-comparison-run",
+        "profiles_compared": list(metrics),
+        "best_profile": best,
+        "reports_created": reports_created,
+        "execution_attempted": False,
+    }
+
+
 def profile_diff(profile: SignalProfileSettings) -> dict[str, Any]:
     """Compare a profile against CONSERVATIVE for a clear audit diff."""
 
@@ -161,9 +214,13 @@ def profile_trade_frequency_status(*, signals_generated: int, trades_generated: 
         return "NO_SIGNALS"
     if trades_generated <= 0:
         return "SIGNALS_NO_TRADES"
-    if trades_generated < 100:
+    if trades_generated < 30:
         return "LOW_SAMPLE"
-    return "SAMPLE_AVAILABLE"
+    if trades_generated < 100:
+        return "SMALL_SAMPLE"
+    if trades_generated < 300:
+        return "USABLE_SAMPLE"
+    return "PROMOTION_SAMPLE_SIZE"
 
 
 def _find_source_config(profile: SignalProfileSettings, runs_root: Path, source_dir: Path | None) -> Path | None:
@@ -220,6 +277,24 @@ def _coerce(value: str) -> Any:
         return int(stripped)
     except ValueError:
         return stripped
+
+
+def _coerce_symbols(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return tuple(item.strip().upper() for item in value.split(",") if item.strip())
+    return tuple(str(item).strip().upper() for item in value if str(item).strip())
+
+
+def _best_profile(metrics: Mapping[str, Mapping[str, Any]]) -> str:
+    if not metrics:
+        return ""
+    return max(
+        metrics,
+        key=lambda name: (
+            int(metrics[name].get("trades_generated", 0) or 0),
+            int(metrics[name].get("signals_generated", 0) or 0),
+        ),
+    )
 
 
 def _jsonable(value: Any) -> Any:

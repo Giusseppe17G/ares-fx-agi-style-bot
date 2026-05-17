@@ -217,6 +217,43 @@ The run metadata and `final_summary_compact.json` include:
 
 `CONSERVATIVE` and `BALANCED` can be used for research/backtest and forward-shadow paper observation. `ACTIVE` and `RESEARCH_ONLY` are blocked from forward-shadow promotion and remain `NOT FOR DEMO/LIVE EXECUTION`.
 
+## Phase 19B Quick Iteration And Low Samples
+
+Use `--quick` when iterating on signal profile quality before running the full research stack:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBPUSD,USDJPY --bars 20000 --output-root data\runs --signal-profile BALANCED --quick
+```
+
+`--quick` runs only MT5 diagnose, export-history, historical-data-audit, data-contract-audit, strategy-diagnose, and backtest. It skips walk-forward, Monte Carlo, stress, research, benchmark, competitive scorecard, and full-validation.
+
+Optional skips for incremental runs:
+
+- `--skip-walk-forward`
+- `--skip-monte-carlo`
+- `--skip-stress-test`
+- `--skip-research`
+- `--skip-benchmark`
+- `--max-symbols`
+- `--max-bars`
+
+Sample status:
+
+- `LOW_SAMPLE`: fewer than 30 simulated trades.
+- `SMALL_SAMPLE`: 30 to 99 trades.
+- `USABLE_SAMPLE`: 100 to 299 trades.
+- `PROMOTION_SAMPLE_SIZE`: 300 or more trades.
+
+Eight trades are useful for debugging the pipeline, but not enough to evaluate edge. With `LOW_SAMPLE`, Monte Carlo and stress may run with `LOW_SAMPLE_WARNING`, walk-forward may return `NEEDS_MORE_TRADES`, and full validation cannot approve anything.
+
+Compare profiles quickly with:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode profile-comparison-run --symbols EURUSD,GBPUSD,USDJPY --data-dir data\runs\<RUN_ID>\historical --output-dir data\reports\profile_runs --compare-profiles CONSERVATIVE,BALANCED,ACTIVE
+```
+
 ## Decisions
 
 - `NEEDS_MORE_DATA`: export more history, check MT5 symbols, and rerun.

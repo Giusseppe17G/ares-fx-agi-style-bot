@@ -7,6 +7,7 @@ from .profile_application import (
     bot_config_with_signal_profile,
     profile_allowed_for_shadow,
     profile_trade_frequency_status,
+    run_profile_comparison,
     write_profile_comparison,
 )
 from .signal_frequency_analyzer import analyze_signal_frequency, is_near_miss
@@ -30,6 +31,7 @@ __all__ = [
     "profile_trade_frequency_status",
     "profile_threshold",
     "run_blocking_reasons_report",
+    "run_profile_comparison",
     "run_signal_calibration",
     "run_threshold_sweep_report",
     "write_profile_comparison",

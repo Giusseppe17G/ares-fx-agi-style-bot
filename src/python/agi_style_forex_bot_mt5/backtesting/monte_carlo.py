@@ -10,7 +10,7 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 import pandas as pd
 
-from .backtester import TradeResult, calculate_metrics
+from .backtester import TradeResult, calculate_metrics, classify_sample_size
 
 
 @dataclass(frozen=True)
@@ -136,6 +136,7 @@ def run_monte_carlo_report(
     """Run Monte Carlo and export summary/simulation artifacts."""
 
     source = list(trades if trades is not None else _load_trades_csv(trades_path))
+    sample_status = classify_sample_size(len(source))
     result = MonteCarloSimulator(seed=seed).run(
         source,
         initial_balance=initial_balance,
@@ -144,6 +145,8 @@ def run_monte_carlo_report(
         ruin_threshold_pct=ruin_threshold_pct,
     )
     classification = _classify(result)
+    if len(source) < 30:
+        classification = "LOW_SAMPLE_WARNING"
     path = Path(report_dir)
     path.mkdir(parents=True, exist_ok=True)
     summary_path = path / "summary.json"
@@ -156,6 +159,8 @@ def run_monte_carlo_report(
         "seed": seed,
         "simulations": iterations,
         "classification": classification,
+        "total_trades": len(source),
+        "sample_status": sample_status,
         "probability_of_ruin": result.risk_of_ruin_pct,
         "fifth_percentile_return_pct": result.fifth_percentile_return_pct,
         "ninety_fifth_percentile_drawdown_pct": result.ninety_fifth_percentile_drawdown_pct,

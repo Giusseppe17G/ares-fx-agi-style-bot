@@ -82,3 +82,14 @@ Phase 19 adds `signal_profile_used` and `thresholds_used` to backtest and real-d
 - If `ACTIVE` or `RESEARCH_ONLY` appears in validation evidence, the final decision cannot be `CONTINUE_FORWARD_SHADOW`; it is downgraded to `NEEDS_STRATEGY_RESEARCH`.
 
 This profile control only changes signal frequency for research and simulation. It does not disable spread, timestamp, market-closed, risk, broker-readiness, ML, portfolio, SL, or TP guards.
+
+## Low-Sample Handling
+
+Phase 19B normalizes small samples so they are warnings, not software bugs:
+
+- `<30` trades: `LOW_SAMPLE`.
+- `30-99` trades: `SMALL_SAMPLE`.
+- `100-299` trades: `USABLE_SAMPLE`.
+- `>=300` trades: `PROMOTION_SAMPLE_SIZE`.
+
+Walk-forward can return `NEEDS_MORE_TRADES` when the backtest sample is too small. Monte Carlo and stress can still run on small samples, but they must classify as `LOW_SAMPLE_WARNING`. Full validation must not approve low-sample evidence.

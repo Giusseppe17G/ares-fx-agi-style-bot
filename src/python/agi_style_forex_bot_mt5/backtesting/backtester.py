@@ -232,7 +232,7 @@ class BacktestOutcome:
         for trade in self.trades:
             row = asdict(trade)
             metadata = dict(row.get("metadata") or {})
-            for key in ("regime", "session", "score"):
+            for key in ("regime", "session", "score", "strategy_name", "setup_quality"):
                 if key in metadata:
                     row[key] = metadata[key]
             rows.append(row)
@@ -684,6 +684,7 @@ def generate_strategy_candidates(
                     "session": session_for_timestamp(pd.Timestamp(row["timestamp_utc"])),
                     "score": signal.score,
                     "reasons": tuple(signal.reasons),
+                    "strategy_name": signal.strategy_name,
                     "signal_profile": profile["name"],
                     "thresholds_used": dict(profile),
                     "setup_quality": signal.metadata.get("setup_quality", ""),
@@ -728,6 +729,19 @@ def _signal_profile_settings(name: str) -> dict[str, Any]:
     if key not in profiles:
         key = "CONSERVATIVE"
     return profiles[key]
+
+
+def classify_sample_size(total_trades: int) -> str:
+    """Classify whether a trade sample is usable for research evidence."""
+
+    count = int(total_trades)
+    if count < 30:
+        return "LOW_SAMPLE"
+    if count < 100:
+        return "SMALL_SAMPLE"
+    if count < 300:
+        return "USABLE_SAMPLE"
+    return "PROMOTION_SAMPLE_SIZE"
 
 
 def _top_rejection_reasons(rejections: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -814,6 +828,7 @@ def run_backtest_for_symbols(
     by_symbol = _group_metrics(trades_frame, "symbol")
     by_regime = _group_metrics(trades_frame, "regime")
     by_session = _group_metrics(trades_frame, "session")
+    by_strategy = _group_metrics(trades_frame, "strategy_name")
     by_weekday = _group_metrics(_with_time_columns(trades_frame), "weekday")
     by_hour = _group_metrics(_with_time_columns(trades_frame), "hour_utc")
     rejection_blockers = _top_rejection_reasons(all_rejections)
@@ -832,6 +847,10 @@ def run_backtest_for_symbols(
         "data_valid_symbols": data_valid_symbols,
         "signals_generated": signals_generated,
         "trades_generated": metrics.trades_total,
+        "sample_status": classify_sample_size(metrics.trades_total),
+        "min_required_trades": 30,
+        "trades_by_symbol": by_symbol.to_dict("records"),
+        "trades_by_strategy": by_strategy.to_dict("records"),
         "top_blocking_reasons": [{"blocking_reason": "NO_SETUP_DETECTED", "count": len(qualities)}] if signals_generated == 0 else rejection_blockers,
         "total_trades": metrics.trades_total,
         "net_return_pct": metrics.total_return_pct,
@@ -1400,6 +1419,7 @@ def _empty_trades_frame() -> pd.DataFrame:
             "exit_reason",
             "regime",
             "session",
+            "strategy_name",
         ]
     )
 

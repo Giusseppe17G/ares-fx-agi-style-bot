@@ -70,3 +70,14 @@ If H1 is insufficient for full validation but still above the calibration diagno
 If threshold sweep still returns zero signals after timestamp and feature availability are `OK`, the blocker is strategy context rather than data plumbing. The next step is to test a balanced profile against backtest/research, not to bypass safety gates.
 
 Phase 18E adds diagnostic candidates even when the final action is `NONE`. Every blocked candidate must include `symbol`, strategy/ensemble name, score, threshold, component scores when available, regime/session context, near-miss status, and non-empty blockers. `CSV_PARSE_ERROR` should not appear when `strategy-data-contract` is `OK`.
+
+## Phase 19B Quick Profile Comparison
+
+After a profile begins producing trades, compare profiles without running the full stack every time:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode profile-comparison-run --symbols EURUSD,GBPUSD,USDJPY --data-dir data\runs\<RUN_ID>\historical --output-dir data\reports\profile_runs --compare-profiles CONSERVATIVE,BALANCED,ACTIVE
+```
+
+The report compares `signals_generated`, `trades_generated`, sample status, and blockers by profile. `ACTIVE` remains `NOT FOR DEMO/LIVE EXECUTION`.

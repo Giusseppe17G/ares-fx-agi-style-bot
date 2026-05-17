@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
-from .backtester import TradeResult, calculate_metrics, run_backtest_for_symbols
+from .backtester import TradeResult, calculate_metrics, classify_sample_size, run_backtest_for_symbols
 
 
 @dataclass(frozen=True)
@@ -148,9 +148,12 @@ def run_stress_report(
         input_files = [str(data_dir)]
     else:
         source = list(trades)
+    sample_status = classify_sample_size(len(source))
     results = StressTester(initial_balance=initial_balance).comprehensive(source)
     rows = [_stress_row(item) for item in results]
     classification = _classify_stress(rows)
+    if source and len(source) < 30:
+        classification = "LOW_SAMPLE_WARNING"
     path = Path(report_dir)
     path.mkdir(parents=True, exist_ok=True)
     summary_path = path / "summary.json"
@@ -161,6 +164,8 @@ def run_stress_report(
         "input_files": input_files,
         "scenario_count": len(rows),
         "classification": classification,
+        "total_trades": len(source),
+        "sample_status": sample_status,
         "reports_created": [str(summary_path), str(scenarios_path)],
         "execution_attempted": False,
     }
@@ -171,7 +176,14 @@ def run_stress_report(
 def _ensure_trade(trade: TradeResult | Mapping[str, Any]) -> TradeResult:
     if isinstance(trade, TradeResult):
         return trade
-    return TradeResult(**dict(trade))
+    payload = dict(trade)
+    allowed = {field.name for field in fields(TradeResult)}
+    extras = {key: value for key, value in payload.items() if key not in allowed}
+    clean = {key: value for key, value in payload.items() if key in allowed}
+    metadata = dict(clean.get("metadata") or {})
+    metadata.update(extras)
+    clean["metadata"] = metadata
+    return TradeResult(**clean)
 
 
 def _apply_cost_penalty(

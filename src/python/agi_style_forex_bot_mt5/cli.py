@@ -160,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
             "timestamp-audit",
             "strategy-data-contract",
             "apply-signal-profile",
+            "profile-comparison-run",
         ],
         default="shadow",
     )
@@ -186,6 +187,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--simulations", type=int, default=1000, help="Monte Carlo simulation count.")
     parser.add_argument("--seed", type=int, default=0, help="Reproducible random seed.")
     parser.add_argument("--max-candidates", type=int, default=100, help="Maximum research candidates.")
+    parser.add_argument("--max-symbols", type=int, default=0, help="Limit symbol count for real-data-research quick iteration.")
+    parser.add_argument("--max-bars", type=int, default=0, help="Cap exported bars for real-data-research quick iteration.")
     parser.add_argument("--cycle-seconds", type=int, default=30, help="Forward shadow cycle interval.")
     parser.add_argument("--max-cycles", type=int, default=None, help="Maximum forward shadow cycles for tests/smoke.")
     parser.add_argument("--train-days", type=int, default=90)
@@ -198,7 +201,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-export-history", action="store_true", help="Skip MT5 history export in full-validation.")
     parser.add_argument("--run-export-history", action="store_true", help="Run MT5 history export in full-validation.")
     parser.add_argument("--fail-fast", action="store_true", help="Stop full-validation at the first failed stage.")
+    parser.add_argument("--quick", action="store_true", help="Run the fast real-data-research subset.")
+    parser.add_argument("--skip-walk-forward", action="store_true", help="Skip walk-forward in real-data-research.")
+    parser.add_argument("--skip-monte-carlo", action="store_true", help="Skip Monte Carlo in real-data-research.")
+    parser.add_argument("--skip-stress-test", action="store_true", help="Skip stress test in real-data-research.")
+    parser.add_argument("--skip-research", action="store_true", help="Skip research runner in real-data-research.")
+    parser.add_argument("--skip-benchmark", action="store_true", help="Skip benchmark and competitive scorecard in real-data-research.")
     parser.add_argument("--profiles", default="", help="Comma-separated signal profiles for threshold-sweep.")
+    parser.add_argument("--compare-profiles", default="", help="Comma-separated profiles for profile-comparison-run.")
     parser.add_argument("--profile", default="BALANCED", help="Signal profile for apply-signal-profile.")
     parser.add_argument(
         "--signal-profile",
@@ -321,6 +331,14 @@ def main(argv: list[str] | None = None) -> int:
                 seed=args.seed,
                 fail_fast=args.fail_fast,
                 signal_profile=args.signal_profile or config.signal_profile,
+                quick=args.quick,
+                skip_walk_forward=args.skip_walk_forward,
+                skip_monte_carlo=args.skip_monte_carlo,
+                skip_stress_test=args.skip_stress_test,
+                skip_research=args.skip_research,
+                skip_benchmark=args.skip_benchmark,
+                max_symbols=args.max_symbols,
+                max_bars=args.max_bars,
             )
             summary = run_real_data_research(research_config, bot_config=config)
             print(_json_dumps(summary))
@@ -333,6 +351,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "apply-signal-profile":
             output_dir = Path("data/reports/applied_profiles") if args.output_dir == Path("data/historical") else args.output_dir
             summary = apply_signal_profile(profile_name=args.profile, runs_root=args.runs_root, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "profile-comparison-run":
+            from .calibration.profile_application import run_profile_comparison
+
+            summary = run_profile_comparison(
+                profiles_value=args.compare_profiles or args.profiles or "CONSERVATIVE,BALANCED,ACTIVE",
+                data_dir=args.data_dir,
+                symbols=selected_symbols,
+                output_dir=args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/profile_runs"),
+                base_config=config,
+            )
             print(_json_dumps(summary))
             return 0
 

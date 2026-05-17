@@ -15,6 +15,7 @@ from .backtesting import (
     BacktestSettings,
     CostModel,
     WalkForwardSettings,
+    classify_sample_size,
     run_backtest_for_symbols,
     run_monte_carlo_report,
     run_stress_report,
@@ -61,9 +62,22 @@ class RealDataResearchConfig:
     fail_fast: bool = False
     run_id: str = ""
     signal_profile: str = "CONSERVATIVE"
+    quick: bool = False
+    skip_walk_forward: bool = False
+    skip_monte_carlo: bool = False
+    skip_stress_test: bool = False
+    skip_research: bool = False
+    skip_benchmark: bool = False
+    max_symbols: int = 0
+    max_bars: int = 0
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "symbols", _coerce_symbols(self.symbols))
+        symbols = _coerce_symbols(self.symbols)
+        if self.max_symbols and self.max_symbols > 0:
+            symbols = symbols[: self.max_symbols]
+        object.__setattr__(self, "symbols", symbols)
+        if self.max_bars and self.max_bars > 0:
+            object.__setattr__(self, "bars", min(int(self.bars), int(self.max_bars)))
         profile = get_signal_profile(self.signal_profile)
         object.__setattr__(self, "signal_profile", profile.name)
         if not self.run_id:
@@ -185,7 +199,7 @@ class RealDataResearchRunner:
             path.mkdir(parents=True, exist_ok=True)
 
     def _stages(self) -> tuple[tuple[str, Callable[[], dict[str, Any]]], ...]:
-        return (
+        stages = [
             ("MT5_DIAGNOSE", self._mt5_diagnose),
             ("EXPORT_HISTORY", self._export_history),
             ("HISTORICAL_DATA_AUDIT", self._historical_data_audit),
@@ -202,7 +216,22 @@ class RealDataResearchRunner:
             ("BENCHMARK", self._benchmark),
             ("COMPETITIVE_SCORECARD", self._competitive_scorecard),
             ("FULL_VALIDATION", self._full_validation),
-        )
+        ]
+        if self.config.quick:
+            allowed = {"MT5_DIAGNOSE", "EXPORT_HISTORY", "HISTORICAL_DATA_AUDIT", "DATA_CONTRACT_AUDIT", "STRATEGY_DIAGNOSE", "BACKTEST"}
+            return tuple((name, fn) for name, fn in stages if name in allowed)
+        skipped = set()
+        if self.config.skip_walk_forward:
+            skipped.add("WALK_FORWARD")
+        if self.config.skip_monte_carlo:
+            skipped.add("MONTE_CARLO")
+        if self.config.skip_stress_test:
+            skipped.add("STRESS_TEST")
+        if self.config.skip_research:
+            skipped.add("RESEARCH")
+        if self.config.skip_benchmark:
+            skipped.update({"BENCHMARK", "COMPETITIVE_SCORECARD"})
+        return tuple((name, fn) for name, fn in stages if name not in skipped)
 
     def _run_stage(self, name: str, function: Callable[[], dict[str, Any]]) -> ResearchStageResult:
         started = _now()
@@ -382,11 +411,15 @@ class RealDataResearchRunner:
                 summary["classification"] = "WARNING_NO_TRADES"
                 summary["error_message"] = "backtest completed but generated zero trades"
             self._ensure_empty_backtest_outputs(summary)
+        summary.setdefault("sample_status", classify_sample_size(int(summary.get("total_trades", 0) or 0)))
         return summary
 
     def _walk_forward(self) -> dict[str, Any]:
         if not self._backtest_has_trades():
             return self._write_skip_report("walk_forward", "SKIPPED_NO_TRADES", "backtest generated no trades")
+        total_trades = len(self._closed_trades_frame())
+        if total_trades < 30:
+            return self._write_skip_report("walk_forward", "NEEDS_MORE_TRADES", f"walk-forward requires at least 30 trades; observed {total_trades}", total_trades=total_trades)
         try:
             return run_walk_forward_for_symbols(
                 data_dir=self.historical_dir,
@@ -473,7 +506,7 @@ class RealDataResearchRunner:
         classification = str(summary.get("classification", "")).upper()
         if classification.startswith("SKIPPED"):
             return "SKIPPED"
-        if classification in {"NEEDS_MORE_DATA", "WARNING_NO_TRADES", "WATCHLIST", "REJECTED", "NOT_READY"}:
+        if classification in {"NEEDS_MORE_DATA", "NEEDS_MORE_TRADES", "WARNING_NO_TRADES", "WARNING_SIGNALS_NO_TRADES", "LOW_SAMPLE_WARNING", "WATCHLIST", "REJECTED", "NOT_READY"}:
             return "WARNING"
         if classification in {"OK", "APPROVED_FOR_SHADOW_OBSERVATION", "CONTINUE_FORWARD_SHADOW"}:
             return "PASSED"
@@ -562,6 +595,10 @@ class RealDataResearchRunner:
             "signals_generated": 0,
             "trades_generated": 0,
             "total_trades": 0,
+            "sample_status": "LOW_SAMPLE",
+            "min_required_trades": 30,
+            "trades_by_symbol": [],
+            "trades_by_strategy": [],
             "classification": classification,
             "error_message": reason,
             "details": dict(details or {}),
@@ -581,6 +618,8 @@ class RealDataResearchRunner:
             "mode": "monte-carlo",
             "input_files": [str(trades_path)] if trades_path else [],
             "classification": "SKIPPED_NO_TRADES",
+            "total_trades": 0,
+            "sample_status": "LOW_SAMPLE",
             "error_message": reason,
             "reports_created": [str(summary_path), str(simulations_path)],
             "execution_attempted": False,
@@ -588,7 +627,7 @@ class RealDataResearchRunner:
         summary_path.write_text(json.dumps(_jsonable(summary), indent=2, sort_keys=True), encoding="utf-8")
         return summary
 
-    def _write_skip_report(self, report_name: str, classification: str, reason: str) -> dict[str, Any]:
+    def _write_skip_report(self, report_name: str, classification: str, reason: str, **extra: Any) -> dict[str, Any]:
         output = self.reports_dir / report_name
         output.mkdir(parents=True, exist_ok=True)
         summary_path = output / "summary.json"
@@ -596,6 +635,7 @@ class RealDataResearchRunner:
             "mode": report_name.replace("_", "-"),
             "classification": classification,
             "error_message": reason,
+            **extra,
             "reports_created": [str(summary_path)],
             "execution_attempted": False,
         }
@@ -647,6 +687,7 @@ class RealDataResearchRunner:
         total_trades = int(backtest.get("total_trades", 0) or 0)
         signals_generated = int(backtest.get("signals_generated", 0) or 0)
         trades_generated = int(backtest.get("trades_generated", total_trades) or 0)
+        sample_status = str(backtest.get("sample_status") or classify_sample_size(total_trades))
         data_quality_ok = str(self._stage_classification(results, "DATA_QUALITY")).upper() == "OK"
         zero_trade_detected = total_trades == 0
         return {
@@ -671,6 +712,10 @@ class RealDataResearchRunner:
             "main_feature_blocker": self._historical_context(results).get("main_feature_blocker", ""),
             "main_data_blocker": self._historical_context(results).get("main_data_blocker", ""),
             "total_trades": total_trades,
+            "sample_status": sample_status,
+            "min_required_trades": 30,
+            "trades_by_symbol": backtest.get("trades_by_symbol", []),
+            "trades_by_strategy": backtest.get("trades_by_strategy", []),
             "benchmark_status": next((result.status for result in results if result.name == "BENCHMARK"), ""),
             "benchmark_classification": str(benchmark.get("classification", "")),
             "zero_trade_detected": zero_trade_detected,
@@ -682,6 +727,8 @@ class RealDataResearchRunner:
             "recommended_next_action": self._recommended_next_action(results, zero_trade_detected=zero_trade_detected, data_quality_ok=data_quality_ok, final_decision=final_decision),
             "calibration": self._calibration_context(),
             "top_strategy_blockers": backtest.get("top_blocking_reasons", []),
+            "failed_stage_error_codes": self._failed_stage_error_codes(results),
+            "next_best_command": self._next_best_command(sample_status=sample_status, final_decision=final_decision),
             "stages_passed": sum(1 for result in results if result.status == "PASSED"),
             "stages_warning": sum(1 for result in results if result.status == "WARNING"),
             "stages_failed": sum(1 for result in results if result.status == "FAILED"),
@@ -757,6 +804,24 @@ class RealDataResearchRunner:
         if trades_generated <= 0:
             return self.signal_profile.name if self.signal_profile.name in {"BALANCED", "ACTIVE"} else "BALANCED"
         return self.signal_profile.name
+
+    def _failed_stage_error_codes(self, results: list[ResearchStageResult]) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        for result in results:
+            if result.status not in {"FAILED", "WARNING"}:
+                continue
+            code = str(result.summary.get("classification") or result.summary.get("error_code") or result.error_message or "WARNING")
+            rows.append({"stage_name": result.name, "error_code": code})
+        return rows
+
+    def _next_best_command(self, *, sample_status: str, final_decision: str) -> str:
+        symbols = ",".join(list(self.config.symbols)[:3] or ["EURUSD", "GBPUSD", "USDJPY"])
+        bars = max(int(self.config.bars or 0), 20_000)
+        if sample_status == "LOW_SAMPLE":
+            return f"py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols {symbols} --bars {bars} --output-root data\\runs --signal-profile {self.signal_profile.name} --quick"
+        if final_decision == "NEEDS_MORE_DATA":
+            return f"py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols {symbols} --bars {bars} --output-root data\\runs --signal-profile {self.signal_profile.name}"
+        return "py -m agi_style_forex_bot_mt5.cli --mode latest-run-summary --runs-root data\\runs"
 
     def _write_profile_comparison(self, results: list[ResearchStageResult], final_decision: str) -> list[str]:
         backtest = self._stage_summary(results, "BACKTEST")
