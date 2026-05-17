@@ -21,6 +21,15 @@ Safety invariants:
 
 `ACTIVE` and `RESEARCH_ONLY` are marked `NOT FOR DEMO/LIVE EXECUTION` in generated config suggestions.
 
+Effective thresholds are now canonical and auditable. `CONSERVATIVE` uses stricter thresholds, `BALANCED` lowers them moderately, `ACTIVE` lowers them further for research-only experiments, and `RESEARCH_ONLY` is diagnostic. The `profile_hash` is computed from the resolved thresholds and safety flags, so two profiles with different thresholds must have different hashes.
+
+Audit them with:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode profile-threshold-audit --output-dir data\reports\profile_validation
+```
+
 ## Commands
 
 ```powershell
@@ -114,3 +123,5 @@ py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBP
 ```
 
 Compare `signals_generated` and `trades_generated`. If signals are generated but no trades are created, inspect `top_blocking_reasons` for conversion blockers such as `SPREAD_BLOCK`, `MISSING_SL_TP`, `INVALID_RR`, `RISK_REJECTED`, or `PORTFOLIO_BLOCK`.
+
+Phase 22B repairs profile application in backtest/profile comparison. Every simulated trade now carries `signal_profile_used`, `profile_hash`, `thresholds_used`, `setup_score`, `ensemble_score`, `passed_thresholds`, and `threshold_failures`. If ACTIVE and BALANCED still produce identical metrics while hashes differ, treat it as threshold insensitivity on that sample rather than silent profile duplication.

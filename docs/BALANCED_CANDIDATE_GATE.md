@@ -35,6 +35,18 @@ BALANCED can only pass the first candidate screen if:
 
 If walk-forward, Monte Carlo, stress, or full validation are missing, the decision remains `BALANCED_NEEDS_ROBUSTNESS_VALIDATION`.
 
+## Profile Integrity Dependency
+
+Run threshold and integrity checks before using this gate:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode profile-threshold-audit --output-dir data\reports\profile_validation
+py -m agi_style_forex_bot_mt5.cli --mode profile-integrity --profile-runs-dir data\reports\profile_runs --output-dir data\reports\profile_validation
+```
+
+`IDENTICAL_THRESHOLDS` fails the gate because BALANCED/ACTIVE comparison is not trustworthy. `DIFFERENT_THRESHOLDS_IDENTICAL_METRICS` is a warning: BALANCED metrics are not automatically rejected, but they still require walk-forward, Monte Carlo, stress, and paper-vs-backtest validation before prolonged forward-shadow observation.
+
 ## Safety
 
 `FORWARD_SHADOW_CANDIDATE` and BALANCED candidate language mean paper/shadow observation only. They do not authorize demo/live execution.

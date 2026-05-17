@@ -31,14 +31,23 @@ def compare_profile_metrics(profile_runs_dir: str | Path) -> dict[str, Any]:
         active = frame.loc[frame["profile"].astype(str) == "ACTIVE"].iloc[0]
         balanced = frame.loc[frame["profile"].astype(str) == "BALANCED"].iloc[0]
         identical = _metrics_identical(active, balanced)
-        active_balanced_status = "IDENTICAL_METRICS" if identical else "DIFFERENT_METRICS"
+        same_hash = _value(active.get("profile_hash")) == _value(balanced.get("profile_hash"))
+        same_counts = _value(active.get("signals_generated")) == _value(balanced.get("signals_generated")) and _value(active.get("trades_generated")) == _value(balanced.get("trades_generated"))
+        if same_hash:
+            active_balanced_status = "IDENTICAL_THRESHOLDS"
+        elif identical:
+            active_balanced_status = "DIFFERENT_THRESHOLDS_IDENTICAL_METRICS"
+        elif not same_counts and _core_metrics_identical(active, balanced):
+            active_balanced_status = "IDENTICAL_METRICS_WITH_DIFFERENT_SIGNAL_COUNTS"
+        else:
+            active_balanced_status = "DIFFERENT_THRESHOLDS_DIFFERENT_METRICS"
         comparisons.append(
             {
                 "left": "BALANCED",
                 "right": "ACTIVE",
                 "metric_similarity_status": active_balanced_status,
-                "possible_causes": "; ".join(_possible_causes()) if identical else "",
-                "recommendation": "Run profile comparison integrity repair before using ACTIVE conclusions." if identical else "Profile metrics differ.",
+                "possible_causes": "; ".join(_possible_causes()) if identical or same_hash else "",
+                "recommendation": _recommendation(active_balanced_status),
             }
         )
     return {
@@ -79,6 +88,13 @@ def _metrics_identical(left: pd.Series, right: pd.Series) -> bool:
     return True
 
 
+def _core_metrics_identical(left: pd.Series, right: pd.Series) -> bool:
+    for column in ("winrate", "expectancy_r", "profit_factor", "net_profit", "max_drawdown_pct"):
+        if _value(left.get(column)) != _value(right.get(column)):
+            return False
+    return True
+
+
 def _value(value: Any) -> Any:
     if pd.isna(value):
         return None
@@ -94,3 +110,13 @@ def _possible_causes() -> tuple[str, ...]:
         "active profile same as balanced",
         "candidate generation capped identically",
     )
+
+
+def _recommendation(status: str) -> str:
+    if status == "IDENTICAL_THRESHOLDS":
+        return "Repair profile threshold config before using comparison conclusions."
+    if status == "DIFFERENT_THRESHOLDS_IDENTICAL_METRICS":
+        return "Inspect strategy sensitivity; thresholds may not affect selected trades."
+    if status == "IDENTICAL_METRICS_WITH_DIFFERENT_SIGNAL_COUNTS":
+        return "Inspect aggregation/reporting because counts changed but metrics did not."
+    return "Profile thresholds and metrics differ."

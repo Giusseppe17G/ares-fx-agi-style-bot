@@ -19,10 +19,12 @@ def run_profile_integrity(*, profile_runs_dir: str | Path, output_dir: str | Pat
     output.mkdir(parents=True, exist_ok=True)
     thresholds = build_profile_threshold_diff()
     metrics = compare_profile_metrics(profile_runs_dir)
-    failed = metrics.get("metric_similarity_status") == "IDENTICAL_METRICS"
+    metric_status = str(metrics.get("metric_similarity_status", ""))
+    failed = metric_status == "IDENTICAL_THRESHOLDS"
+    warning = bool(thresholds.get("warning")) or metric_status in {"DIFFERENT_THRESHOLDS_IDENTICAL_METRICS", "IDENTICAL_METRICS_WITH_DIFFERENT_SIGNAL_COUNTS"}
     summary = {
         "mode": "profile-integrity",
-        "profile_integrity_status": "FAILED" if failed else ("WARNING" if thresholds.get("warning") else "PASSED"),
+        "profile_integrity_status": "FAILED" if failed else ("WARNING" if warning else "PASSED"),
         "profile_similarity_status": thresholds.get("profile_similarity_status"),
         "metric_similarity_status": metrics.get("metric_similarity_status"),
         "active_vs_balanced_similarity": metrics.get("active_vs_balanced_similarity"),

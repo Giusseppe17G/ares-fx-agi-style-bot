@@ -43,7 +43,7 @@ from .persistence import (
     validate_event_integrity,
 )
 from .portfolio import build_correlation_report, build_exposure_report, build_portfolio_status
-from .profile_validation import run_balanced_candidate_gate, run_profile_integrity
+from .profile_validation import run_balanced_candidate_gate, run_profile_integrity, run_profile_threshold_audit
 from .real_data_research import RealDataResearchConfig, load_latest_run_summary, run_real_data_research
 from .research import run_research
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
@@ -171,6 +171,7 @@ def main(argv: list[str] | None = None) -> int:
             "build-filtered-profile",
             "profile-integrity",
             "balanced-candidate-gate",
+            "profile-threshold-audit",
         ],
         default="shadow",
     )
@@ -417,6 +418,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "profile-integrity":
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/profile_validation")
             summary = run_profile_integrity(profile_runs_dir=args.profile_runs_dir, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "profile-threshold-audit":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/profile_validation")
+            summary = run_profile_threshold_audit(output_dir=output_dir)
             print(_json_dumps(summary))
             return 0
 

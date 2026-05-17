@@ -18,6 +18,7 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 import pandas as pd
 
+from ..calibration import effective_profile_config
 from ..config import BotConfig
 from ..contracts import Direction, MarketSnapshot, SignalAction
 from ..data import add_indicators, add_regime_labels, normalize_ohlcv_bars
@@ -232,7 +233,7 @@ class BacktestOutcome:
         for trade in self.trades:
             row = asdict(trade)
             metadata = dict(row.get("metadata") or {})
-            for key in ("regime", "session", "score", "strategy_name", "setup_quality"):
+            for key in ("regime", "session", "score", "strategy_name", "setup_quality", "setup_score", "ensemble_score", "profile_hash", "thresholds_used", "passed_thresholds", "threshold_failures"):
                 if key in metadata:
                     row[key] = metadata[key]
             rows.append(row)
@@ -656,7 +657,8 @@ def generate_strategy_candidates(
         )
         if signal.action == SignalAction.NONE:
             continue
-        if not _profile_allows_signal(signal.metadata, profile):
+        passed_thresholds, threshold_failures = _profile_threshold_result(signal.metadata, profile, ensemble_score=signal.score)
+        if not passed_thresholds:
             continue
         direction = Direction.BUY if signal.action == SignalAction.BUY else Direction.SELL
         reference = snapshot.ask if direction == Direction.BUY else snapshot.bid
@@ -683,10 +685,15 @@ def generate_strategy_candidates(
                     "regime": str(row["regime"]),
                     "session": session_for_timestamp(pd.Timestamp(row["timestamp_utc"])),
                     "score": signal.score,
+                    "ensemble_score": signal.score,
                     "reasons": tuple(signal.reasons),
                     "strategy_name": signal.strategy_name,
                     "signal_profile": profile["name"],
+                    "profile_hash": profile["profile_hash"],
                     "thresholds_used": dict(profile),
+                    "setup_score": signal.metadata.get("setup_quality_score", 0.0),
+                    "passed_thresholds": passed_thresholds,
+                    "threshold_failures": tuple(threshold_failures),
                     "setup_quality": signal.metadata.get("setup_quality", ""),
                     "component_scores": dict(signal.metadata.get("component_scores") or {}),
                 },
@@ -699,13 +706,25 @@ def generate_strategy_candidates(
 def _profile_allows_signal(metadata: Mapping[str, Any], profile: Mapping[str, Any]) -> bool:
     """Apply calibrated research thresholds without disabling safety gates."""
 
+    return _profile_threshold_result(metadata, profile)[0]
+
+
+def _profile_threshold_result(metadata: Mapping[str, Any], profile: Mapping[str, Any], *, ensemble_score: float | None = None) -> tuple[bool, tuple[str, ...]]:
+    """Return whether metadata passes effective profile thresholds."""
+
+    failures: list[str] = []
     component_scores = dict(metadata.get("component_scores") or {})
+    resolved_ensemble_score = ensemble_score
+    if resolved_ensemble_score is None:
+        resolved_ensemble_score = metadata.get("ensemble_score", metadata.get("score", 0.0))
+    if float(resolved_ensemble_score or 0.0) < float(profile["ensemble_min_score"]):
+        failures.append("ensemble_score_below_min")
     setup_score = float(metadata.get("setup_quality_score", 0.0) or 0.0)
     if setup_score and setup_score < float(profile["min_setup_score"]):
-        return False
+        failures.append("setup_score_below_min")
     if component_scores:
         if min(float(value) for value in component_scores.values()) < float(profile["min_component_score"]):
-            return False
+            failures.append("component_score_below_min")
         checks = {
             "cost_fit": profile["cost_fit_min"],
             "structure_fit": profile["structure_fit_min"],
@@ -714,24 +733,24 @@ def _profile_allows_signal(metadata: Mapping[str, Any], profile: Mapping[str, An
         }
         for name, threshold in checks.items():
             if float(component_scores.get(name, 0.0) or 0.0) < float(threshold):
-                return False
-    return True
+                failures.append(f"{name}_below_min")
+    return not failures, tuple(failures)
 
 
 def _signal_profile_settings(name: str) -> dict[str, Any]:
-    profiles = {
-        "CONSERVATIVE": {"name": "CONSERVATIVE", "min_setup_score": 72.0, "min_component_score": 60.0, "cost_fit_min": 70.0, "structure_fit_min": 65.0, "volatility_fit_min": 65.0, "session_fit_min": 60.0, "ensemble_min_score": 70.0, "near_miss_window": 5.0, "research_only": False, "not_for_demo_live": False},
-        "BALANCED": {"name": "BALANCED", "min_setup_score": 62.0, "min_component_score": 50.0, "cost_fit_min": 55.0, "structure_fit_min": 50.0, "volatility_fit_min": 50.0, "session_fit_min": 50.0, "ensemble_min_score": 60.0, "near_miss_window": 8.0, "research_only": False, "not_for_demo_live": False},
-        "BALANCED_FILTERED": {"name": "BALANCED_FILTERED", "min_setup_score": 62.0, "min_component_score": 50.0, "cost_fit_min": 55.0, "structure_fit_min": 50.0, "volatility_fit_min": 50.0, "session_fit_min": 50.0, "ensemble_min_score": 60.0, "near_miss_window": 8.0, "research_only": False, "not_for_demo_live": False},
-        "ACTIVE": {"name": "ACTIVE", "min_setup_score": 55.0, "min_component_score": 45.0, "cost_fit_min": 45.0, "structure_fit_min": 45.0, "volatility_fit_min": 45.0, "session_fit_min": 45.0, "ensemble_min_score": 55.0, "near_miss_window": 10.0, "research_only": True, "not_for_demo_live": True},
-        "RESEARCH_ONLY": {"name": "RESEARCH_ONLY", "min_setup_score": 48.0, "min_component_score": 35.0, "cost_fit_min": 35.0, "structure_fit_min": 35.0, "volatility_fit_min": 35.0, "session_fit_min": 35.0, "ensemble_min_score": 50.0, "near_miss_window": 15.0, "research_only": True, "not_for_demo_live": True},
+    try:
+        effective = effective_profile_config(str(name or "CONSERVATIVE").strip().upper(), source="backtester")
+    except ValueError:
+        effective = effective_profile_config("CONSERVATIVE", source="backtester")
+    return {
+        "name": effective.profile_name,
+        **effective.thresholds,
+        "research_only": effective.research_only,
+        "not_for_demo_live": effective.not_for_demo_live,
+        "allowed_for_shadow": effective.allowed_for_shadow,
+        "profile_hash": effective.profile_hash,
+        "source": effective.source,
     }
-    key = str(name or "CONSERVATIVE").strip().upper()
-    if key not in profiles:
-        key = "CONSERVATIVE"
-    profile = dict(profiles[key])
-    profile["profile_hash"] = sha256(json.dumps(profile, sort_keys=True).encode("utf-8")).hexdigest()
-    return profile
 
 
 def classify_sample_size(total_trades: int) -> str:
@@ -756,6 +775,13 @@ def _top_rejection_reasons(rejections: Iterable[Mapping[str, Any]]) -> list[dict
         {"blocking_reason": reason, "count": count}
         for reason, count in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:10]
     ]
+
+
+def _average_metadata_numeric(frame: pd.DataFrame, column: str) -> float:
+    if frame.empty or column not in frame.columns:
+        return 0.0
+    values = pd.to_numeric(frame[column], errors="coerce").dropna()
+    return float(values.mean()) if not values.empty else 0.0
 
 
 def _canonical_trade_blocker(reason: str) -> str:
@@ -850,6 +876,10 @@ def run_backtest_for_symbols(
         "symbols_tested": len(qualities),
         "data_valid_symbols": data_valid_symbols,
         "signals_generated": signals_generated,
+        "blocked_by_threshold": 0,
+        "passed_by_threshold": metrics.trades_total,
+        "avg_setup_score": _average_metadata_numeric(trades_frame, "setup_score"),
+        "avg_ensemble_score": _average_metadata_numeric(trades_frame, "ensemble_score"),
         "trades_generated": metrics.trades_total,
         "sample_status": classify_sample_size(metrics.trades_total),
         "min_required_trades": 30,

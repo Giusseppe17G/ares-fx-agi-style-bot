@@ -11,6 +11,7 @@ from agi_style_forex_bot_mt5.profile_validation import (
     run_balanced_candidate_gate,
     run_profile_integrity,
 )
+from agi_style_forex_bot_mt5.calibration import effective_profile_config
 from agi_style_forex_bot_mt5.real_data_research import load_latest_run_summary
 
 
@@ -22,6 +23,18 @@ def test_profile_threshold_diff_detects_identical_thresholds() -> None:
     assert summary["execution_attempted"] is False
 
 
+def test_effective_profile_hashes_and_threshold_order_are_distinct() -> None:
+    conservative = effective_profile_config("CONSERVATIVE")
+    balanced = effective_profile_config("BALANCED")
+    active = effective_profile_config("ACTIVE")
+    research = effective_profile_config("RESEARCH_ONLY")
+
+    assert len({conservative.profile_hash, balanced.profile_hash, active.profile_hash, research.profile_hash}) == 4
+    assert active.thresholds["ensemble_min_score"] < balanced.thresholds["ensemble_min_score"]
+    assert research.thresholds["ensemble_min_score"] < active.thresholds["ensemble_min_score"]
+    assert active.not_for_demo_live is True
+
+
 def test_profile_metric_comparator_detects_identical_metrics(tmp_path: Path) -> None:
     _write_profile_comparison(
         tmp_path,
@@ -31,8 +44,21 @@ def test_profile_metric_comparator_detects_identical_metrics(tmp_path: Path) -> 
 
     summary = compare_profile_metrics(tmp_path)
 
-    assert summary["metric_similarity_status"] == "IDENTICAL_METRICS"
-    assert "profile thresholds not applied" in summary["comparisons"][0]["possible_causes"]
+    assert summary["metric_similarity_status"] == "DIFFERENT_THRESHOLDS_IDENTICAL_METRICS"
+    assert "strategy sensitivity" in summary["comparisons"][0]["recommendation"].lower()
+
+
+def test_profile_integrity_warns_when_thresholds_differ_but_metrics_identical(tmp_path: Path) -> None:
+    _write_profile_comparison(
+        tmp_path,
+        balanced={"trades_generated": 213, "signals_generated": 217, "winrate": 46.48, "expectancy_r": 0.197, "profit_factor": 2.75, "max_drawdown_pct": 5.0},
+        active={"trades_generated": 213, "signals_generated": 217, "winrate": 46.48, "expectancy_r": 0.197, "profit_factor": 2.75, "max_drawdown_pct": 5.0},
+    )
+
+    summary = run_profile_integrity(profile_runs_dir=tmp_path, output_dir=tmp_path / "validation")
+
+    assert summary["profile_integrity_status"] == "WARNING"
+    assert summary["active_vs_balanced_similarity"] == "DIFFERENT_THRESHOLDS_IDENTICAL_METRICS"
 
 
 def test_profile_comparison_run_saves_thresholds_and_hash(tmp_path: Path, capsys) -> None:
@@ -65,7 +91,7 @@ def test_balanced_gate_positive_metrics_needs_robustness_validation(tmp_path: Pa
     assert summary["execution_attempted"] is False
 
 
-def test_balanced_gate_integrity_failure_is_untrusted(tmp_path: Path) -> None:
+def test_balanced_gate_integrity_warning_still_needs_robustness(tmp_path: Path) -> None:
     profile_dir = tmp_path / "profile_runs"
     _write_profile_comparison(
         profile_dir,
@@ -78,7 +104,7 @@ def test_balanced_gate_integrity_failure_is_untrusted(tmp_path: Path) -> None:
 
     summary = run_balanced_candidate_gate(runs_root=tmp_path / "runs", profile_runs_dir=profile_dir, edge_dir=edge_dir, output_dir=tmp_path / "validation")
 
-    assert summary["balanced_decision"] == "BALANCED_METRICS_UNTRUSTED"
+    assert summary["balanced_decision"] == "BALANCED_NEEDS_ROBUSTNESS_VALIDATION"
 
 
 def test_active_never_allowed_for_shadow() -> None:
@@ -104,6 +130,17 @@ def test_cli_accepts_profile_integrity_and_balanced_gate(tmp_path: Path, capsys)
     gate = json.loads(capsys.readouterr().out)
     assert gate["mode"] == "balanced-candidate-gate"
     assert gate["execution_attempted"] is False
+
+
+def test_cli_accepts_profile_threshold_audit(tmp_path: Path, capsys) -> None:
+    output = tmp_path / "validation"
+
+    assert cli.main(["--mode", "profile-threshold-audit", "--output-dir", str(output)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["mode"] == "profile-threshold-audit"
+    assert (output / "profile_threshold_audit.json").exists()
+    assert (output / "profile_threshold_audit.csv").exists()
 
 
 def test_latest_run_summary_includes_profile_validation(tmp_path: Path) -> None:

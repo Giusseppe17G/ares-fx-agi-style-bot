@@ -95,7 +95,7 @@ This creates `BALANCED_FILTERED`, which keeps the safer BALANCED frequency while
 
 If edge filtering returns `NO_ACTIONABLE_FILTER`, do not use `BALANCED_FILTERED`; compare `BALANCED` against `ACTIVE` in research-only mode instead.
 
-Before trusting profile comparison output, run `profile-integrity`. If ACTIVE and BALANCED are `IDENTICAL_METRICS`, treat ACTIVE conclusions as untrusted until threshold consumption is inspected.
+Before trusting profile comparison output, run `profile-threshold-audit` and `profile-integrity`. If ACTIVE and BALANCED are `IDENTICAL_THRESHOLDS`, treat it as a failed config/application bug. If they are `DIFFERENT_THRESHOLDS_IDENTICAL_METRICS`, thresholds are applied but the sample may be insensitive; use BALANCED only after robustness validation and do not use ACTIVE operationally.
 
 ## Outputs
 

@@ -156,6 +156,27 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 22B Profile Threshold Application Repair
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 297 tests collected.
+
+Integrated in Phase 22B:
+
+- Added canonical effective profile thresholds and stable threshold-based `profile_hash` values.
+- Added `EffectiveProfileConfig` and CLI mode `profile-threshold-audit`.
+- Profile comparison now records `thresholds_used`, `profile_hash`, threshold pass/fail counts, average setup score, and average ensemble score by profile.
+- Backtest candidates and trades now carry `thresholds_used`, `profile_hash`, `passed_thresholds`, and `threshold_failures`.
+- Integrity now distinguishes `IDENTICAL_THRESHOLDS` failures from `DIFFERENT_THRESHOLDS_IDENTICAL_METRICS` warnings.
+- BALANCED candidate gate treats integrity warnings as requiring robustness validation, not as silent metric trust.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 19B Low-Sample And Quick Research Update
 
 Status: PASS. Verification: `py -m pytest -q` completed successfully, 257 tests collected.
@@ -1005,3 +1026,4 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+

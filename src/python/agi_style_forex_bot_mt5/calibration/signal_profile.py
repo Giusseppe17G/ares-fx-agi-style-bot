@@ -41,8 +41,8 @@ PROFILES: dict[str, SignalProfileSettings] = {
     "CONSERVATIVE": SignalProfileSettings("CONSERVATIVE", 72, 60, 70, 65, 65, 60, 70, 5),
     "BALANCED": SignalProfileSettings("BALANCED", 62, 50, 55, 50, 50, 50, 60, 8),
     "BALANCED_FILTERED": SignalProfileSettings("BALANCED_FILTERED", 62, 50, 55, 50, 50, 50, 60, 8),
-    "ACTIVE": SignalProfileSettings("ACTIVE", 55, 45, 45, 45, 45, 45, 55, 10, research_only=True, not_for_demo_live=True),
-    "RESEARCH_ONLY": SignalProfileSettings("RESEARCH_ONLY", 48, 35, 35, 35, 35, 35, 50, 15, research_only=True, not_for_demo_live=True),
+    "ACTIVE": SignalProfileSettings("ACTIVE", 52, 40, 45, 40, 40, 40, 50, 12, research_only=True, not_for_demo_live=True),
+    "RESEARCH_ONLY": SignalProfileSettings("RESEARCH_ONLY", 45, 30, 35, 30, 30, 30, 40, 20, research_only=True, not_for_demo_live=True),
 }
 
 

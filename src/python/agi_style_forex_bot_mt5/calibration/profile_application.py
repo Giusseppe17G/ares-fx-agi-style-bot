@@ -13,6 +13,7 @@ import pandas as pd
 
 from ..config import BotConfig
 from .calibration_report import write_config_suggestions
+from .effective_profile_config import effective_profile_config
 from .signal_profile import PROFILES, SignalProfileSettings, get_signal_profile
 
 
@@ -46,7 +47,9 @@ def profile_to_config(profile: SignalProfileSettings) -> dict[str, Any]:
 def profile_hash(profile: SignalProfileSettings | Mapping[str, Any]) -> str:
     """Return a stable hash for profile thresholds and safety flags."""
 
-    payload = profile.to_dict() if isinstance(profile, SignalProfileSettings) else dict(profile)
+    if isinstance(profile, SignalProfileSettings):
+        return effective_profile_config(profile.name).profile_hash
+    payload = dict(profile)
     return sha256(json.dumps(_jsonable(payload), sort_keys=True).encode("utf-8")).hexdigest()
 
 
@@ -109,12 +112,13 @@ def write_profile_comparison(output_dir: str | Path, metrics_by_profile: Mapping
     metrics = {key.upper(): dict(value) for key, value in dict(metrics_by_profile or {}).items()}
     for name, profile in PROFILES.items():
         observed = metrics.get(name, {})
-        thresholds = profile.to_dict()
+        effective = effective_profile_config(profile.name)
+        thresholds = effective.thresholds
         rows.append(
             {
                 "profile": name,
                 "thresholds_used": thresholds,
-                "profile_hash": profile_hash(profile),
+                "profile_hash": effective.profile_hash,
                 "ensemble_min_score": profile.ensemble_min_score,
                 "min_component_score": profile.min_component_score,
                 "min_setup_score": profile.min_setup_score,
@@ -122,8 +126,13 @@ def write_profile_comparison(output_dir: str | Path, metrics_by_profile: Mapping
                 "session_fit_min": profile.session_fit_min,
                 "structure_fit_min": profile.structure_fit_min,
                 "volatility_fit_min": profile.volatility_fit_min,
+                "effective_profile_source": effective.source,
                 "signals_generated": int(observed.get("signals_generated", 0) or 0),
                 "trades_generated": int(observed.get("trades_generated", 0) or 0),
+                "blocked_by_threshold": int(observed.get("blocked_by_threshold", 0) or 0),
+                "passed_by_threshold": int(observed.get("passed_by_threshold", observed.get("trades_generated", 0)) or 0),
+                "avg_setup_score": float(observed.get("avg_setup_score", 0.0) or 0.0),
+                "avg_ensemble_score": float(observed.get("avg_ensemble_score", 0.0) or 0.0),
                 "winrate": float(observed.get("winrate", 0.0) or 0.0),
                 "profit_factor": observed.get("profit_factor", 0.0),
                 "expectancy_r": float(observed.get("expectancy_r", 0.0) or 0.0),
@@ -177,6 +186,12 @@ def run_profile_comparison(
             metrics[profile.name] = {
                 "signals_generated": summary.get("signals_generated", 0),
                 "trades_generated": summary.get("trades_generated", summary.get("total_trades", 0)),
+                "blocked_by_threshold": summary.get("blocked_by_threshold", 0),
+                "passed_by_threshold": summary.get("passed_by_threshold", summary.get("trades_generated", summary.get("total_trades", 0))),
+                "avg_setup_score": summary.get("avg_setup_score", 0.0),
+                "avg_ensemble_score": summary.get("avg_ensemble_score", 0.0),
+                "profile_hash": summary.get("profile_hash", effective_profile_config(profile.name).profile_hash),
+                "thresholds_used": summary.get("thresholds_used", effective_profile_config(profile.name).thresholds),
                 "winrate": summary.get("winrate", 0.0),
                 "profit_factor": summary.get("profit_factor", 0.0),
                 "expectancy_r": summary.get("expectancy_r", 0.0),
@@ -193,6 +208,12 @@ def run_profile_comparison(
             metrics[profile.name] = {
                 "signals_generated": 0,
                 "trades_generated": 0,
+                "blocked_by_threshold": 0,
+                "passed_by_threshold": 0,
+                "avg_setup_score": 0.0,
+                "avg_ensemble_score": 0.0,
+                "profile_hash": effective_profile_config(profile.name).profile_hash,
+                "thresholds_used": effective_profile_config(profile.name).thresholds,
                 "sample_status": "NO_TRADES",
                 "metrics_status": "NO_TRADES",
                 "validation_decision": "NEEDS_MORE_DATA",
