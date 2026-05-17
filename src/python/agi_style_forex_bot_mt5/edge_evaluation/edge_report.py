@@ -16,15 +16,15 @@ from .strategy_selector import select_strategies
 from .symbol_selector import select_symbols
 
 
-def run_edge_evaluation(*, runs_root: str | Path = "data/runs", output_dir: str | Path = "data/reports/edge") -> dict[str, Any]:
+def run_edge_evaluation(*, runs_root: str | Path = "data/runs", output_dir: str | Path = "data/reports/edge", run_id: str | None = None) -> dict[str, Any]:
     """Run full fast edge evaluation and persist reports."""
 
-    bundle = load_edge_metrics(runs_root=runs_root)
+    bundle = load_edge_metrics(runs_root=runs_root, run_id=run_id)
     return write_edge_report(bundle, output_dir)
 
 
-def run_symbol_selection(*, runs_root: str | Path = "data/runs", output_dir: str | Path = "data/reports/edge") -> dict[str, Any]:
-    bundle = load_edge_metrics(runs_root=runs_root)
+def run_symbol_selection(*, runs_root: str | Path = "data/runs", output_dir: str | Path = "data/reports/edge", run_id: str | None = None) -> dict[str, Any]:
+    bundle = load_edge_metrics(runs_root=runs_root, run_id=run_id)
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     symbols = select_symbols(bundle.by_symbol)
@@ -33,8 +33,8 @@ def run_symbol_selection(*, runs_root: str | Path = "data/runs", output_dir: str
     return {"mode": "symbol-selection", "symbols_keep": _names(symbols, "symbol", "KEEP"), "symbols_reject": _names(symbols, "symbol", "REJECT"), "reports_created": [str(path)], "execution_attempted": False}
 
 
-def run_strategy_selection(*, runs_root: str | Path = "data/runs", output_dir: str | Path = "data/reports/edge") -> dict[str, Any]:
-    bundle = load_edge_metrics(runs_root=runs_root)
+def run_strategy_selection(*, runs_root: str | Path = "data/runs", output_dir: str | Path = "data/reports/edge", run_id: str | None = None) -> dict[str, Any]:
+    bundle = load_edge_metrics(runs_root=runs_root, run_id=run_id)
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     strategies = select_strategies(bundle.by_strategy)
@@ -58,8 +58,14 @@ def write_edge_report(bundle: EdgeMetricsBundle, output_dir: str | Path) -> dict
         "mode": "edge-evaluation",
         "run_id": bundle.run_id,
         "classification": bundle.classification,
+        "metrics_source": bundle.global_metrics.get("metrics_source", ""),
+        "metrics_status": bundle.global_metrics.get("metrics_status", ""),
+        "missing_metrics": bundle.global_metrics.get("missing_metrics", []),
         "total_trades": int(bundle.global_metrics.get("total_trades", 0) or 0),
         "sample_status": bundle.global_metrics.get("sample_status", "LOW_SAMPLE"),
+        "trade_frequency_status": bundle.global_metrics.get("trade_frequency_status", bundle.global_metrics.get("sample_status", "LOW_SAMPLE")),
+        "trades_by_symbol": _counts_dict(bundle.by_symbol, "symbol"),
+        "trades_by_strategy": _counts_dict(bundle.by_strategy, "strategy_name"),
         "global_profit_factor": bundle.global_metrics.get("profit_factor", 0.0),
         "global_expectancy_r": bundle.global_metrics.get("expectancy_r", 0.0),
         "global_winrate": bundle.global_metrics.get("winrate", 0.0),
@@ -165,6 +171,15 @@ def _names(frame: pd.DataFrame, column: str, decision: str) -> list[str]:
     if frame.empty or column not in frame.columns or "decision" not in frame.columns:
         return []
     return [str(value) for value in frame.loc[frame["decision"] == decision, column].dropna().tolist()]
+
+
+def _counts_dict(frame: pd.DataFrame, column: str) -> dict[str, int]:
+    if frame.empty or column not in frame.columns:
+        return {}
+    result: dict[str, int] = {}
+    for _, row in frame.iterrows():
+        result[str(row.get(column, "UNKNOWN"))] = int(row.get("total_trades", 0) or 0)
+    return result
 
 
 def _jsonable(value: Any) -> Any:

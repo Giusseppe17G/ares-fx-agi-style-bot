@@ -15,6 +15,10 @@ def select_symbols(by_symbol: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["symbol", "decision", "reasons"])
     for _, row in by_symbol.iterrows():
         trades = int(row.get("total_trades", row.get("trades", 0)) or 0)
+        metrics_status = str(row.get("metrics_status", "FULL_EDGE_METRICS"))
+        if metrics_status == "COUNTS_ONLY":
+            rows.append({**row.to_dict(), "symbol": row.get("symbol", ""), "decision": "WATCHLIST_COUNTS_ONLY", "reasons": "symbol has trade count but no profit/expectancy metrics"})
+            continue
         expectancy = float(row.get("expectancy_r", 0.0) or 0.0)
         pf = float(row.get("profit_factor", 0.0) or 0.0)
         winrate = float(row.get("winrate", 0.0) or 0.0)

@@ -39,6 +39,51 @@ def test_edge_evaluation_tolerates_missing_trades(tmp_path: Path) -> None:
     assert bundle.global_metrics["total_trades"] == 0
 
 
+def test_edge_evaluation_uses_compact_summary_when_trades_csv_is_missing(tmp_path: Path) -> None:
+    run = tmp_path / "20260517-160651-real-data-research"
+    (run / "reports" / "backtests").mkdir(parents=True)
+    (run / "final_summary_compact.json").write_text(
+        json.dumps(
+            {
+                "run_id": run.name,
+                "total_trades": 213,
+                "sample_status": "USABLE_SAMPLE",
+                "trade_frequency_status": "USABLE_SAMPLE",
+                "trades_by_symbol": {"EURUSD": 79, "GBPUSD": 68, "USDJPY": 66},
+                "trades_by_strategy": {"strategy_ensemble": 213},
+                "execution_attempted": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = run_edge_evaluation(runs_root=tmp_path, output_dir=tmp_path / "edge")
+
+    assert summary["run_id"] == run.name
+    assert summary["total_trades"] == 213
+    assert summary["sample_status"] == "USABLE_SAMPLE"
+    assert summary["metrics_status"] == "COUNTS_ONLY"
+    assert summary["decision"] == "NEEDS_FULL_EDGE_METRICS"
+    assert summary["trades_by_symbol"]["EURUSD"] == 79
+    assert summary["execution_attempted"] is False
+
+
+def test_edge_evaluation_total_trades_matches_latest_run_summary_counts_only(tmp_path: Path) -> None:
+    run = tmp_path / "20260517-160651-real-data-research"
+    (run / "reports").mkdir(parents=True)
+    (run / "final_summary_compact.json").write_text(
+        json.dumps({"run_id": run.name, "total_trades": 213, "sample_status": "USABLE_SAMPLE", "trades_by_symbol": {"EURUSD": 79}, "execution_attempted": False}),
+        encoding="utf-8",
+    )
+
+    edge = run_edge_evaluation(runs_root=tmp_path, output_dir=run / "reports" / "edge")
+    latest = load_latest_run_summary(tmp_path)
+
+    assert edge["total_trades"] == latest["total_trades"] == 213
+    assert latest["edge_metrics_status"] == "COUNTS_ONLY"
+    assert latest["edge_decision"] == "NEEDS_FULL_EDGE_METRICS"
+
+
 def test_symbol_selector_keep_and_reject() -> None:
     frame = pd.DataFrame(
         [
@@ -53,12 +98,28 @@ def test_symbol_selector_keep_and_reject() -> None:
     assert selected.loc[selected["symbol"] == "GBPUSD", "decision"].iloc[0] == "REJECT"
 
 
+def test_symbol_selector_counts_only_is_watchlist_counts_only() -> None:
+    frame = pd.DataFrame([{"symbol": "EURUSD", "total_trades": 79, "metrics_status": "COUNTS_ONLY"}])
+
+    selected = select_symbols(frame)
+
+    assert selected["decision"].iloc[0] == "WATCHLIST_COUNTS_ONLY"
+
+
 def test_strategy_selector_disable_in_balanced() -> None:
     frame = pd.DataFrame([{"strategy_name": "mean_reversion", "total_trades": 40, "expectancy_r": -0.05, "profit_factor": 0.92}])
 
     selected = select_strategies(frame)
 
     assert selected["decision"].iloc[0] == "DISABLE_IN_BALANCED"
+
+
+def test_strategy_selector_counts_only_stays_watchlist() -> None:
+    frame = pd.DataFrame([{"strategy_name": "strategy_ensemble", "total_trades": 213, "metrics_status": "COUNTS_ONLY"}])
+
+    selected = select_strategies(frame)
+
+    assert selected["decision"].iloc[0] == "WATCHLIST_COUNTS_ONLY"
 
 
 def test_session_analyzer_blocks_negative_rollover() -> None:
@@ -94,6 +155,16 @@ def test_fast_decision_forward_shadow_candidate() -> None:
     assert decision["execution_attempted"] is False
 
 
+def test_fast_decision_needs_full_edge_metrics_for_usable_counts_only() -> None:
+    symbols = pd.DataFrame([{"symbol": "EURUSD", "decision": "WATCHLIST_COUNTS_ONLY"}])
+    strategies = pd.DataFrame([{"strategy_name": "strategy_ensemble", "decision": "WATCHLIST"}])
+
+    decision = decide_fast(global_metrics={"total_trades": 213, "sample_status": "USABLE_SAMPLE", "metrics_status": "COUNTS_ONLY"}, symbol_selection=symbols, strategy_selection=strategies, blocker_summary={})
+
+    assert decision["decision"] == "NEEDS_FULL_EDGE_METRICS"
+    assert decision["execution_attempted"] is False
+
+
 def test_edge_evaluation_reports_are_created(tmp_path: Path) -> None:
     _make_run(tmp_path, _profitable_trades("EURUSD", 35))
 
@@ -121,6 +192,20 @@ def test_cli_accepts_edge_modes(tmp_path: Path, capsys) -> None:
     assert cli.main(["--mode", "strategy-selection", "--runs-root", str(tmp_path), "--output-dir", str(tmp_path / "edge")]) == 0
     strategy = json.loads(capsys.readouterr().out)
     assert strategy["mode"] == "strategy-selection"
+
+
+def test_cli_run_id_selects_exact_run(tmp_path: Path, capsys) -> None:
+    old = tmp_path / "20260101-000000-real-data-research"
+    new = tmp_path / "20260517-160651-real-data-research"
+    for run, total in ((old, 10), (new, 213)):
+        (run / "reports").mkdir(parents=True)
+        (run / "final_summary_compact.json").write_text(json.dumps({"run_id": run.name, "total_trades": total, "sample_status": "USABLE_SAMPLE"}), encoding="utf-8")
+
+    assert cli.main(["--mode", "edge-evaluation", "--runs-root", str(tmp_path), "--run-id", old.name, "--output-dir", str(tmp_path / "edge")]) == 0
+    edge = json.loads(capsys.readouterr().out)
+
+    assert edge["run_id"] == old.name
+    assert edge["total_trades"] == 10
 
 
 def test_latest_run_summary_includes_edge_decision(tmp_path: Path) -> None:

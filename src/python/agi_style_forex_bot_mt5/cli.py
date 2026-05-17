@@ -182,6 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", type=Path, default=Path("data/historical"), help="CSV output directory for export-history.")
     parser.add_argument("--output-root", type=Path, default=Path("data/runs"), help="Root directory for real-data-research run folders.")
     parser.add_argument("--runs-root", type=Path, default=Path("data/runs"), help="Root directory for latest-run-summary.")
+    parser.add_argument("--run-id", default="", help="Exact real-data-research run id for edge evaluation modes.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
     parser.add_argument("--reports-root", type=Path, default=Path("data/reports"), help="Reports root for validation-report.")
     parser.add_argument("--trades", type=Path, default=None, help="Trades CSV for monte-carlo.")
@@ -373,19 +374,19 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.mode == "edge-evaluation":
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/edge")
-            summary = run_edge_evaluation(runs_root=args.runs_root, output_dir=output_dir)
+            summary = run_edge_evaluation(runs_root=args.runs_root, output_dir=output_dir, run_id=args.run_id or None)
             print(_json_dumps(summary))
             return 0
 
         if args.mode == "symbol-selection":
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/edge")
-            summary = run_symbol_selection(runs_root=args.runs_root, output_dir=output_dir)
+            summary = run_symbol_selection(runs_root=args.runs_root, output_dir=output_dir, run_id=args.run_id or None)
             print(_json_dumps(summary))
             return 0
 
         if args.mode == "strategy-selection":
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/edge")
-            summary = run_strategy_selection(runs_root=args.runs_root, output_dir=output_dir)
+            summary = run_strategy_selection(runs_root=args.runs_root, output_dir=output_dir, run_id=args.run_id or None)
             print(_json_dumps(summary))
             return 0
 

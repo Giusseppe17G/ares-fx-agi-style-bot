@@ -278,3 +278,12 @@ py -m agi_style_forex_bot_mt5.cli --mode latest-run-summary --runs-root data\run
 The edge report classifies symbols, strategies, sessions, regimes, and blockers from existing artifacts. `latest-run-summary` surfaces `edge_decision`, `symbols_keep`, `symbols_reject`, `strategies_keep`, and `strategies_disable` when the edge report belongs to the same run.
 
 If `edge_decision=FORWARD_SHADOW_CANDIDATE`, the meaning is paper-only forward-shadow observation. It does not authorize demo/live execution.
+
+Use `--run-id` if the newest run is not the one you want to evaluate:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode edge-evaluation --runs-root data\runs --run-id 20260517-160651-real-data-research --output-dir data\reports\edge
+```
+
+If edge evaluation reports `metrics_status=COUNTS_ONLY`, it aligned with the run's trade count but could not find trade-level PnL. For example, 213 trades without readable `profit_factor` or `expectancy_r` becomes `NEEDS_FULL_EDGE_METRICS`, not `NEEDS_MORE_TRADES`.

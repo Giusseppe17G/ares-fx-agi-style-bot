@@ -921,3 +921,24 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## Phase 20B Edge Artifact Discovery Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 274 tests collected.
+
+Integrated in Phase 20B:
+
+- Edge evaluation can select an exact run through `--run-id`.
+- Artifact discovery now reads `final_summary_compact.json` and `final_summary.json` as fallbacks when `trades.csv` is absent.
+- Counts-only runs preserve `total_trades`, `sample_status`, `trade_frequency_status`, `trades_by_symbol`, and `trades_by_strategy` from the latest run summary.
+- Added `metrics_status=COUNTS_ONLY` and decision `NEEDS_FULL_EDGE_METRICS` when trade counts are usable but PnL/expectancy metrics are missing.
+- Symbol and strategy selectors mark count-only evidence as `WATCHLIST_COUNTS_ONLY` instead of inventing edge.
+- `latest-run-summary` exposes edge metrics source/status, decision reason, and missing edge metrics.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

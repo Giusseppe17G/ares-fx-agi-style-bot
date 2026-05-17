@@ -15,6 +15,9 @@ def select_strategies(by_strategy: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["strategy_name", "decision", "reasons"])
     for _, row in by_strategy.iterrows():
         trades = int(row.get("total_trades", row.get("trades", 0)) or 0)
+        if str(row.get("metrics_status", "FULL_EDGE_METRICS")) == "COUNTS_ONLY":
+            rows.append({**row.to_dict(), "strategy_name": row.get("strategy_name", "UNKNOWN"), "decision": "WATCHLIST_COUNTS_ONLY", "reasons": "strategy has trade count but no profit/expectancy metrics"})
+            continue
         expectancy = float(row.get("expectancy_r", 0.0) or 0.0)
         pf = float(row.get("profit_factor", 0.0) or 0.0)
         if trades >= 30 and expectancy > 0 and pf > 1.10:

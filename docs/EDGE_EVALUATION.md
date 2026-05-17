@@ -28,6 +28,8 @@ Use edge evaluation after a `real-data-research` run has already produced backte
 $env:PYTHONPATH="src/python"
 py -m agi_style_forex_bot_mt5.cli --mode edge-evaluation --runs-root data\runs --output-dir data\reports\edge
 
+py -m agi_style_forex_bot_mt5.cli --mode edge-evaluation --runs-root data\runs --run-id 20260517-160651-real-data-research --output-dir data\reports\edge
+
 py -m agi_style_forex_bot_mt5.cli --mode symbol-selection --runs-root data\runs --output-dir data\reports\edge
 
 py -m agi_style_forex_bot_mt5.cli --mode strategy-selection --runs-root data\runs --output-dir data\reports\edge
@@ -48,6 +50,37 @@ The evaluator reads what already exists under the latest run:
 - `reports/strategy_diagnostics/**/*`
 
 Missing optional artifacts are tolerated. Missing or empty `trades.csv` returns `NEEDS_TRADES`.
+
+## Artifact Discovery
+
+The evaluator resolves the latest run by run metadata and last-write time. Use `--run-id` to force an exact run when comparing multiple research runs.
+
+Metric fallback order:
+
+1. `reports/backtests/trades.csv`
+2. nested `reports/backtests/**/trades.csv`
+3. `reports/backtests/summary.json`
+4. `final_summary_compact.json`
+5. `final_summary.json`
+
+If `trades.csv` is missing but `final_summary_compact.json` says `total_trades=213`, edge evaluation keeps `total_trades=213` and `sample_status=USABLE_SAMPLE`.
+
+## Metrics Status
+
+`FULL_EDGE_METRICS` means trade-level PnL exists and the evaluator can calculate win rate, profit factor, expectancy, drawdown, and grouping metrics.
+
+`COUNTS_ONLY` means the run summary has trade counts, but trade-level PnL or key metrics are missing. This is useful evidence that signal frequency is working, but it is not enough to claim edge.
+
+When metrics are counts-only:
+
+- `global_profit_factor=null`
+- `global_expectancy_r=null`
+- `global_winrate=null`
+- `missing_metrics` lists the unavailable metrics
+- the fast decision cannot be `FORWARD_SHADOW_CANDIDATE`
+- the decision becomes `NEEDS_FULL_EDGE_METRICS` for usable samples
+
+To repair `COUNTS_ONLY`, verify that `reports/backtests/trades.csv` exists under the selected run and includes profit or R-multiple columns.
 
 ## Outputs
 
@@ -70,6 +103,7 @@ Reports are written to `data/reports/edge` unless another output directory is pr
 ## Decisions
 
 - `NEEDS_MORE_TRADES`: fewer than 30 closed simulated trades.
+- `NEEDS_FULL_EDGE_METRICS`: enough trades exist, but PnL/expectancy metrics are missing.
 - `CONTINUE_BALANCED_RESEARCH`: sample is useful but not strong enough for forward-shadow candidate status.
 - `TEST_ACTIVE_RESEARCH_ONLY`: try higher signal frequency strictly for research diagnostics.
 - `FORWARD_SHADOW_CANDIDATE`: evidence is good enough to continue paper-only forward-shadow observation.

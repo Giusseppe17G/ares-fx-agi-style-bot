@@ -910,6 +910,10 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
     payload["strategy_input_ready_symbols"] = contract.get("strategy_input_ready_symbols", payload.get("strategy_input_ready_symbols", []))
     if edge:
         payload["edge_decision"] = edge.get("decision", "")
+        payload["edge_metrics_status"] = edge.get("metrics_status", "")
+        payload["edge_metrics_source"] = edge.get("metrics_source", "")
+        payload["edge_decision_reason"] = edge.get("decision_reason", "")
+        payload["missing_edge_metrics"] = edge.get("missing_metrics", [])
         payload["symbols_keep"] = edge.get("symbols_keep", [])
         payload["symbols_reject"] = edge.get("symbols_reject", [])
         payload["strategies_keep"] = edge.get("strategies_keep", [])

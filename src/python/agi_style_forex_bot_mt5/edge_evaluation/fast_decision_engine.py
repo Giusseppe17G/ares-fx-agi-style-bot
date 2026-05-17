@@ -17,6 +17,13 @@ def decide_fast(
     """Return a conservative fast decision for research iteration."""
 
     total = int(global_metrics.get("total_trades", 0) or 0)
+    metrics_status = str(global_metrics.get("metrics_status", "FULL_EDGE_METRICS"))
+    if metrics_status in {"COUNTS_ONLY", "UNKNOWN_METRICS"} and total >= 100:
+        return {
+            "decision": "NEEDS_FULL_EDGE_METRICS",
+            "reason": "Trade count is usable, but profit/expectancy metrics are missing or unreadable.",
+            "execution_attempted": False,
+        }
     pf = float(global_metrics.get("profit_factor", 0.0) or 0.0)
     expectancy = float(global_metrics.get("expectancy_r", 0.0) or 0.0)
     if total < 30:

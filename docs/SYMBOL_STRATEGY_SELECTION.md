@@ -27,6 +27,8 @@ Initial thresholds:
 
 If metrics are missing, the selector cannot return `KEEP`.
 
+If only trade counts are available, symbols are marked `WATCHLIST_COUNTS_ONLY`. That means the symbol generated enough simulated opportunities, but there is not enough PnL evidence to keep or reject it.
+
 ## Strategy Decisions
 
 Strategies are classified as:
@@ -48,6 +50,8 @@ Strategies currently expected by the report:
 - `volatility_expansion`
 
 Unknown strategy names are kept in the report as `UNKNOWN` rather than dropped.
+
+If only counts are available, strategies are marked `WATCHLIST_COUNTS_ONLY` instead of being disabled. Disabling a strategy requires actual performance evidence, not just missing metrics.
 
 ## Session And Regime Decisions
 
