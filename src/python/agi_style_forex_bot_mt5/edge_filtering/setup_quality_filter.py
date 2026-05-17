@@ -14,11 +14,15 @@ def analyze_setup_quality(edge_summary: dict[str, Any], blockers: pd.DataFrame) 
     minimum_setup_score = 62
     minimum_component_score = 50
     disabled = ["D"]
+    active = False
     if "ENSEMBLE_SCORE_LOW" in blocker_names:
         minimum_setup_score = 60
+        active = True
     if "SPREAD_BLOCK" in blocker_names or "COST_BLOCK" in blocker_names:
         minimum_component_score = 55
+        active = True
     return {
+        "active": active,
         "minimum_setup_score_filtered": minimum_setup_score,
         "minimum_component_score_filtered": minimum_component_score,
         "disabled_setup_quality": disabled,

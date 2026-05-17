@@ -93,6 +93,8 @@ py -m agi_style_forex_bot_mt5.cli --mode edge-filtering --runs-root data\runs --
 
 This creates `BALANCED_FILTERED`, which keeps the safer BALANCED frequency while disabling weak symbols, strategies, sessions, and regimes. It does not enable demo/live trading.
 
+If edge filtering returns `NO_ACTIONABLE_FILTER`, do not use `BALANCED_FILTERED`; compare `BALANCED` against `ACTIVE` in research-only mode instead.
+
 ## Outputs
 
 Reports are written to `data/reports/edge` unless another output directory is provided:

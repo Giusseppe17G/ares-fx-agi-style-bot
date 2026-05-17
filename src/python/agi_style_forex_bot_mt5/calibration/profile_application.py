@@ -109,10 +109,14 @@ def write_profile_comparison(output_dir: str | Path, metrics_by_profile: Mapping
                 "profit_factor": observed.get("profit_factor", 0.0),
                 "expectancy_r": float(observed.get("expectancy_r", 0.0) or 0.0),
                 "max_drawdown_pct": float(observed.get("max_drawdown_pct", 0.0) or 0.0),
+                "sample_status": observed.get("sample_status", profile_trade_frequency_status(signals_generated=int(observed.get("signals_generated", 0) or 0), trades_generated=int(observed.get("trades_generated", 0) or 0))),
+                "metrics_status": observed.get("metrics_status", "FULL_EDGE_METRICS" if int(observed.get("trades_generated", 0) or 0) > 0 else "NO_TRADES"),
                 "benchmark_classification": observed.get("benchmark_classification", ""),
                 "validation_decision": observed.get("validation_decision", ""),
                 "not_for_demo_live": bool(profile.not_for_demo_live),
+                "allowed_for_shadow": profile_allowed_for_shadow(name),
                 "profile_allowed_for_shadow": profile_allowed_for_shadow(name),
+                "recommendation": observed.get("recommendation", _profile_recommendation(name, profile)),
                 "execution_attempted": False,
             }
         )
@@ -158,17 +162,23 @@ def run_profile_comparison(
                 "profit_factor": summary.get("profit_factor", 0.0),
                 "expectancy_r": summary.get("expectancy_r", 0.0),
                 "max_drawdown_pct": summary.get("max_drawdown_pct", 0.0),
+                "sample_status": summary.get("sample_status", profile_trade_frequency_status(signals_generated=int(summary.get("signals_generated", 0) or 0), trades_generated=int(summary.get("trades_generated", summary.get("total_trades", 0)) or 0))),
+                "metrics_status": summary.get("metrics_status", "FULL_EDGE_METRICS"),
                 "benchmark_classification": "",
                 "validation_decision": summary.get("classification", ""),
                 "average_setup_score": 0.0,
                 "top_blockers": summary.get("top_blocking_reasons", []),
+                "recommendation": _profile_recommendation(profile.name, profile),
             }
         except Exception as exc:
             metrics[profile.name] = {
                 "signals_generated": 0,
                 "trades_generated": 0,
+                "sample_status": "NO_TRADES",
+                "metrics_status": "NO_TRADES",
                 "validation_decision": "NEEDS_MORE_DATA",
                 "top_blockers": [{"blocking_reason": str(exc), "count": 1}],
+                "recommendation": _profile_recommendation(profile.name, profile),
             }
     comparison_paths = write_profile_comparison(output_dir, metrics)
     reports_created.extend(comparison_paths)
@@ -295,6 +305,16 @@ def _best_profile(metrics: Mapping[str, Mapping[str, Any]]) -> str:
             int(metrics[name].get("signals_generated", 0) or 0),
         ),
     )
+
+
+def _profile_recommendation(name: str, profile: SignalProfileSettings) -> str:
+    if profile.name == "ACTIVE":
+        return "research-only frequency experiment; not for demo/live or promotion"
+    if profile.name == "BALANCED_FILTERED":
+        return "use only when edge-filtering produced APPLY_FILTERS=true"
+    if profile.name == "BALANCED":
+        return "baseline calibrated research profile"
+    return "conservative baseline"
 
 
 def _jsonable(value: Any) -> Any:

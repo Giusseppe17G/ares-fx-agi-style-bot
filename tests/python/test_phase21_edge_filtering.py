@@ -17,11 +17,72 @@ def test_edge_filtering_reads_edge_summary_and_generates_profile(tmp_path: Path)
     summary = build_filtered_profile(runs_root=tmp_path / "runs", edge_dir=edge_dir, output_dir=output)
 
     assert summary["filtered_profile"] == "BALANCED_FILTERED"
+    assert summary["filtering_decision"] == "ACTIONABLE_FILTER_CREATED"
     assert summary["symbols_keep"] == ["EURUSD"]
     assert "GBPUSD" in summary["symbols_disable"]
     assert (output / "balanced_filtered.ini").exists()
     assert (output / "balanced_filtered.json").exists()
     assert summary["execution_attempted"] is False
+
+
+def test_edge_filtering_produces_no_actionable_filter_when_all_watchlist(tmp_path: Path) -> None:
+    edge = tmp_path / "edge"
+    edge.mkdir()
+    (edge / "edge_summary.json").write_text(
+        json.dumps({"run_id": "edge-run", "decision": "CONTINUE_BALANCED_RESEARCH", "metrics_status": "FULL_EDGE_METRICS", "total_trades": 120}),
+        encoding="utf-8",
+    )
+    pd.DataFrame([{"symbol": "EURUSD", "total_trades": 50, "profit_factor": 1.02, "expectancy_r": 0.0}]).to_csv(edge / "by_symbol.csv", index=False)
+    pd.DataFrame([{"strategy_name": "trend_pullback", "total_trades": 50, "profit_factor": 1.02, "expectancy_r": 0.0}]).to_csv(edge / "by_strategy.csv", index=False)
+    pd.DataFrame(columns=["session", "total_trades"]).to_csv(edge / "by_session.csv", index=False)
+    pd.DataFrame(columns=["regime", "total_trades"]).to_csv(edge / "by_regime.csv", index=False)
+    pd.DataFrame(columns=["blocking_reason", "count"]).to_csv(edge / "blockers.csv", index=False)
+
+    summary = build_filtered_profile(runs_root=tmp_path / "runs", edge_dir=edge, output_dir=tmp_path / "filtered")
+
+    assert summary["filtering_decision"] == "NO_ACTIONABLE_FILTER"
+    assert summary["apply_filters"] is False
+    assert "APPLY_FILTERS=false" in (tmp_path / "filtered" / "balanced_filtered.ini").read_text(encoding="utf-8")
+
+
+def test_edge_filtering_recommends_active_research_for_test_active_with_no_filters(tmp_path: Path) -> None:
+    edge = tmp_path / "edge"
+    edge.mkdir()
+    (edge / "edge_summary.json").write_text(
+        json.dumps({"run_id": "edge-run", "decision": "TEST_ACTIVE_RESEARCH_ONLY", "metrics_status": "FULL_EDGE_METRICS", "total_trades": 213}),
+        encoding="utf-8",
+    )
+    pd.DataFrame([{"symbol": "EURUSD", "total_trades": 79, "profit_factor": 1.0, "expectancy_r": 0.0}]).to_csv(edge / "by_symbol.csv", index=False)
+    pd.DataFrame([{"strategy_name": "trend_pullback", "total_trades": 79, "profit_factor": 1.0, "expectancy_r": 0.0}]).to_csv(edge / "by_strategy.csv", index=False)
+    pd.DataFrame(columns=["session", "total_trades"]).to_csv(edge / "by_session.csv", index=False)
+    pd.DataFrame(columns=["regime", "total_trades"]).to_csv(edge / "by_regime.csv", index=False)
+    pd.DataFrame(columns=["blocking_reason", "count"]).to_csv(edge / "blockers.csv", index=False)
+
+    summary = build_filtered_profile(runs_root=tmp_path / "runs", edge_dir=edge, output_dir=tmp_path / "filtered")
+
+    assert summary["filtering_decision"] == "ACTIVE_RESEARCH_EXPERIMENT_RECOMMENDED"
+    assert (tmp_path / "filtered" / "research_active_experiment.ini").exists()
+
+
+def test_edge_filtering_falls_back_to_summary_counts(tmp_path: Path) -> None:
+    edge = tmp_path / "edge"
+    edge.mkdir()
+    (edge / "edge_summary.json").write_text(
+        json.dumps({"run_id": "edge-run", "decision": "CONTINUE_BALANCED_RESEARCH", "metrics_status": "FULL_EDGE_METRICS", "trades_by_symbol": {"EURUSD": 79}, "trades_by_strategy": {"trend_pullback": 79}}),
+        encoding="utf-8",
+    )
+    pd.DataFrame(columns=["symbol", "total_trades"]).to_csv(edge / "by_symbol.csv", index=False)
+    pd.DataFrame(columns=["strategy_name", "total_trades"]).to_csv(edge / "by_strategy.csv", index=False)
+    pd.DataFrame(columns=["session", "total_trades"]).to_csv(edge / "by_session.csv", index=False)
+    pd.DataFrame(columns=["regime", "total_trades"]).to_csv(edge / "by_regime.csv", index=False)
+    pd.DataFrame(columns=["blocking_reason", "count"]).to_csv(edge / "blockers.csv", index=False)
+
+    summary = build_filtered_profile(runs_root=tmp_path / "runs", edge_dir=edge, output_dir=tmp_path / "filtered")
+    symbols = pd.read_csv(tmp_path / "filtered" / "by_symbol_filter.csv")
+
+    assert symbols["symbol"].tolist() == ["EURUSD"]
+    assert symbols["filter_decision"].iloc[0] == "WATCHLIST_COUNTS_ONLY"
+    assert summary["filtering_decision"] in {"NO_ACTIONABLE_FILTER", "ACTIVE_RESEARCH_EXPERIMENT_RECOMMENDED"}
 
 
 def test_symbol_filter_keep_and_disable() -> None:
@@ -68,9 +129,22 @@ def test_cli_accepts_edge_filtering_modes(tmp_path: Path, capsys) -> None:
     assert payload["mode"] == "build-filtered-profile"
 
 
+def test_profile_comparison_run_includes_active_research_only(tmp_path: Path, capsys) -> None:
+    output = tmp_path / "profiles"
+
+    assert cli.main(["--mode", "profile-comparison-run", "--symbols", "EURUSD", "--data-dir", str(tmp_path / "historical"), "--output-dir", str(output)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    comparison = json.loads((output / "profile_comparison.json").read_text(encoding="utf-8"))
+    active = next(row for row in comparison["profiles"] if row["profile"] == "ACTIVE")
+
+    assert "ACTIVE" in payload["profiles_compared"]
+    assert active["not_for_demo_live"] is True
+    assert active["recommendation"].startswith("research-only")
+
+
 def test_real_data_research_accepts_balanced_filtered_with_profile_config(tmp_path: Path) -> None:
     profile = tmp_path / "balanced_filtered.ini"
-    profile.write_text("DEMO_ONLY=True\nLIVE_TRADING_APPROVED=False\nSIGNAL_PROFILE=BALANCED_FILTERED\n", encoding="utf-8")
+    profile.write_text("DEMO_ONLY=True\nLIVE_TRADING_APPROVED=False\nSIGNAL_PROFILE=BALANCED_FILTERED\nAPPLY_FILTERS=true\nFILTERING_DECISION=ACTIONABLE_FILTER_CREATED\n", encoding="utf-8")
     config = RealDataResearchConfig(
         symbols=("EURUSD",),
         output_root=str(tmp_path / "runs"),
@@ -97,6 +171,27 @@ def test_real_data_research_accepts_balanced_filtered_with_profile_config(tmp_pa
     assert summary["execution_attempted"] is False
 
 
+def test_balanced_filtered_apply_false_is_not_normal_profile(tmp_path: Path) -> None:
+    profile = tmp_path / "balanced_filtered.ini"
+    profile.write_text("SIGNAL_PROFILE=BALANCED_FILTERED\nAPPLY_FILTERS=false\nFILTERING_DECISION=NO_ACTIONABLE_FILTER\n", encoding="utf-8")
+    config = RealDataResearchConfig(symbols=("EURUSD",), output_root=str(tmp_path / "runs"), run_id="filtered-run", signal_profile="BALANCED_FILTERED", profile_config=str(profile), quick=True)
+
+    summary = run_real_data_research(
+        config,
+        stage_overrides={
+            "MT5_DIAGNOSE": lambda: {"classification": "OK", "mt5_connected": True},
+            "EXPORT_HISTORY": lambda: {"classification": "OK"},
+            "HISTORICAL_DATA_AUDIT": lambda: {"classification": "OK"},
+            "DATA_CONTRACT_AUDIT": lambda: {"classification": "OK"},
+            "STRATEGY_DIAGNOSE": lambda: {"classification": "OK"},
+            "BACKTEST": lambda: {"classification": "WARNING_NO_TRADES", "total_trades": 0, "signals_generated": 0, "trades_generated": 0},
+        },
+    )
+
+    assert summary["filters_applied"]["enabled"] is False
+    assert summary["filters_applied"]["status"] == "FILTERED_PROFILE_NOT_ACTIONABLE"
+
+
 def test_latest_run_summary_includes_filtered_profile_path(tmp_path: Path) -> None:
     runs = tmp_path / "runs"
     run = runs / "20260517-160651-real-data-research"
@@ -108,6 +203,7 @@ def test_latest_run_summary_includes_filtered_profile_path(tmp_path: Path) -> No
     summary = load_latest_run_summary(runs)
 
     assert summary["filtered_profile_available"] is True
+    assert summary["filtering_decision"] == "ACTIONABLE_FILTER_CREATED"
     assert summary["filtered_profile_path"].endswith("balanced_filtered.ini")
     assert summary["execution_attempted"] is False
 

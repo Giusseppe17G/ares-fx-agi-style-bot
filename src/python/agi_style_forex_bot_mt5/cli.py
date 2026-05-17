@@ -189,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--edge-dir", type=Path, default=Path("data/reports/edge"), help="Edge evaluation report directory.")
     parser.add_argument("--base-profile", default="BALANCED", help="Base profile for filtered edge profile generation.")
     parser.add_argument("--profile-config", type=Path, default=None, help="Profile overlay INI for BALANCED_FILTERED research runs.")
+    parser.add_argument("--require-actionable-filter", default="false", help="Require edge-filtering to create an actionable BALANCED_FILTERED overlay.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
     parser.add_argument("--reports-root", type=Path, default=Path("data/reports"), help="Reports root for validation-report.")
     parser.add_argument("--trades", type=Path, default=None, help="Trades CSV for monte-carlo.")
@@ -370,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
             from .calibration.profile_application import run_profile_comparison
 
             summary = run_profile_comparison(
-                profiles_value=args.compare_profiles or args.profiles or "CONSERVATIVE,BALANCED,ACTIVE",
+                profiles_value=args.compare_profiles or args.profiles or "BALANCED,BALANCED_FILTERED,ACTIVE",
                 data_dir=args.data_dir,
                 symbols=selected_symbols,
                 output_dir=args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/profile_runs"),
@@ -399,13 +400,13 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.mode == "edge-filtering":
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/edge_filtering")
-            summary = run_edge_filtering(runs_root=args.runs_root, edge_dir=args.edge_dir, output_dir=output_dir, base_profile=args.base_profile)
+            summary = run_edge_filtering(runs_root=args.runs_root, edge_dir=args.edge_dir, output_dir=output_dir, base_profile=args.base_profile, require_actionable_filter=_bool_arg(args.require_actionable_filter))
             print(_json_dumps(summary))
             return 0
 
         if args.mode == "build-filtered-profile":
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/edge_filtering")
-            summary = run_filtered_profile_builder(runs_root=args.runs_root, edge_dir=args.edge_dir, output_dir=output_dir, base_profile=args.base_profile)
+            summary = run_filtered_profile_builder(runs_root=args.runs_root, edge_dir=args.edge_dir, output_dir=output_dir, base_profile=args.base_profile, require_actionable_filter=_bool_arg(args.require_actionable_filter))
             print(_json_dumps(summary))
             return 0
 
@@ -800,6 +801,10 @@ def _latest_run_dir(runs_root: Path) -> Path | None:
 
 def _contains_csv(path: Path) -> bool:
     return path.exists() and any(candidate.is_file() for candidate in path.rglob("*.csv"))
+
+
+def _bool_arg(value: object) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _json_dumps(payload: object) -> str:

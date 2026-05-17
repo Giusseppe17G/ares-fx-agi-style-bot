@@ -21,6 +21,7 @@ def build_filtered_profile(
     edge_dir: str | Path = "data/reports/edge",
     output_dir: str | Path = "data/reports/edge_filtering",
     base_profile: str = "BALANCED",
+    require_actionable_filter: bool = False,
 ) -> dict[str, Any]:
     """Read edge artifacts and create BALANCED_FILTERED profile files."""
 
@@ -29,8 +30,10 @@ def build_filtered_profile(
     output.mkdir(parents=True, exist_ok=True)
     edge_summary = _read_json(edge / "edge_summary.json")
     latest_summary = _latest_summary(Path(runs_root))
-    by_symbol = filter_symbols(_read_csv(edge / "by_symbol.csv"))
-    by_strategy = filter_strategies(_read_csv(edge / "by_strategy.csv"))
+    symbol_source = _fallback_symbol_frame(_read_csv(edge / "by_symbol.csv"), edge_summary, latest_summary)
+    strategy_source = _fallback_strategy_frame(_read_csv(edge / "by_strategy.csv"), edge_summary, latest_summary)
+    by_symbol = filter_symbols(symbol_source)
+    by_strategy = filter_strategies(strategy_source)
     blockers = _read_csv(edge / "blockers.csv")
     by_session = filter_sessions(_read_csv(edge / "by_session.csv"), blockers)
     by_regime = filter_regimes(_read_csv(edge / "by_regime.csv"), blockers)
@@ -46,8 +49,24 @@ def build_filtered_profile(
     allowed_regimes = _names(by_regime, "regime", "ALLOW")
     blocked_regimes = _names(by_regime, "regime", "BLOCK")
     watchlist_regimes = _names(by_regime, "regime", "WATCHLIST")
+    filtering_decision, filter_reason, apply_filters = _filtering_decision(
+        edge_summary=edge_summary,
+        by_symbol=by_symbol,
+        by_strategy=by_strategy,
+        blocked_sessions=blocked_sessions,
+        blocked_regimes=blocked_regimes,
+        setup_quality=setup_quality,
+    )
+    if require_actionable_filter and filtering_decision != "ACTIONABLE_FILTER_CREATED":
+        apply_filters = False
+        filter_reason = f"{filter_reason}; require_actionable_filter=true"
     summary = {
         "mode": "edge-filtering",
+        "classification": filtering_decision,
+        "filtering_decision": filtering_decision,
+        "filter_reason": filter_reason,
+        "actionable_filter_created": filtering_decision == "ACTIONABLE_FILTER_CREATED",
+        "apply_filters": apply_filters,
         "filtered_profile": "BALANCED_FILTERED",
         "base_profile": base_profile.upper(),
         "run_id": edge_summary.get("run_id") or latest_summary.get("run_id", ""),
@@ -72,6 +91,37 @@ def build_filtered_profile(
     summary["reports_created"] = paths
     (output / "filter_summary.json").write_text(json.dumps(_jsonable(summary), indent=2, sort_keys=True), encoding="utf-8")
     return _jsonable(summary)
+
+
+def _filtering_decision(
+    *,
+    edge_summary: Mapping[str, Any],
+    by_symbol: pd.DataFrame,
+    by_strategy: pd.DataFrame,
+    blocked_sessions: list[str],
+    blocked_regimes: list[str],
+    setup_quality: Mapping[str, Any],
+) -> tuple[str, str, bool]:
+    metrics_status = str(edge_summary.get("metrics_status", ""))
+    edge_decision = str(edge_summary.get("decision", ""))
+    if metrics_status and metrics_status != "FULL_EDGE_METRICS":
+        return "NEEDS_MORE_EDGE_METRICS", "edge metrics are incomplete; cannot build actionable filter", False
+    symbols_disable = _names(by_symbol, "symbol", "DISABLE")
+    strategies_disable = _names(by_strategy, "strategy_name", "DISABLE_IN_BALANCED")
+    setup_changed = bool(setup_quality.get("active", False))
+    actionable = bool(symbols_disable or strategies_disable or blocked_sessions or blocked_regimes or setup_changed)
+    if actionable:
+        return "ACTIONABLE_FILTER_CREATED", "one or more symbols, strategies, sessions, regimes, or setup-quality filters changed", True
+    if edge_decision == "TEST_ACTIVE_RESEARCH_ONLY":
+        return "ACTIVE_RESEARCH_EXPERIMENT_RECOMMENDED", "edge is weak or mixed and no BALANCED subset was actionable; test ACTIVE only in research", False
+    global_pf = _maybe_float(edge_summary.get("global_profit_factor"))
+    global_expectancy = _maybe_float(edge_summary.get("global_expectancy_r"))
+    has_positive_subset = _has_decision(by_symbol, "KEEP") or _has_decision(by_strategy, "KEEP")
+    if global_pf is not None and global_expectancy is not None and global_pf < 0.95 and global_expectancy < 0 and not has_positive_subset:
+        return "REJECT_BALANCED_PROFILE", "global edge is negative and no positive subset was found", False
+    if _all_watchlist(by_symbol) and _all_watchlist(by_strategy):
+        return "NO_ACTIONABLE_FILTER", "all symbols and strategies are watchlist; no safe filter can be applied", False
+    return "NO_ACTIONABLE_FILTER", "no actionable filter was created", False
 
 
 def _write_outputs(
@@ -112,6 +162,8 @@ def _write_outputs(
         "blocked_regimes": summary.get("blocked_regimes", []),
         "setup_quality_filter": summary.get("setup_quality_filter", {}),
         "not_for_demo_live": True,
+        "filtering_decision": summary.get("filtering_decision", ""),
+        "apply_filters": bool(summary.get("apply_filters", False)),
         "execution_attempted": False,
     }
     (output / "balanced_filtered.json").write_text(json.dumps(_jsonable(profile_json), indent=2, sort_keys=True), encoding="utf-8")
@@ -128,14 +180,27 @@ def _write_outputs(
         "execution_attempted": False,
     }
     (output / "filter_diff.json").write_text(json.dumps(_jsonable(diff), indent=2, sort_keys=True), encoding="utf-8")
+    active = {
+        "profile": "ACTIVE",
+        "source_decision": summary.get("filtering_decision", ""),
+        "not_for_demo_live": True,
+        "research_only": True,
+        "allow_forward_shadow_promotion": False,
+        "suggested_command": "py -m agi_style_forex_bot_mt5.cli --mode profile-comparison-run --compare-profiles BALANCED,ACTIVE",
+        "execution_attempted": False,
+    }
+    (output / "research_active_experiment.ini").write_text(_research_active_ini(active), encoding="utf-8")
     (output / "report.html").write_text(_html(summary), encoding="utf-8")
-    return [str(path) for path in paths]
+    return [str(path) for path in [*paths, output / "research_active_experiment.ini"]]
 
 
 def _ini_text(profile: Mapping[str, Any]) -> str:
     lines = [
         "; BALANCED_FILTERED is for research/backtest/forward-shadow paper only",
         "; NOT FOR DEMO/LIVE EXECUTION",
+        f"FILTERING_DECISION={profile.get('filtering_decision', '')}",
+        f"APPLY_FILTERS={str(bool(profile.get('apply_filters', False))).lower()}",
+        "NOT_FOR_DEMO_LIVE=true",
         "DEMO_ONLY=True",
         "LIVE_TRADING_APPROVED=False",
         "SIGNAL_PROFILE=BALANCED_FILTERED",
@@ -152,6 +217,57 @@ def _ini_text(profile: Mapping[str, Any]) -> str:
         "EXECUTION_ATTEMPTED=False",
     ]
     return "\n".join(lines) + "\n"
+
+
+def _research_active_ini(payload: Mapping[str, Any]) -> str:
+    return "\n".join(
+        [
+            "; ACTIVE research experiment only",
+            "; NOT FOR DEMO/LIVE EXECUTION",
+            "SIGNAL_PROFILE=ACTIVE",
+            "NOT_FOR_DEMO_LIVE=true",
+            "RESEARCH_ONLY=true",
+            "ALLOW_FORWARD_SHADOW_PROMOTION=false",
+            f"FILTERING_DECISION={payload.get('source_decision', '')}",
+            "EXECUTION_ATTEMPTED=False",
+        ]
+    ) + "\n"
+
+
+def _fallback_symbol_frame(frame: pd.DataFrame, edge_summary: Mapping[str, Any], latest_summary: Mapping[str, Any]) -> pd.DataFrame:
+    if not frame.empty:
+        return frame
+    raw = edge_summary.get("trades_by_symbol") or latest_summary.get("trades_by_symbol")
+    return _counts_frame(raw, "symbol")
+
+
+def _fallback_strategy_frame(frame: pd.DataFrame, edge_summary: Mapping[str, Any], latest_summary: Mapping[str, Any]) -> pd.DataFrame:
+    if not frame.empty:
+        return frame
+    raw = edge_summary.get("trades_by_strategy") or latest_summary.get("trades_by_strategy")
+    return _counts_frame(raw, "strategy_name")
+
+
+def _counts_frame(raw: Any, column: str) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    if isinstance(raw, Mapping):
+        for name, count in raw.items():
+            rows.append({column: str(name), "total_trades": _count_value(count)})
+    elif isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, Mapping):
+                name = item.get(column) or item.get("symbol") or item.get("strategy_name") or item.get("name", "UNKNOWN")
+                rows.append({column: str(name), "total_trades": _count_value(item)})
+    return pd.DataFrame(rows)
+
+
+def _count_value(value: Any) -> int:
+    if isinstance(value, Mapping):
+        value = value.get("total_trades", value.get("trades", value.get("count", 0)))
+    try:
+        return int(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _read_csv(path: Path) -> pd.DataFrame:
@@ -186,6 +302,27 @@ def _names(frame: pd.DataFrame, column: str, decision: str) -> list[str]:
     if frame.empty or column not in frame.columns or "filter_decision" not in frame.columns:
         return []
     return [str(value) for value in frame.loc[frame["filter_decision"] == decision, column].dropna().tolist()]
+
+
+def _has_decision(frame: pd.DataFrame, decision: str) -> bool:
+    return not frame.empty and "filter_decision" in frame.columns and bool((frame["filter_decision"] == decision).any())
+
+
+def _all_watchlist(frame: pd.DataFrame) -> bool:
+    if frame.empty or "filter_decision" not in frame.columns:
+        return False
+    return bool(frame["filter_decision"].astype(str).str.contains("WATCHLIST|RESEARCH_ONLY|INSUFFICIENT_METRICS").all())
+
+
+def _maybe_float(value: object) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        if pd.isna(value):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _html(summary: Mapping[str, Any]) -> str:

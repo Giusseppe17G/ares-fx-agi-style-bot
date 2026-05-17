@@ -50,7 +50,29 @@ The builder reads:
 - `balanced_filtered.ini`
 - `balanced_filtered.json`
 - `filter_diff.json`
+- `research_active_experiment.ini`
 - `report.html`
+
+## Filtering Decisions
+
+Phase 21B prevents an empty filtered profile from looking useful.
+
+Possible `filtering_decision` values:
+
+- `ACTIONABLE_FILTER_CREATED`: at least one symbol, strategy, session, regime, or setup-quality rule changed.
+- `NO_ACTIONABLE_FILTER`: all evidence is watchlist or inconclusive; do not apply `BALANCED_FILTERED`.
+- `NEEDS_MORE_EDGE_METRICS`: trade counts exist but PnL/expectancy metrics are missing.
+- `ACTIVE_RESEARCH_EXPERIMENT_RECOMMENDED`: BALANCED is mixed and no clean filtered subset exists; test ACTIVE only in research.
+- `REJECT_BALANCED_PROFILE`: global BALANCED edge is negative and no positive subset was found.
+
+If `filtering_decision != ACTIONABLE_FILTER_CREATED`, `balanced_filtered.ini` is generated with:
+
+```ini
+APPLY_FILTERS=false
+NOT_FOR_DEMO_LIVE=true
+```
+
+`real-data-research --signal-profile BALANCED_FILTERED` records `FILTERED_PROFILE_NOT_ACTIONABLE` when the supplied profile config is not actionable.
 
 ## Rules
 
@@ -82,3 +104,5 @@ Setup quality:
 ## Interpretation
 
 `BALANCED_FILTERED` should reduce noise and retest the promising parts of `BALANCED`. Compare the next run against the original `BALANCED` run before considering any paper-only forward-shadow expansion.
+
+When `ACTIVE_RESEARCH_EXPERIMENT_RECOMMENDED`, use `research_active_experiment.ini` only with quick research or profile comparison. ACTIVE remains `NOT_FOR_DEMO_LIVE=true` and cannot promote to forward-shadow or demo/live.

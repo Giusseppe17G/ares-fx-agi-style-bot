@@ -305,3 +305,10 @@ py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBP
 ```
 
 The run summary records `filters_applied`. `BALANCED_FILTERED` is still research/backtest/forward-shadow paper only.
+
+If the profile config contains `APPLY_FILTERS=false`, the run records `FILTERED_PROFILE_NOT_ACTIONABLE`. That means the filter report did not find a real subset to apply; use `profile-comparison-run` instead:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode profile-comparison-run --symbols EURUSD,GBPUSD,USDJPY --data-dir data\runs\<RUN_ID>\historical --output-dir data\reports\profile_runs --compare-profiles BALANCED,ACTIVE
+```

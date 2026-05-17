@@ -21,7 +21,7 @@ def filter_strategies(by_strategy: pd.DataFrame) -> pd.DataFrame:
         net_profit = _maybe_float(row.get("net_profit"))
         drawdown = _maybe_float(row.get("max_drawdown_pct"))
         if expectancy is None or pf is None:
-            decision = "WATCHLIST"
+            decision = "INSUFFICIENT_METRICS" if trades <= 0 else "WATCHLIST_COUNTS_ONLY"
             reason = "missing profit factor or expectancy"
         elif trades >= 30 and pf >= 1.10 and expectancy > 0 and (winrate is None or winrate >= 35):
             decision = "KEEP"

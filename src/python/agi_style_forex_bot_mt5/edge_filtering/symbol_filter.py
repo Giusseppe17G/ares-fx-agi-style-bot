@@ -8,7 +8,7 @@ import pandas as pd
 
 
 def filter_symbols(by_symbol: pd.DataFrame) -> pd.DataFrame:
-    """Classify symbols as KEEP, WATCHLIST, or DISABLE."""
+    """Classify every available symbol for filtered profile decisions."""
 
     rows: list[dict[str, Any]] = []
     if by_symbol.empty:
@@ -21,6 +21,7 @@ def filter_symbols(by_symbol: pd.DataFrame) -> pd.DataFrame:
         decision = "WATCHLIST"
         reasons: list[str] = []
         if expectancy is None or pf is None:
+            decision = "INSUFFICIENT_METRICS" if trades <= 0 else "WATCHLIST_COUNTS_ONLY"
             reasons.append("missing profit factor or expectancy")
         elif trades >= 30 and pf >= 1.10 and expectancy > 0:
             decision = "KEEP"
@@ -34,8 +35,8 @@ def filter_symbols(by_symbol: pd.DataFrame) -> pd.DataFrame:
         if drawdown is not None and drawdown > 12.0:
             decision = "DISABLE"
             reasons.append("drawdown exceeds filter threshold")
-        if trades < 20 and decision != "DISABLE":
-            decision = "WATCHLIST"
+        if trades < 20 and decision not in {"DISABLE", "INSUFFICIENT_METRICS"}:
+            decision = "RESEARCH_ONLY"
             reasons.append("insufficient symbol sample")
         rows.append({**row.to_dict(), "symbol": row.get("symbol", ""), "filter_decision": decision, "filter_reason": "; ".join(reasons)})
     return pd.DataFrame(rows)

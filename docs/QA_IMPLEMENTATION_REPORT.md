@@ -963,3 +963,24 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## Phase 21B Edge Filtering Actionability Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 286 tests collected.
+
+Integrated in Phase 21B:
+
+- Added explicit filtering decisions: `ACTIONABLE_FILTER_CREATED`, `NO_ACTIONABLE_FILTER`, `NEEDS_MORE_EDGE_METRICS`, `ACTIVE_RESEARCH_EXPERIMENT_RECOMMENDED`, and `REJECT_BALANCED_PROFILE`.
+- Empty filtered profiles now write `APPLY_FILTERS=false` instead of pretending to be usable.
+- Added `research_active_experiment.ini` for ACTIVE research-only experiments.
+- Symbol and strategy filters classify all available rows, including count-only and insufficient-metric cases.
+- `real-data-research` marks non-actionable filtered configs as `FILTERED_PROFILE_NOT_ACTIONABLE`.
+- Profile comparison now includes BALANCED, BALANCED_FILTERED, and ACTIVE by default.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

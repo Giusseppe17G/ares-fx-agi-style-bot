@@ -14,10 +14,11 @@ def run_edge_filtering(
     edge_dir: str | Path = "data/reports/edge",
     output_dir: str | Path = "data/reports/edge_filtering",
     base_profile: str = "BALANCED",
+    require_actionable_filter: bool = False,
 ) -> dict[str, Any]:
     """Run edge filtering and write BALANCED_FILTERED artifacts."""
 
-    return build_filtered_profile(runs_root=runs_root, edge_dir=edge_dir, output_dir=output_dir, base_profile=base_profile)
+    return build_filtered_profile(runs_root=runs_root, edge_dir=edge_dir, output_dir=output_dir, base_profile=base_profile, require_actionable_filter=require_actionable_filter)
 
 
 def run_filtered_profile_builder(
@@ -26,8 +27,9 @@ def run_filtered_profile_builder(
     edge_dir: str | Path = "data/reports/edge",
     output_dir: str | Path = "data/reports/edge_filtering",
     base_profile: str = "BALANCED",
+    require_actionable_filter: bool = False,
 ) -> dict[str, Any]:
     """Alias for explicit build-filtered-profile CLI mode."""
 
-    summary = build_filtered_profile(runs_root=runs_root, edge_dir=edge_dir, output_dir=output_dir, base_profile=base_profile)
+    summary = build_filtered_profile(runs_root=runs_root, edge_dir=edge_dir, output_dir=output_dir, base_profile=base_profile, require_actionable_filter=require_actionable_filter)
     return {**summary, "mode": "build-filtered-profile"}

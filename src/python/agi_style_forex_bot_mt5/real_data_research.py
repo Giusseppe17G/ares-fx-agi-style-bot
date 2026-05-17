@@ -749,11 +749,17 @@ class RealDataResearchRunner:
         if self.signal_profile.name != "BALANCED_FILTERED":
             return {"profile": self.signal_profile.name, "enabled": False}
         path = Path(self.config.profile_config) if self.config.profile_config else Path("data/reports/edge_filtering/balanced_filtered.ini")
+        profile_values = _read_simple_ini(path)
+        apply_filters = str(profile_values.get("APPLY_FILTERS", "false")).strip().lower() == "true"
+        filtering_decision = str(profile_values.get("FILTERING_DECISION", ""))
         return {
             "profile": "BALANCED_FILTERED",
-            "enabled": True,
+            "enabled": apply_filters,
             "profile_config": str(path),
             "profile_config_exists": path.exists(),
+            "apply_filters": apply_filters,
+            "filtering_decision": filtering_decision,
+            "status": "FILTERED_PROFILE_APPLIED" if apply_filters else "FILTERED_PROFILE_NOT_ACTIONABLE",
             "research_only": True,
             "execution_attempted": False,
         }
@@ -946,8 +952,15 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
     if filtered:
         run_profile_path = latest / "reports" / "edge_filtering" / "balanced_filtered.ini"
         profile_path = run_profile_path if run_profile_path.exists() else Path("data/reports/edge_filtering/balanced_filtered.ini")
+        apply_filters = bool(filtered.get("apply_filters", False))
+        decision = str(filtered.get("filtering_decision", ""))
         payload["filtered_profile_available"] = bool(profile_path.exists() or filtered.get("reports_created"))
         payload["filtered_profile_path"] = str(profile_path)
+        payload["filtering_decision"] = decision
+        payload["actionable_filter_created"] = bool(filtered.get("actionable_filter_created", False))
+        payload["filter_reason"] = filtered.get("filter_reason", "")
+        payload["research_active_experiment_path"] = str(profile_path.parent / "research_active_experiment.ini")
+        payload["balanced_filtered_apply_filters"] = apply_filters
         payload["symbols_keep"] = filtered.get("symbols_keep", payload.get("symbols_keep", []))
         payload["symbols_disable"] = filtered.get("symbols_disable", [])
         payload["strategies_keep"] = filtered.get("strategies_keep", payload.get("strategies_keep", []))
@@ -958,6 +971,10 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
             f"--symbols {symbols} --bars 20000 --output-root data\\runs --signal-profile BALANCED_FILTERED "
             "--profile-config data\\reports\\edge_filtering\\balanced_filtered.ini --quick"
         )
+        if not apply_filters:
+            payload["recommended_next_action"] = (
+                "Run profile-comparison-run with BALANCED and ACTIVE research-only; do not use BALANCED_FILTERED because no actionable filter was created."
+            )
     if payload.get("timestamp_status") == "FAILED":
         payload["recommended_next_action"] = "Run FASE 18D timestamp normalization repair or re-export history."
     elif payload.get("data_contract_status") not in {"", "OK"}:
@@ -1020,6 +1037,19 @@ def _load_optional_json(path: Path) -> dict[str, Any] | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return None
+
+
+def _read_simple_ini(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith(";") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip().upper()] = value.strip()
+    return values
 
 
 def _issues_for_decision(decision: str) -> list[str]:
