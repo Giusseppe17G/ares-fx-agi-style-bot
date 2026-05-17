@@ -737,6 +737,7 @@ def run_backtest_for_symbols(
         "expectancy_r": metrics.average_r,
         "sharpe": metrics.sharpe,
         "sortino": metrics.sortino,
+        "classification": "WARNING_NO_TRADES" if metrics.trades_total == 0 else "OK",
         "execution_attempted": False,
         "reports_created": [],
     }
@@ -1294,8 +1295,11 @@ def _empty_trades_frame() -> pd.DataFrame:
             "direction",
             "entry_time",
             "exit_time",
+            "entry_price",
+            "exit_price",
             "profit",
             "r_multiple",
+            "exit_reason",
             "regime",
             "session",
         ]

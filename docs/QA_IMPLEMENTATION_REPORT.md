@@ -187,6 +187,36 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 17B Real Data Research Repair
+
+Status: PASS. Full suite result: 198 collected, 198 passed.
+
+Integrated in Phase 17B:
+
+- Hardened `real-data-research` stage handling so missing/no-trade inputs return `WARNING` or `SKIPPED` instead of crashing the full run.
+- Added `SKIPPED_NO_TRADES` handling for Monte Carlo, walk-forward and stress when `reports/backtests/trades.csv` is missing or empty.
+- Ensured backtest artifacts are always created: `summary.json`, `trades.csv`, and `equity_curve.csv`, including the zero-trade case.
+- Added compact operator summaries: `final_summary_compact.json` and `final_summary_compact.txt`.
+- Added CLI mode: `latest-run-summary`.
+- Normalized stage result fields with `stage_name`, `status`, `classification`, `reports_created`, and `execution_attempted=false`.
+- Fixed symbol normalization so a comma-separated string becomes symbol tokens, not characters.
+
+Additional Phase 17B tests:
+
+- Backtest creates empty contract files when no trades are generated.
+- Walk-forward, Monte Carlo, stress and research do not crash with zero trades.
+- Monte Carlo skips missing or empty `trades.csv`.
+- `latest-run-summary` reads the newest compact run summary.
+- Stage statuses are normalized to `PASSED`, `WARNING`, `FAILED`, or `SKIPPED`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 15 Full Validation Pipeline Update
 
 Status: PASS. Full suite result: 179 collected, 179 passed.

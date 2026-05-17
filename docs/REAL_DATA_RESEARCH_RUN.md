@@ -35,6 +35,8 @@ data/runs/YYYYMMDD-HHMMSS-real-data-research/
   sqlite/
   final_summary.json
   final_summary.html
+  final_summary_compact.json
+  final_summary_compact.txt
 ```
 
 ## Stages
@@ -83,6 +85,52 @@ If any required symbol/timeframe has fewer bars, the final decision is `NEEDS_MO
 - full validation decision
 - top blocking issues
 - recommended next actions
+
+`final_summary_compact.json` is the operator view. It includes:
+
+- `run_id`
+- `final_decision`
+- `symbols_exported`
+- `bars_by_symbol_timeframe`
+- `stages_passed`
+- `stages_warning`
+- `stages_failed`
+- `stages_skipped`
+- `top_issues`
+- `recommended_next_actions`
+- `execution_attempted=false`
+- `order_send_called=false`
+- `order_check_called=false`
+
+Read the newest compact summary with:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode latest-run-summary --runs-root data\runs
+```
+
+## No-Trade Stages
+
+`SKIPPED_NO_TRADES` means a downstream statistical stage needed closed simulated trades, but `reports/backtests/trades.csv` was missing or empty. It is not a trading error and it does not imply execution. It means the current strategy/data combination did not produce enough simulated trades for that validation method.
+
+If backtest generates `0` trades:
+
+- Inspect `reports/strategy_diagnostics`.
+- Check whether market-structure, session, spread, or setup-score filters are too strict.
+- Confirm exported history has enough bars and realistic spread columns.
+- Keep final decision at `NEEDS_MORE_DATA` or `NEEDS_STRATEGY_RESEARCH`.
+
+If Monte Carlo is skipped:
+
+- First fix backtest trade generation.
+- Do not interpret missing Monte Carlo as approval.
+- Keep the symbol/strategy blocked from any future demo execution review.
+
+If Research returns `NEEDS_MORE_DATA`:
+
+- Confirm M5 CSVs exist for each symbol.
+- Rerun data-quality and broker cost profile.
+- Inspect rejected candidates and ablation reports once enough data exists.
 
 ## Decisions
 

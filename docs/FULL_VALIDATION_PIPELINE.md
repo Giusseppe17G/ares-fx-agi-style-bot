@@ -61,3 +61,12 @@ py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBP
 ```
 
 If exported history is insufficient, the wrapper returns `NEEDS_MORE_DATA` even if later stages are skipped or mocked. It remains read-only/research-only and does not call `order_send` or `order_check`.
+
+The wrapper also writes `final_summary_compact.json` and `final_summary_compact.txt` under the run folder. Use:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode latest-run-summary --runs-root data\runs
+```
+
+Stages that depend on closed simulated trades may report `SKIPPED_NO_TRADES` when `reports/backtests/trades.csv` is missing or empty. That is a blocking research condition, not approval.

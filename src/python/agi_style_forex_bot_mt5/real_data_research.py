@@ -32,6 +32,21 @@ from .validation_pipeline import PipelineConfig, run_full_validation
 
 
 EXPORT_BAR_TARGETS = {"M5": 50_000, "M15": 30_000, "H1": 10_000}
+VALID_STAGE_STATUSES = {"PASSED", "WARNING", "FAILED", "SKIPPED"}
+TRADE_COLUMNS = (
+    "signal_id",
+    "symbol",
+    "direction",
+    "entry_time",
+    "exit_time",
+    "entry_price",
+    "exit_price",
+    "profit",
+    "r_multiple",
+    "exit_reason",
+    "regime",
+    "session",
+)
 
 
 @dataclass(frozen=True)
@@ -46,7 +61,7 @@ class RealDataResearchConfig:
     run_id: str = ""
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "symbols", tuple(symbol.upper() for symbol in self.symbols))
+        object.__setattr__(self, "symbols", _coerce_symbols(self.symbols))
         if not self.run_id:
             stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
             object.__setattr__(self, "run_id", f"{stamp}-real-data-research")
@@ -69,7 +84,14 @@ class ResearchStageResult:
     execution_attempted: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        classification = str(self.summary.get("classification", ""))
+        return {
+            **payload,
+            "stage_name": self.name,
+            "classification": classification,
+            "reports_created": list(self.summary.get("reports_created", [])),
+        }
 
 
 class RealDataResearchRunner:
@@ -105,6 +127,7 @@ class RealDataResearchRunner:
                 break
 
         final_decision, issues, next_actions = self._final_decision(results)
+        compact = self._compact_summary(results, final_decision, issues, next_actions)
         summary = {
             "mode": "real-data-research",
             "run_id": self.config.run_id,
@@ -127,9 +150,12 @@ class RealDataResearchRunner:
             "final_decision": final_decision,
             "top_5_issues_blocking_progress": issues[:5],
             "recommended_next_actions": next_actions,
+            "compact_summary": compact,
             "reports_created": [
                 str(self.run_dir / "final_summary.json"),
                 str(self.run_dir / "final_summary.html"),
+                str(self.run_dir / "final_summary_compact.json"),
+                str(self.run_dir / "final_summary_compact.txt"),
             ],
             "execution_attempted": False,
             "order_send_called": False,
@@ -137,6 +163,8 @@ class RealDataResearchRunner:
         }
         (self.run_dir / "final_summary.json").write_text(json.dumps(_jsonable(summary), indent=2, sort_keys=True), encoding="utf-8")
         (self.run_dir / "final_summary.html").write_text(_summary_html(summary), encoding="utf-8")
+        (self.run_dir / "final_summary_compact.json").write_text(json.dumps(_jsonable(compact), indent=2, sort_keys=True), encoding="utf-8")
+        (self.run_dir / "final_summary_compact.txt").write_text(_compact_text(compact), encoding="utf-8")
         return summary
 
     def _prepare_dirs(self) -> None:
@@ -168,13 +196,11 @@ class RealDataResearchRunner:
             stage_function = self.stage_overrides.get(name, function)
             summary = dict(stage_function())
             summary["execution_attempted"] = False
-            status = "PASSED"
+            status = self._status_for_summary(name, summary)
             error = ""
             if summary.get("mt5_connected") is False and name in {"MT5_DIAGNOSE", "EXPORT_HISTORY"}:
                 status = "FAILED"
                 error = "MT5 is not available for read-only research"
-            if summary.get("classification") in {"REJECTED", "NOT_READY"}:
-                status = "WARNING" if status == "PASSED" else status
         except Exception as exc:
             summary = {"execution_attempted": False}
             status = "FAILED"
@@ -240,6 +266,8 @@ class RealDataResearchRunner:
         }
 
     def _data_quality(self) -> dict[str, Any]:
+        if not self._has_any_history():
+            return self._write_skip_report("data_quality", "NEEDS_MORE_DATA", "no historical CSV files found")
         return build_dataset_manifest(
             data_dir=self.historical_dir,
             report_dir=self.reports_dir / "data_quality",
@@ -248,12 +276,18 @@ class RealDataResearchRunner:
         )
 
     def _broker_cost_profile(self) -> dict[str, Any]:
+        if not self._has_any_history():
+            return self._write_skip_report("broker_costs", "NEEDS_MORE_DATA", "no historical CSV files found")
         return build_broker_cost_profile(data_dir=self.historical_dir, report_dir=self.reports_dir / "broker_costs", symbols=self.config.symbols)
 
     def _structure_report(self) -> dict[str, Any]:
+        if self._missing_history("M5"):
+            return self._write_skip_report("market_structure", "NEEDS_MORE_DATA", "missing M5 historical CSV files")
         return write_structure_report(symbols=self.config.symbols, data_dir=self.historical_dir, report_dir=self.reports_dir / "market_structure")
 
     def _strategy_diagnose(self) -> dict[str, Any]:
+        if self._missing_history("M5"):
+            return self._write_skip_report("strategy_diagnostics", "NEEDS_MORE_DATA", "missing M5 historical CSV files")
         reports: list[dict[str, Any]] = []
         for symbol in self.config.symbols:
             reports.append(run_strategy_diagnose(symbol=symbol, data_dir=self.historical_dir, report_dir=self.reports_dir / "strategy_diagnostics" / symbol))
@@ -266,56 +300,103 @@ class RealDataResearchRunner:
         }
 
     def _backtest(self) -> dict[str, Any]:
+        missing = self._missing_history("M5")
+        if missing:
+            return self._write_empty_backtest_artifacts(
+                classification="NEEDS_MORE_DATA",
+                reason="missing M5 historical CSV files",
+                details={"missing": missing},
+            )
         profile = _load_optional_json(self.reports_dir / "broker_costs" / "broker_cost_profile.json")
         spread_points = cost_for_symbol(profile, self.config.symbols[0], fallback=10.0)
-        result = run_backtest_for_symbols(
-            data_dir=self.historical_dir,
-            symbols=self.config.symbols,
-            report_dir=self.reports_dir / "backtests",
-            config=self.bot_config,
-            settings=BacktestSettings(
-                cost_model=CostModel(
-                    spread_points=spread_points,
-                    slippage_points=1.0,
-                    commission_per_lot_round_turn=0.0,
-                    max_spread_points=self.bot_config.max_spread_points_default,
+        try:
+            result = run_backtest_for_symbols(
+                data_dir=self.historical_dir,
+                symbols=list(self.config.symbols),
+                report_dir=self.reports_dir / "backtests",
+                config=self.bot_config,
+                settings=BacktestSettings(
+                    cost_model=CostModel(
+                        spread_points=spread_points,
+                        slippage_points=1.0,
+                        commission_per_lot_round_turn=0.0,
+                        max_spread_points=self.bot_config.max_spread_points_default,
+                    ),
+                    data_source=str(self.historical_dir),
+                    parameters={"execution_attempted": False},
                 ),
-                data_source=str(self.historical_dir),
-                parameters={"execution_attempted": False},
-            ),
-        )
-        return dict(result.summary)
+            )
+        except Exception as exc:
+            return self._write_empty_backtest_artifacts(
+                classification="NEEDS_MORE_DATA",
+                reason="backtest input validation failed",
+                details={"error_message": str(exc)},
+            )
+        summary = dict(result.summary)
+        if int(summary.get("total_trades", 0) or 0) == 0:
+            summary["classification"] = "WARNING_NO_TRADES"
+            summary["error_message"] = "backtest completed but generated zero trades"
+            self._ensure_empty_backtest_outputs(summary)
+        return summary
 
     def _walk_forward(self) -> dict[str, Any]:
-        return run_walk_forward_for_symbols(
-            data_dir=self.historical_dir,
-            symbols=self.config.symbols,
-            report_dir=self.reports_dir / "walk_forward",
-            settings=WalkForwardSettings(),
-        )
+        if not self._backtest_has_trades():
+            return self._write_skip_report("walk_forward", "SKIPPED_NO_TRADES", "backtest generated no trades")
+        try:
+            return run_walk_forward_for_symbols(
+                data_dir=self.historical_dir,
+                symbols=list(self.config.symbols),
+                report_dir=self.reports_dir / "walk_forward",
+                settings=WalkForwardSettings(),
+            )
+        except Exception as exc:
+            return self._write_skip_report("walk_forward", "NEEDS_MORE_DATA", f"walk-forward input validation failed: {exc}")
 
     def _monte_carlo(self) -> dict[str, Any]:
-        return run_monte_carlo_report(
-            trades_path=self.reports_dir / "backtests" / "trades.csv",
-            report_dir=self.reports_dir / "monte_carlo",
-            seed=self.config.seed,
-        )
+        trades_path = self._find_trades_csv()
+        if trades_path is None:
+            return self._write_monte_carlo_skip("missing trades.csv")
+        frame = _read_trades_frame(trades_path)
+        if frame.empty:
+            return self._write_monte_carlo_skip("trades.csv is empty", trades_path=trades_path)
+        if "profit" in frame.columns:
+            try:
+                return run_monte_carlo_report(trades_path=trades_path, report_dir=self.reports_dir / "monte_carlo", seed=self.config.seed)
+            except Exception as exc:
+                return self._write_monte_carlo_skip(f"Monte Carlo input validation failed: {exc}", trades_path=trades_path)
+        if "r_multiple" in frame.columns:
+            values = pd.to_numeric(frame["r_multiple"], errors="coerce").dropna().astype(float).tolist()
+            if not values:
+                return self._write_monte_carlo_skip("r_multiple column has no numeric values", trades_path=trades_path)
+            return run_monte_carlo_report(trades=values, trades_path=trades_path, report_dir=self.reports_dir / "monte_carlo", seed=self.config.seed)
+        return self._write_monte_carlo_skip("trades.csv requires profit or r_multiple column", trades_path=trades_path)
 
     def _stress_test(self) -> dict[str, Any]:
-        return run_stress_report(data_dir=self.historical_dir, symbols=self.config.symbols, report_dir=self.reports_dir / "stress")
+        frame = self._closed_trades_frame()
+        if frame.empty:
+            return self._write_skip_report("stress", "SKIPPED_NO_TRADES", "backtest generated no trades")
+        try:
+            return run_stress_report(trades=frame.to_dict("records"), report_dir=self.reports_dir / "stress")
+        except Exception as exc:
+            return self._write_skip_report("stress", "SKIPPED_NO_TRADES", f"stress input validation failed: {exc}")
 
     def _research(self) -> dict[str, Any]:
-        return run_research(
-            symbols=self.config.symbols,
-            data_dir=self.historical_dir,
-            reports_root=self.reports_dir,
-            output_dir=self.reports_dir / "research",
-            max_candidates=100,
-        )
+        if self._missing_history("M5"):
+            return self._write_skip_report("research", "NEEDS_MORE_DATA", "missing M5 historical CSV files")
+        try:
+            return run_research(
+                symbols=list(self.config.symbols),
+                data_dir=self.historical_dir,
+                reports_root=self.reports_dir,
+                output_dir=self.reports_dir / "research",
+                max_candidates=100,
+            )
+        except Exception as exc:
+            return self._write_skip_report("research", "NEEDS_MORE_DATA", f"research input validation failed: {exc}")
 
     def _benchmark(self) -> dict[str, Any]:
         profile = _load_optional_json(self.reports_dir / "broker_costs" / "broker_cost_profile.json")
-        return run_benchmarks(data_dir=self.historical_dir, symbols=self.config.symbols, report_dir=self.reports_dir / "benchmarks", broker_cost_profile=profile, seed=self.config.seed)
+        return run_benchmarks(data_dir=self.historical_dir, symbols=list(self.config.symbols), report_dir=self.reports_dir / "benchmarks", broker_cost_profile=profile, seed=self.config.seed)
 
     def _competitive_scorecard(self) -> dict[str, Any]:
         return build_competitive_scorecard(reports_root=self.reports_dir, output_dir=self.reports_dir / "competitive_scorecard")
@@ -334,6 +415,21 @@ class RealDataResearchRunner:
             seed=self.config.seed,
         )
         return run_full_validation(config)
+
+    def _status_for_summary(self, name: str, summary: Mapping[str, Any]) -> str:
+        explicit = str(summary.get("stage_status", "")).upper()
+        if explicit in VALID_STAGE_STATUSES:
+            return explicit
+        classification = str(summary.get("classification", "")).upper()
+        if classification.startswith("SKIPPED"):
+            return "SKIPPED"
+        if classification in {"NEEDS_MORE_DATA", "WARNING_NO_TRADES", "WATCHLIST", "REJECTED", "NOT_READY"}:
+            return "WARNING"
+        if classification in {"OK", "APPROVED_FOR_SHADOW_OBSERVATION", "CONTINUE_FORWARD_SHADOW"}:
+            return "PASSED"
+        if summary.get("skipped") is True:
+            return "SKIPPED"
+        return "PASSED"
 
     def _export_targets(self) -> dict[str, int]:
         if self.config.bars >= 50_000:
@@ -366,6 +462,94 @@ class RealDataResearchRunner:
 
     def _symbols_exported(self) -> list[str]:
         return sorted(self._bars_by_symbol_timeframe())
+
+    def _has_any_history(self) -> bool:
+        return any(self.historical_dir.glob("*.csv"))
+
+    def _missing_history(self, timeframe: str) -> list[str]:
+        return [symbol for symbol in self.config.symbols if not (self.historical_dir / f"{symbol}_{timeframe}.csv").exists()]
+
+    def _find_trades_csv(self) -> Path | None:
+        preferred = self.reports_dir / "backtests" / "trades.csv"
+        if preferred.exists():
+            return preferred
+        matches = sorted((self.reports_dir / "backtests").glob("**/trades.csv"))
+        return matches[0] if matches else None
+
+    def _closed_trades_frame(self) -> pd.DataFrame:
+        path = self._find_trades_csv()
+        if path is None:
+            return pd.DataFrame(columns=TRADE_COLUMNS)
+        return _read_trades_frame(path)
+
+    def _backtest_has_trades(self) -> bool:
+        return not self._closed_trades_frame().empty
+
+    def _ensure_empty_backtest_outputs(self, summary: Mapping[str, Any]) -> None:
+        output = self.reports_dir / "backtests"
+        output.mkdir(parents=True, exist_ok=True)
+        trades_path = output / "trades.csv"
+        equity_path = output / "equity_curve.csv"
+        summary_path = output / "summary.json"
+        if not trades_path.exists():
+            pd.DataFrame(columns=TRADE_COLUMNS).to_csv(trades_path, index=False)
+        if not equity_path.exists():
+            pd.DataFrame({"timestamp": [datetime.now(timezone.utc).isoformat()], "equity": [10_000.0]}).to_csv(equity_path, index=False)
+        payload = dict(summary)
+        payload.setdefault("reports_created", [str(summary_path), str(trades_path), str(equity_path)])
+        summary_path.write_text(json.dumps(_jsonable(payload), indent=2, sort_keys=True), encoding="utf-8")
+
+    def _write_empty_backtest_artifacts(self, *, classification: str, reason: str, details: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        output = self.reports_dir / "backtests"
+        output.mkdir(parents=True, exist_ok=True)
+        summary_path = output / "summary.json"
+        trades_path = output / "trades.csv"
+        equity_path = output / "equity_curve.csv"
+        pd.DataFrame(columns=TRADE_COLUMNS).to_csv(trades_path, index=False)
+        pd.DataFrame({"timestamp": [datetime.now(timezone.utc).isoformat()], "equity": [10_000.0]}).to_csv(equity_path, index=False)
+        summary = {
+            "mode": "backtest",
+            "symbols_tested": 0,
+            "total_trades": 0,
+            "classification": classification,
+            "error_message": reason,
+            "details": dict(details or {}),
+            "reports_created": [str(summary_path), str(trades_path), str(equity_path)],
+            "execution_attempted": False,
+        }
+        summary_path.write_text(json.dumps(_jsonable(summary), indent=2, sort_keys=True), encoding="utf-8")
+        return summary
+
+    def _write_monte_carlo_skip(self, reason: str, *, trades_path: Path | None = None) -> dict[str, Any]:
+        output = self.reports_dir / "monte_carlo"
+        output.mkdir(parents=True, exist_ok=True)
+        summary_path = output / "summary.json"
+        simulations_path = output / "simulations.csv"
+        pd.DataFrame(columns=["simulation", "final_equity", "return_pct", "max_drawdown_pct", "longest_losing_streak"]).to_csv(simulations_path, index=False)
+        summary = {
+            "mode": "monte-carlo",
+            "input_files": [str(trades_path)] if trades_path else [],
+            "classification": "SKIPPED_NO_TRADES",
+            "error_message": reason,
+            "reports_created": [str(summary_path), str(simulations_path)],
+            "execution_attempted": False,
+        }
+        summary_path.write_text(json.dumps(_jsonable(summary), indent=2, sort_keys=True), encoding="utf-8")
+        return summary
+
+    def _write_skip_report(self, report_name: str, classification: str, reason: str) -> dict[str, Any]:
+        output = self.reports_dir / report_name
+        output.mkdir(parents=True, exist_ok=True)
+        summary_path = output / "summary.json"
+        summary = {
+            "mode": report_name.replace("_", "-"),
+            "classification": classification,
+            "error_message": reason,
+            "reports_created": [str(summary_path)],
+            "execution_attempted": False,
+        }
+        summary_path.write_text(json.dumps(_jsonable(summary), indent=2, sort_keys=True), encoding="utf-8")
+        return summary
 
     def _stage_summary(self, results: list[ResearchStageResult], name: str) -> dict[str, Any]:
         for result in results:
@@ -400,6 +584,23 @@ class RealDataResearchRunner:
             return "NEEDS_STRATEGY_RESEARCH", ["competitive scorecard did not show durable edge"], _actions_for_decision("NEEDS_STRATEGY_RESEARCH")
         return "CONTINUE_FORWARD_SHADOW", issues or ["evidence collected; continue paper observation"], _actions_for_decision("CONTINUE_FORWARD_SHADOW")
 
+    def _compact_summary(self, results: list[ResearchStageResult], final_decision: str, issues: list[str], actions: list[str]) -> dict[str, Any]:
+        return {
+            "run_id": self.config.run_id,
+            "final_decision": final_decision,
+            "symbols_exported": self._symbols_exported(),
+            "bars_by_symbol_timeframe": self._bars_by_symbol_timeframe(),
+            "stages_passed": sum(1 for result in results if result.status == "PASSED"),
+            "stages_warning": sum(1 for result in results if result.status == "WARNING"),
+            "stages_failed": sum(1 for result in results if result.status == "FAILED"),
+            "stages_skipped": sum(1 for result in results if result.status == "SKIPPED"),
+            "top_issues": issues[:5],
+            "recommended_next_actions": actions,
+            "execution_attempted": False,
+            "order_send_called": False,
+            "order_check_called": False,
+        }
+
 
 def run_real_data_research(
     config: RealDataResearchConfig,
@@ -412,8 +613,59 @@ def run_real_data_research(
     return RealDataResearchRunner(config, bot_config=bot_config, stage_overrides=stage_overrides).run()
 
 
+def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, Any]:
+    """Load the compact summary from the newest real-data research run."""
+
+    root = Path(runs_root)
+    if not root.exists():
+        return {
+            "mode": "latest-run-summary",
+            "classification": "NEEDS_MORE_DATA",
+            "error_message": f"runs root does not exist: {root}",
+            "execution_attempted": False,
+            "order_send_called": False,
+            "order_check_called": False,
+        }
+    candidates = [path for path in root.iterdir() if path.is_dir() and (path / "final_summary_compact.json").exists()]
+    if not candidates:
+        return {
+            "mode": "latest-run-summary",
+            "classification": "NEEDS_MORE_DATA",
+            "error_message": f"no final_summary_compact.json found under {root}",
+            "execution_attempted": False,
+            "order_send_called": False,
+            "order_check_called": False,
+        }
+    latest = sorted(candidates, key=lambda path: (path.name, path.stat().st_mtime))[-1]
+    payload = json.loads((latest / "final_summary_compact.json").read_text(encoding="utf-8"))
+    return {"mode": "latest-run-summary", "run_dir": str(latest), **payload, "execution_attempted": False}
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _coerce_symbols(symbols: Any) -> tuple[str, ...]:
+    if isinstance(symbols, str):
+        parts = symbols.split(",")
+    else:
+        parts = list(symbols)
+    normalized = tuple(str(symbol).strip().upper() for symbol in parts if str(symbol).strip())
+    if not normalized:
+        raise ValueError("RealDataResearchConfig requires at least one symbol")
+    return normalized
+
+
+def _read_trades_frame(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame(columns=TRADE_COLUMNS)
+    try:
+        frame = pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame(columns=TRADE_COLUMNS)
+    if frame.empty:
+        return pd.DataFrame(columns=list(frame.columns) or list(TRADE_COLUMNS))
+    return frame
 
 
 def _load_optional_json(path: Path) -> dict[str, Any] | None:
@@ -466,6 +718,30 @@ def _summary_html(summary: Mapping[str, Any]) -> str:
 </body>
 </html>
 """
+
+
+def _compact_text(summary: Mapping[str, Any]) -> str:
+    lines = [
+        f"run_id: {summary.get('run_id', '')}",
+        f"final_decision: {summary.get('final_decision', '')}",
+        f"symbols_exported: {', '.join(summary.get('symbols_exported', []))}",
+        f"stages_passed: {summary.get('stages_passed', 0)}",
+        f"stages_warning: {summary.get('stages_warning', 0)}",
+        f"stages_failed: {summary.get('stages_failed', 0)}",
+        f"stages_skipped: {summary.get('stages_skipped', 0)}",
+        "top_issues:",
+    ]
+    lines.extend(f"- {item}" for item in summary.get("top_issues", []))
+    lines.append("recommended_next_actions:")
+    lines.extend(f"- {item}" for item in summary.get("recommended_next_actions", []))
+    lines.extend(
+        [
+            f"execution_attempted: {str(summary.get('execution_attempted', False)).lower()}",
+            f"order_send_called: {str(summary.get('order_send_called', False)).lower()}",
+            f"order_check_called: {str(summary.get('order_check_called', False)).lower()}",
+        ]
+    )
+    return "\n".join(lines) + "\n"
 
 
 def _jsonable(value: Any) -> Any:

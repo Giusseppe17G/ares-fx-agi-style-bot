@@ -125,7 +125,7 @@ def write_batch_reports(result: BacktestBatchResult, artifact_dir: str | Path) -
 
 
 def _safe_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    return frame.copy() if frame is not None and not frame.empty else pd.DataFrame()
+    return frame.copy() if frame is not None else pd.DataFrame()
 
 
 def _setup_quality_frame(frame: pd.DataFrame) -> pd.DataFrame:
