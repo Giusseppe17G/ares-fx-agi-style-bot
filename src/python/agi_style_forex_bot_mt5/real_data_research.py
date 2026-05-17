@@ -985,6 +985,18 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
         payload["balanced_candidate_reason"] = balanced_gate.get("reason", "")
         if balanced_gate.get("balanced_decision") == "BALANCED_NEEDS_ROBUSTNESS_VALIDATION":
             payload["recommended_next_action"] = "Run walk-forward, Monte Carlo, stress-test and full-validation before any paper-only forward-shadow expansion."
+    robustness = _load_optional_json(latest / "reports" / "robustness" / "robustness_summary.json") or _load_optional_json(Path("data/reports/robustness/robustness_summary.json")) or {}
+    if robustness:
+        payload["robustness_decision"] = robustness.get("robustness_decision", "")
+        payload["monte_carlo_fast_status"] = robustness.get("monte_carlo_classification", "")
+        payload["stress_fast_status"] = robustness.get("stress_classification", "")
+        payload["walk_forward_fast_status"] = robustness.get("walk_forward_classification", "")
+        payload["cost_sensitivity_status"] = robustness.get("cost_sensitivity_classification", "")
+        payload["paper_forward_shadow_candidate"] = bool(robustness.get("paper_forward_shadow_candidate", False))
+        if robustness.get("robustness_decision") == "PAPER_FORWARD_SHADOW_CANDIDATE":
+            payload["recommended_next_action"] = "Start/continue paper-only forward-shadow observation for BALANCED; no demo/live execution."
+        elif robustness.get("robustness_decision"):
+            payload["recommended_next_action"] = _robustness_next_action(str(robustness.get("robustness_decision")))
     if payload.get("timestamp_status") == "FAILED":
         payload["recommended_next_action"] = "Run FASE 18D timestamp normalization repair or re-export history."
     elif payload.get("data_contract_status") not in {"", "OK"}:
@@ -1011,6 +1023,17 @@ def _edge_next_action(decision: str) -> str:
         "REJECT_CURRENT_CONFIG": "Reject current config and return to strategy research.",
     }
     return mapping.get(decision, "Review edge evaluation report.")
+
+
+def _robustness_next_action(decision: str) -> str:
+    mapping = {
+        "NEEDS_MORE_ROBUSTNESS_DATA": "Collect or regenerate trade-level BALANCED artifacts before paper-forward candidate review.",
+        "NEEDS_COST_RECALIBRATION": "Revisit broker cost profile, spread/slippage assumptions and rerun BALANCED robustness-fast.",
+        "NEEDS_STRATEGY_REWORK": "Inspect weak folds/stress scenarios and return to strategy research.",
+        "REJECT_BALANCED_ROBUSTNESS": "Reject current BALANCED robustness candidate and continue research.",
+        "PAPER_FORWARD_SHADOW_CANDIDATE": "Start/continue paper-only forward-shadow observation for BALANCED; no demo/live execution.",
+    }
+    return mapping.get(decision, "Review robustness-fast report.")
 
 
 def _now() -> str:

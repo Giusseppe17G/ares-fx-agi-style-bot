@@ -97,6 +97,8 @@ If edge filtering returns `NO_ACTIONABLE_FILTER`, do not use `BALANCED_FILTERED`
 
 Before trusting profile comparison output, run `profile-threshold-audit` and `profile-integrity`. If ACTIVE and BALANCED are `IDENTICAL_THRESHOLDS`, treat it as a failed config/application bug. If they are `DIFFERENT_THRESHOLDS_IDENTICAL_METRICS`, thresholds are applied but the sample may be insensitive; use BALANCED only after robustness validation and do not use ACTIVE operationally.
 
+When the BALANCED candidate gate returns `BALANCED_NEEDS_ROBUSTNESS_VALIDATION`, run `robustness-fast` to check Monte Carlo, stress, reduced walk-forward and cost sensitivity without a full heavy rerun.
+
 ## Outputs
 
 Reports are written to `data/reports/edge` unless another output directory is provided:

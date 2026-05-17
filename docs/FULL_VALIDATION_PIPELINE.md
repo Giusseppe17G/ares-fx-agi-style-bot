@@ -106,3 +106,14 @@ py -m agi_style_forex_bot_mt5.cli --mode edge-evaluation --runs-root data\runs -
 The fast decision layer can return `FORWARD_SHADOW_CANDIDATE`, `CONTINUE_BALANCED_RESEARCH`, `TEST_ACTIVE_RESEARCH_ONLY`, `NEEDS_MORE_TRADES`, `NEEDS_STRATEGY_FIX`, `NEEDS_BROKER_COST_FIX`, or `REJECT_CURRENT_CONFIG`.
 
 It never replaces full validation for promotion gates. It only narrows the next research action and keeps `execution_attempted=false`.
+
+## Robustness Fast Track
+
+Phase 23 adds `robustness-fast` for BALANCED profiles that already passed edge evaluation but need a quicker robustness screen:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode robustness-fast --runs-root data\runs --profile-runs-dir data\reports\profile_runs --profile BALANCED --output-dir data\reports\robustness
+```
+
+It uses existing `trades.csv` artifacts to run fast Monte Carlo, stress, walk-forward folds and cost sensitivity. `PAPER_FORWARD_SHADOW_CANDIDATE` is not demo/live approval; it only supports paper-only forward-shadow observation while full validation evidence continues to accumulate.

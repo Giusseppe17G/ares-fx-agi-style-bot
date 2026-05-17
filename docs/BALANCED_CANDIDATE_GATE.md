@@ -35,6 +35,15 @@ BALANCED can only pass the first candidate screen if:
 
 If walk-forward, Monte Carlo, stress, or full validation are missing, the decision remains `BALANCED_NEEDS_ROBUSTNESS_VALIDATION`.
 
+After that decision, use the Phase 23 fast track:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode robustness-fast --runs-root data\runs --profile-runs-dir data\reports\profile_runs --profile BALANCED --output-dir data\reports\robustness
+```
+
+`robustness-fast` can return `PAPER_FORWARD_SHADOW_CANDIDATE`, which still means paper/shadow only. If Monte Carlo, stress, walk-forward or costs fail, the next action is more robustness data, cost recalibration, or strategy rework.
+
 ## Profile Integrity Dependency
 
 Run threshold and integrity checks before using this gate:

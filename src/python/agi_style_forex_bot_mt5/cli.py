@@ -46,6 +46,7 @@ from .portfolio import build_correlation_report, build_exposure_report, build_po
 from .profile_validation import run_balanced_candidate_gate, run_profile_integrity, run_profile_threshold_audit
 from .real_data_research import RealDataResearchConfig, load_latest_run_summary, run_real_data_research
 from .research import run_research
+from .robustness_validation import run_robustness_fast
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
 from .validation_pipeline import PipelineConfig, run_full_validation
 
@@ -172,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
             "profile-integrity",
             "balanced-candidate-gate",
             "profile-threshold-audit",
+            "robustness-fast",
         ],
         default="shadow",
     )
@@ -430,6 +432,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "balanced-candidate-gate":
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/profile_validation")
             summary = run_balanced_candidate_gate(runs_root=args.runs_root, profile_runs_dir=args.profile_runs_dir, edge_dir=args.edge_dir, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "robustness-fast":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/robustness")
+            summary = run_robustness_fast(
+                runs_root=args.runs_root,
+                profile_runs_dir=args.profile_runs_dir,
+                profile=args.profile,
+                output_dir=output_dir,
+                simulations=args.simulations,
+                seed=args.seed,
+            )
             print(_json_dumps(summary))
             return 0
 
