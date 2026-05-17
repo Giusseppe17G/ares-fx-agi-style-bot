@@ -7,8 +7,11 @@ Phase 24 creates a conservative `BALANCED_STABLE` research profile after walk-fo
 - `PROFILE_TYPE=RESEARCH_BACKTEST_ONLY`
 - `NOT_FOR_DEMO_LIVE=true`
 - `REQUIRES_ROBUSTNESS_RERUN=true`
+- `APPLY_STABILITY_FILTERS=true`
 
 It does not enable forward-shadow, demo or live execution.
+
+`BALANCED_STABLE` must be run with `--profile-config`. If the config is missing, the runner returns `STABLE_PROFILE_CONFIG_REQUIRED`. If the config exists but does not contain actionable stability filters, the runner returns `STABLE_PROFILE_NOT_ACTIONABLE`.
 
 ## Commands
 
@@ -27,6 +30,13 @@ py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBP
 ```
 
 The rerun is still research/backtest only. After it, rerun edge evaluation and `robustness-fast`.
+
+Stable filters can produce explicit backtest blockers:
+
+- `STABLE_SYMBOL_DISABLED`
+- `STABLE_STRATEGY_DISABLED`
+- `STABLE_SESSION_BLOCK`
+- `STABLE_REGIME_BLOCK`
 
 ## Outputs
 

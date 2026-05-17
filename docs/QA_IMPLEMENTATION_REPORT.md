@@ -156,6 +156,26 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 24B BALANCED_STABLE Registration Repair
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 326 tests collected.
+
+Integrated in Phase 24B:
+
+- Registered `BALANCED_STABLE` in config validation, CLI profile choices, effective profile config and backtesting.
+- `BALANCED_STABLE` now requires a profile config and fails closed with `STABLE_PROFILE_CONFIG_REQUIRED` or `STABLE_PROFILE_NOT_ACTIONABLE`.
+- Effective profile hashes include stability filters, making `BALANCED_STABLE` distinct from BALANCED when filters are applied.
+- Backtest emits `STABLE_SYMBOL_DISABLED`, `STABLE_STRATEGY_DISABLED`, `STABLE_SESSION_BLOCK`, and `STABLE_REGIME_BLOCK`.
+- Validation keeps `BALANCED_STABLE` blocked from forward-shadow promotion until robustness rerun.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 24 Walk-Forward Failure Analysis & Stability Repair
 
 Status: PASS. Verification: `py -m pytest -q` completed successfully, 318 tests collected.

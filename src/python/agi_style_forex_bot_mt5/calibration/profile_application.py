@@ -53,11 +53,23 @@ def profile_hash(profile: SignalProfileSettings | Mapping[str, Any]) -> str:
     return sha256(json.dumps(_jsonable(payload), sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def bot_config_with_signal_profile(config: BotConfig, profile_name: str) -> BotConfig:
+def bot_config_with_signal_profile(config: BotConfig, profile_name: str, profile_config: str = "") -> BotConfig:
     """Return a safe config copy with only the signal profile changed."""
 
     profile = get_signal_profile(profile_name)
-    updated = replace(config, signal_profile=profile.name)
+    extra: dict[str, Any] = {}
+    if profile_config:
+        extra["profile_config"] = profile_config
+    if profile.name == "BALANCED_STABLE" and profile_config:
+        stable_values = _read_profile_ini(Path(profile_config))
+        extra.update(
+            {
+                "stability_filters_applied": str(stable_values.get("APPLY_STABILITY_FILTERS", stable_values.get("STABILITY_FILTERS_APPLIED", "false"))).strip().lower() == "true",
+                "profile_type": str(stable_values.get("PROFILE_TYPE", "RESEARCH_BACKTEST_ONLY")),
+                "requires_robustness_rerun": str(stable_values.get("REQUIRES_ROBUSTNESS_RERUN", "true")).strip().lower() == "true",
+            }
+        )
+    updated = replace(config, signal_profile=profile.name, **extra)
     updated.validate_safety()
     return updated
 
@@ -303,9 +315,8 @@ def _read_profile_ini(path: Path) -> dict[str, Any]:
     parser = ConfigParser()
     parser.read_string("[DEFAULT]\n" + raw)
     values: dict[str, Any] = {}
-    for key in PROFILE_KEYS:
-        if key in parser["DEFAULT"]:
-            values[key] = _coerce(parser["DEFAULT"][key])
+    for key, value in parser["DEFAULT"].items():
+        values[key.upper()] = _coerce(value)
     return values
 
 
@@ -352,6 +363,8 @@ def _profile_recommendation(name: str, profile: SignalProfileSettings) -> str:
         return "research-only frequency experiment; not for demo/live or promotion"
     if profile.name == "BALANCED_FILTERED":
         return "use only when edge-filtering produced APPLY_FILTERS=true"
+    if profile.name == "BALANCED_STABLE":
+        return "research/backtest-only stability repair profile; requires profile-config and robustness rerun"
     if profile.name == "BALANCED":
         return "baseline calibrated research profile"
     return "conservative baseline"

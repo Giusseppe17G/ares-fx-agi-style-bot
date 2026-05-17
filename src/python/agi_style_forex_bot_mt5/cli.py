@@ -535,7 +535,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.signal_profile:
                 from .calibration import bot_config_with_signal_profile
 
-                config = bot_config_with_signal_profile(config, args.signal_profile)
+                config = bot_config_with_signal_profile(config, args.signal_profile, str(args.profile_config) if args.profile_config else "")
             cost_profile = _load_optional_json(args.reports_root / "broker_costs" / "broker_cost_profile.json")
             spread_points = cost_for_symbol(cost_profile, selected_symbols[0], fallback=args.spread_points)
             result = run_backtest_for_symbols(

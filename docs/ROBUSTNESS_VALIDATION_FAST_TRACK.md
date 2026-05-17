@@ -73,6 +73,8 @@ py -m agi_style_forex_bot_mt5.cli --mode walk-forward-failure-analysis --runs-ro
 py -m agi_style_forex_bot_mt5.cli --mode stability-repair --runs-root data\runs --robustness-dir data\reports\robustness --profile-runs-dir data\reports\profile_runs --output-dir data\reports\stability_repair
 ```
 
+The generated `BALANCED_STABLE` profile must be rerun with `--profile-config` and remains `NOT_FOR_DEMO_LIVE=true` until a new robustness rerun says otherwise. Missing or non-actionable stable configs fail closed.
+
 ## Reports
 
 - `robustness_summary.json`

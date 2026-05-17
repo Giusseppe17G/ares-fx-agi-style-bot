@@ -313,6 +313,17 @@ class Backtester:
         rejected: list[dict[str, Any]] = []
         exposure_indices: set[int] = set()
         for candidate in normalized_candidates:
+            stable_reason = dict(candidate.metadata).get("stable_rejection_reason")
+            if stable_reason:
+                rejected.append(
+                    {
+                        "signal_id": candidate.signal_id,
+                        "timestamp": str(candidate.timestamp),
+                        "symbol": candidate.symbol,
+                        "reason": str(stable_reason),
+                    }
+                )
+                continue
             try:
                 trade, used_indices = self._simulate_candidate(bars, candidate)
             except ValueError as exc:
@@ -640,7 +651,20 @@ def generate_strategy_candidates(
     )
     candidates: list[TradeCandidate] = []
     last_candidate_idx = -999
-    profile = _signal_profile_settings(config.signal_profile)
+    profile = _signal_profile_settings(config.signal_profile, config.profile_config)
+    if profile["name"] == "BALANCED_STABLE" and profile.get("apply_stability_filters") and symbol.upper() in set(profile.get("disabled_symbols", [])):
+        return (
+            TradeCandidate(
+                timestamp=pd.Timestamp(bars.iloc[0]["timestamp"]),
+                symbol=symbol,
+                direction=Direction.BUY,
+                sl_price=0.0,
+                tp_price=0.0,
+                timeframe=timeframe,
+                signal_id=f"stable_block_{symbol}",
+                metadata={"stable_rejection_reason": "STABLE_SYMBOL_DISABLED"},
+            ),
+        )
     for idx in range(220, len(enriched) - 1):
         row = enriched.iloc[idx]
         if pd.isna(row[["ema20", "ema50", "ema200", "rsi14", "atr14"]]).any():
@@ -659,6 +683,30 @@ def generate_strategy_candidates(
             continue
         passed_thresholds, threshold_failures = _profile_threshold_result(signal.metadata, profile, ensemble_score=signal.score)
         if not passed_thresholds:
+            continue
+        session = session_for_timestamp(pd.Timestamp(row["timestamp_utc"]))
+        regime = str(row["regime"])
+        stable_passed, stable_reason = _stable_filter_result(
+            profile,
+            symbol=symbol,
+            strategy_name=signal.strategy_name,
+            session=session,
+            regime=regime,
+        )
+        if not stable_passed:
+            candidates.append(
+                TradeCandidate(
+                    timestamp=pd.Timestamp(row["timestamp_utc"]),
+                    symbol=symbol,
+                    direction=Direction.BUY if signal.action == SignalAction.BUY else Direction.SELL,
+                    sl_price=0.0,
+                    tp_price=0.0,
+                    timeframe=timeframe,
+                    signal_id=f"stable_block_{symbol}_{idx}",
+                    metadata={"stable_rejection_reason": stable_reason},
+                )
+            )
+            last_candidate_idx = idx
             continue
         direction = Direction.BUY if signal.action == SignalAction.BUY else Direction.SELL
         reference = snapshot.ask if direction == Direction.BUY else snapshot.bid
@@ -682,8 +730,8 @@ def generate_strategy_candidates(
                 signal_id=f"bt_{symbol}_{idx}",
                 lot=1.0,
                 metadata={
-                    "regime": str(row["regime"]),
-                    "session": session_for_timestamp(pd.Timestamp(row["timestamp_utc"])),
+                    "regime": regime,
+                    "session": session,
                     "score": signal.score,
                     "ensemble_score": signal.score,
                     "reasons": tuple(signal.reasons),
@@ -737,20 +785,35 @@ def _profile_threshold_result(metadata: Mapping[str, Any], profile: Mapping[str,
     return not failures, tuple(failures)
 
 
-def _signal_profile_settings(name: str) -> dict[str, Any]:
+def _signal_profile_settings(name: str, profile_config: str = "") -> dict[str, Any]:
     try:
-        effective = effective_profile_config(str(name or "CONSERVATIVE").strip().upper(), source="backtester")
+        effective = effective_profile_config(str(name or "CONSERVATIVE").strip().upper(), source="backtester", profile_config=profile_config or None)
     except ValueError:
         effective = effective_profile_config("CONSERVATIVE", source="backtester")
     return {
         "name": effective.profile_name,
         **effective.thresholds,
+        **effective.filters,
         "research_only": effective.research_only,
         "not_for_demo_live": effective.not_for_demo_live,
         "allowed_for_shadow": effective.allowed_for_shadow,
         "profile_hash": effective.profile_hash,
         "source": effective.source,
     }
+
+
+def _stable_filter_result(profile: Mapping[str, Any], *, symbol: str, strategy_name: str, session: str, regime: str) -> tuple[bool, str]:
+    if profile.get("name") != "BALANCED_STABLE" or not profile.get("apply_stability_filters"):
+        return True, ""
+    if symbol.upper() in set(profile.get("disabled_symbols", [])):
+        return False, "STABLE_SYMBOL_DISABLED"
+    if strategy_name.upper() in {str(item).upper() for item in profile.get("disabled_strategies", [])}:
+        return False, "STABLE_STRATEGY_DISABLED"
+    if session.upper() in set(profile.get("blocked_sessions", [])):
+        return False, "STABLE_SESSION_BLOCK"
+    if regime.upper() in set(profile.get("blocked_regimes", [])):
+        return False, "STABLE_REGIME_BLOCK"
+    return True, ""
 
 
 def classify_sample_size(total_trades: int) -> str:
@@ -786,6 +849,14 @@ def _average_metadata_numeric(frame: pd.DataFrame, column: str) -> float:
 
 def _canonical_trade_blocker(reason: str) -> str:
     text = reason.lower()
+    if "stable_symbol_disabled" in text:
+        return "STABLE_SYMBOL_DISABLED"
+    if "stable_strategy_disabled" in text:
+        return "STABLE_STRATEGY_DISABLED"
+    if "stable_session_block" in text:
+        return "STABLE_SESSION_BLOCK"
+    if "stable_regime_block" in text:
+        return "STABLE_REGIME_BLOCK"
     if "sl" in text or "tp" in text or "directional" in text:
         return "MISSING_SL_TP" if "positive sl" in text or "positive sl and tp" in text else "INVALID_RR"
     if "spread" in text:

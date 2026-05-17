@@ -61,6 +61,10 @@ class BotConfig:
     min_setup_score_by_strategy: str = ""
     min_setup_score_by_regime: str = ""
     signal_profile: str = "CONSERVATIVE"
+    profile_config: str = ""
+    stability_filters_applied: bool = False
+    profile_type: str = ""
+    requires_robustness_rerun: bool = False
 
     def validate_safety(self) -> None:
         """Raise ValueError when config weakens mandatory safety defaults."""
@@ -75,8 +79,13 @@ class BotConfig:
             raise ValueError("max open risk cannot exceed 5%")
         if not self.require_sl or not self.require_tp:
             raise ValueError("SL and TP must be required")
-        if self.signal_profile.upper() not in {"CONSERVATIVE", "BALANCED", "BALANCED_FILTERED", "ACTIVE", "RESEARCH_ONLY"}:
-            raise ValueError("SIGNAL_PROFILE must be CONSERVATIVE, BALANCED, BALANCED_FILTERED, ACTIVE, or RESEARCH_ONLY")
+        if self.signal_profile.upper() not in {"CONSERVATIVE", "BALANCED", "BALANCED_FILTERED", "BALANCED_STABLE", "ACTIVE", "RESEARCH_ONLY"}:
+            raise ValueError("SIGNAL_PROFILE must be CONSERVATIVE, BALANCED, BALANCED_FILTERED, BALANCED_STABLE, ACTIVE, or RESEARCH_ONLY")
+        if self.signal_profile.upper() == "BALANCED_STABLE":
+            if not self.profile_config and not self.stability_filters_applied:
+                raise ValueError("STABLE_PROFILE_CONFIG_REQUIRED")
+            if self.profile_type and self.profile_type.upper() != "RESEARCH_BACKTEST_ONLY":
+                raise ValueError("BALANCED_STABLE requires PROFILE_TYPE=RESEARCH_BACKTEST_ONLY")
 
 
 def load_config(path: str | Path | None = None) -> BotConfig:
@@ -127,6 +136,10 @@ def load_config(path: str | Path | None = None) -> BotConfig:
         min_setup_score_by_strategy=str(values.get("MIN_SETUP_SCORE_BY_STRATEGY", "")),
         min_setup_score_by_regime=str(values.get("MIN_SETUP_SCORE_BY_REGIME", "")),
         signal_profile=str(values.get("SIGNAL_PROFILE", "CONSERVATIVE")).upper(),
+        profile_config=str(values.get("PROFILE_CONFIG", "")),
+        stability_filters_applied=bool(values.get("STABILITY_FILTERS_APPLIED", values.get("APPLY_STABILITY_FILTERS", False))),
+        profile_type=str(values.get("PROFILE_TYPE", "")),
+        requires_robustness_rerun=bool(values.get("REQUIRES_ROBUSTNESS_RERUN", False)),
     )
     cfg.validate_safety()
     return cfg

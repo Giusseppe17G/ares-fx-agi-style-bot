@@ -22,7 +22,7 @@ from .backtesting import (
     run_walk_forward_for_symbols,
 )
 from .benchmarks import build_competitive_scorecard, run_benchmarks
-from .calibration import bot_config_with_signal_profile, get_signal_profile, profile_allowed_for_shadow, profile_trade_frequency_status, write_profile_comparison
+from .calibration import bot_config_with_signal_profile, effective_profile_config, get_signal_profile, profile_allowed_for_shadow, profile_trade_frequency_status, write_profile_comparison
 from .config import BotConfig
 from .data_pipeline import audit_historical_data, build_broker_cost_profile, build_dataset_manifest, build_feature_availability_report, build_strategy_data_contract_report, cost_for_symbol, resolve_historical_data
 from .market_structure import run_strategy_diagnose, write_structure_report
@@ -125,7 +125,7 @@ class RealDataResearchRunner:
     ) -> None:
         self.config = config
         self.signal_profile = get_signal_profile(config.signal_profile)
-        self.bot_config = bot_config_with_signal_profile(bot_config or BotConfig(), self.signal_profile.name)
+        self.bot_config = bot_config_with_signal_profile(bot_config or BotConfig(), self.signal_profile.name, config.profile_config)
         self.bot_config.validate_safety()
         self.stage_overrides = dict(stage_overrides or {})
         self.run_dir = Path(config.output_root) / config.run_id
@@ -677,14 +677,14 @@ class RealDataResearchRunner:
         full = self._stage_summary(results, "FULL_VALIDATION")
         decision = str(full.get("final_decision") or "")
         if decision:
-            if decision == "CONTINUE_FORWARD_SHADOW" and self.signal_profile.name in {"ACTIVE", "RESEARCH_ONLY"}:
+            if decision == "CONTINUE_FORWARD_SHADOW" and self.signal_profile.name in {"ACTIVE", "RESEARCH_ONLY", "BALANCED_STABLE"}:
                 issues.append(f"{self.signal_profile.name} is NOT_FOR_DEMO_LIVE and cannot promote to forward-shadow continuation")
                 return "NEEDS_STRATEGY_RESEARCH", issues, _actions_for_decision("NEEDS_STRATEGY_RESEARCH")
             return decision, issues or _issues_for_decision(decision), _actions_for_decision(decision)
         competitive = self._stage_summary(results, "COMPETITIVE_SCORECARD")
         if str(competitive.get("classification", "")).upper() in {"REJECTED", "WEAK_EDGE"}:
             return "NEEDS_STRATEGY_RESEARCH", ["competitive scorecard did not show durable edge"], _actions_for_decision("NEEDS_STRATEGY_RESEARCH")
-        if self.signal_profile.name in {"ACTIVE", "RESEARCH_ONLY"}:
+        if self.signal_profile.name in {"ACTIVE", "RESEARCH_ONLY", "BALANCED_STABLE"}:
             issues.append(f"{self.signal_profile.name} is NOT_FOR_DEMO_LIVE and limited to research diagnostics")
             return "NEEDS_STRATEGY_RESEARCH", issues, _actions_for_decision("NEEDS_STRATEGY_RESEARCH")
         return "CONTINUE_FORWARD_SHADOW", issues or ["evidence collected; continue paper observation"], _actions_for_decision("CONTINUE_FORWARD_SHADOW")
@@ -776,12 +776,14 @@ class RealDataResearchRunner:
         path = Path(self.config.profile_config) if self.config.profile_config else Path("data/reports/stability_repair/balanced_stable.ini")
         values = _read_simple_ini(path)
         enabled = str(values.get("APPLY_STABILITY_FILTERS", "false")).strip().lower() == "true"
+        effective = effective_profile_config("BALANCED_STABLE", source="real-data-research", profile_config=path)
         return {
             "profile": "BALANCED_STABLE",
             "enabled": enabled,
             "profile_config": str(path),
             "profile_config_exists": path.exists(),
             "status": "STABLE_PROFILE_APPLIED" if enabled else "STABLE_PROFILE_NOT_ACTIONABLE",
+            "stable_profile_hash": effective.profile_hash,
             "profile_type": values.get("PROFILE_TYPE", "RESEARCH_BACKTEST_ONLY"),
             "not_for_demo_live": str(values.get("NOT_FOR_DEMO_LIVE", "true")).strip().lower() == "true",
             "requires_robustness_rerun": str(values.get("REQUIRES_ROBUSTNESS_RERUN", "true")).strip().lower() == "true",
@@ -902,6 +904,32 @@ def run_real_data_research(
 ) -> dict[str, Any]:
     """Convenience wrapper for CLI and tests."""
 
+    if config.signal_profile == "BALANCED_STABLE" and not config.profile_config:
+        return {
+            "mode": "real-data-research",
+            "run_id": config.run_id,
+            "signal_profile_used": "BALANCED_STABLE",
+            "classification": "STABLE_PROFILE_CONFIG_REQUIRED",
+            "final_decision": "NEEDS_STRATEGY_REWORK",
+            "error_message": "BALANCED_STABLE requires --profile-config data\\reports\\stability_repair\\balanced_stable.ini",
+            "execution_attempted": False,
+            "order_send_called": False,
+            "order_check_called": False,
+        }
+    if config.signal_profile == "BALANCED_STABLE":
+        values = _read_simple_ini(Path(config.profile_config))
+        if str(values.get("APPLY_STABILITY_FILTERS", values.get("STABILITY_FILTERS_APPLIED", "false"))).strip().lower() != "true":
+            return {
+                "mode": "real-data-research",
+                "run_id": config.run_id,
+                "signal_profile_used": "BALANCED_STABLE",
+                "classification": "STABLE_PROFILE_NOT_ACTIONABLE",
+                "final_decision": "NEEDS_STRATEGY_REWORK",
+                "stable_filters_applied": {"profile": "BALANCED_STABLE", "enabled": False, "profile_config": config.profile_config, "status": "STABLE_PROFILE_NOT_ACTIONABLE"},
+                "execution_attempted": False,
+                "order_send_called": False,
+                "order_check_called": False,
+            }
     return RealDataResearchRunner(config, bot_config=bot_config, stage_overrides=stage_overrides).run()
 
 

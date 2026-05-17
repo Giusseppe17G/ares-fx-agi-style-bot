@@ -340,3 +340,5 @@ py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBP
 ```
 
 `BALANCED_STABLE` is research/backtest-only, marked `NOT_FOR_DEMO_LIVE=true`, and must rerun robustness validation before any paper-only forward-shadow consideration.
+
+If `--profile-config` is omitted, the run fails closed with `STABLE_PROFILE_CONFIG_REQUIRED`. If the file does not apply filters, the run returns `STABLE_PROFILE_NOT_ACTIONABLE` instead of a generic profile error.
