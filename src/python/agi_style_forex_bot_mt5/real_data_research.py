@@ -1074,6 +1074,15 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
             "--profile-config data\\reports\\stability_repair\\balanced_stable.ini --quick"
         )
         payload["recommended_next_action"] = "Rerun BALANCED_STABLE in research/backtest only and then rerun robustness-fast."
+    stable_gate = _load_optional_json(latest / "reports" / "stable_gate" / "stable_gate_summary.json") or _load_optional_json(Path("data/reports/stable_gate/stable_gate_summary.json")) or {}
+    if stable_gate:
+        payload["stable_gate_decision"] = stable_gate.get("stable_gate_decision", "")
+        payload["paper_shadow_ready"] = bool(stable_gate.get("paper_shadow_ready", False))
+        payload["stable_robustness_status"] = stable_gate.get("classification", stable_gate.get("stable_gate_decision", ""))
+        if stable_gate.get("stable_gate_decision") == "PAPER_SHADOW_READY":
+            payload["recommended_next_action"] = "Run forward-shadow with BALANCED_STABLE in paper/shadow only. Do not enable demo/live."
+        elif stable_gate.get("stable_gate_decision"):
+            payload["recommended_next_action"] = "Review stable gate report and rerun BALANCED_STABLE robustness before paper/shadow observation."
     if payload.get("timestamp_status") == "FAILED":
         payload["recommended_next_action"] = "Run FASE 18D timestamp normalization repair or re-export history."
     elif payload.get("data_contract_status") not in {"", "OK"}:
@@ -1086,6 +1095,8 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
         payload["recommended_next_action"] = "Export more H1 bars for full validation; calibration may continue."
     elif int(payload.get("total_trades", 0) or 0) == 0 and not payload.get("main_data_blocker"):
         payload["recommended_next_action"] = "Run FASE 19: Strategy Threshold Application / Balanced Profile Backtest."
+    if payload.get("stable_gate_decision") == "PAPER_SHADOW_READY":
+        payload["recommended_next_action"] = "Run forward-shadow with BALANCED_STABLE in paper/shadow only. Do not enable demo/live."
     return {"mode": "latest-run-summary", "run_dir": str(latest), **payload, "execution_attempted": False}
 
 

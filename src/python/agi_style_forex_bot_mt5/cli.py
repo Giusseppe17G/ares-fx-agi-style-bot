@@ -19,7 +19,7 @@ from .backtesting import (
     run_walk_forward_for_symbols,
 )
 from .benchmarks import build_competitive_scorecard, run_benchmarks
-from .calibration import apply_signal_profile, profile_allowed_for_shadow, run_blocking_reasons_report, run_signal_calibration, run_threshold_sweep_report
+from .calibration import apply_signal_profile, bot_config_with_signal_profile, profile_allowed_for_shadow, run_blocking_reasons_report, run_signal_calibration, run_threshold_sweep_report
 from .broker_quality import build_readiness_report, run_broker_quality
 from .config import load_config
 from .contracts import AccountState, MarketSnapshot, utc_now
@@ -46,7 +46,7 @@ from .portfolio import build_correlation_report, build_exposure_report, build_po
 from .profile_validation import run_balanced_candidate_gate, run_profile_integrity, run_profile_threshold_audit
 from .real_data_research import RealDataResearchConfig, load_latest_run_summary, run_real_data_research
 from .research import run_research
-from .robustness_validation import run_robustness_fast
+from .robustness_validation import run_robustness_fast, run_stable_robustness_gate
 from .stability_repair import run_build_stable_profile, run_stability_repair, run_walk_forward_failure_analysis
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
 from .validation_pipeline import PipelineConfig, run_full_validation
@@ -175,6 +175,7 @@ def main(argv: list[str] | None = None) -> int:
             "balanced-candidate-gate",
             "profile-threshold-audit",
             "robustness-fast",
+            "stable-robustness-gate",
             "walk-forward-failure-analysis",
             "stability-repair",
             "build-stable-profile",
@@ -447,9 +448,22 @@ def main(argv: list[str] | None = None) -> int:
                 runs_root=args.runs_root,
                 profile_runs_dir=args.profile_runs_dir,
                 profile=args.profile,
+                profile_config=args.profile_config,
                 output_dir=output_dir,
                 simulations=args.simulations,
                 seed=args.seed,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "stable-robustness-gate":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/stable_gate")
+            summary = run_stable_robustness_gate(
+                runs_root=args.runs_root,
+                robustness_dir=args.robustness_dir,
+                stability_dir=args.stability_dir,
+                profile=args.profile,
+                output_dir=output_dir,
             )
             print(_json_dumps(summary))
             return 0
@@ -533,8 +547,6 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.mode == "backtest":
             if args.signal_profile:
-                from .calibration import bot_config_with_signal_profile
-
                 config = bot_config_with_signal_profile(config, args.signal_profile, str(args.profile_config) if args.profile_config else "")
             cost_profile = _load_optional_json(args.reports_root / "broker_costs" / "broker_cost_profile.json")
             spread_points = cost_for_symbol(cost_profile, selected_symbols[0], fallback=args.spread_points)
@@ -674,7 +686,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "forward-shadow":
             if database is None:
                 parser.error("--mode forward-shadow requires --sqlite for paper lifecycle persistence")
-            if not profile_allowed_for_shadow(config.signal_profile):
+            if args.signal_profile:
+                config = bot_config_with_signal_profile(config, args.signal_profile, str(args.profile_config) if args.profile_config else "")
+            if config.signal_profile == "BALANCED_STABLE":
+                if not _stable_gate_ready():
+                    parser.error("SIGNAL_PROFILE=BALANCED_STABLE requires PAPER_SHADOW_READY from --mode stable-robustness-gate")
+            elif not profile_allowed_for_shadow(config.signal_profile):
                 parser.error(f"SIGNAL_PROFILE={config.signal_profile} is not allowed to create forward-shadow paper trades")
             bot = ForwardShadowBot(
                 config=config,
@@ -877,6 +894,11 @@ def _contains_csv(path: Path) -> bool:
 
 def _bool_arg(value: object) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _stable_gate_ready(path: Path = Path("data/reports/stable_gate/stable_gate_summary.json")) -> bool:
+    payload = _load_optional_json(path)
+    return bool(payload and payload.get("stable_gate_decision") == "PAPER_SHADOW_READY" and payload.get("paper_shadow_ready") is True and payload.get("execution_attempted") is False)
 
 
 def _json_dumps(payload: object) -> str:

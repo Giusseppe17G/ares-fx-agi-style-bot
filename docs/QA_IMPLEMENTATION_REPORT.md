@@ -156,6 +156,27 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 25 Stable Shadow Readiness Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 334 tests collected.
+
+Integrated in Phase 25:
+
+- Extended `robustness-fast` for `BALANCED_STABLE` with `--profile-config`.
+- Added `stable-robustness-gate` and `PAPER_SHADOW_READY` as a paper/shadow-only readiness decision.
+- Added stable gate reports under `data/reports/stable_gate`.
+- Added Windows scripts for BALANCED_STABLE forward-shadow and watchdog operation.
+- Added Telegram read-only commands `/stable`, `/stable_gate`, and `/shadow_stable`.
+- `latest-run-summary` now surfaces stable gate decision and paper shadow readiness.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 24B BALANCED_STABLE Registration Repair
 
 Status: PASS. Verification: `py -m pytest -q` completed successfully, 326 tests collected.

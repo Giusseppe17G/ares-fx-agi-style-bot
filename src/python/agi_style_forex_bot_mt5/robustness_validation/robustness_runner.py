@@ -31,7 +31,7 @@ def load_balanced_trades(
 def candidate_trade_paths(*, runs_root: Path, profile_runs_dir: Path, profile: str) -> list[Path]:
     profile_key = profile.strip().lower()
     paths: list[Path] = []
-    latest = latest_run_dir(runs_root)
+    latest = latest_run_dir(runs_root, profile=profile)
     if latest is not None:
         reports = latest / "reports"
         paths.append(reports / "backtests" / "trades.csv")
@@ -52,10 +52,15 @@ def candidate_trade_paths(*, runs_root: Path, profile_runs_dir: Path, profile: s
     return unique
 
 
-def latest_run_dir(runs_root: Path) -> Path | None:
+def latest_run_dir(runs_root: Path, profile: str | None = None) -> Path | None:
     if not runs_root.exists():
         return None
     candidates = [path for path in runs_root.iterdir() if path.is_dir() and ((path / "final_summary_compact.json").exists() or (path / "reports").exists())]
+    if profile:
+        profile_key = profile.strip().upper()
+        matching = [path for path in candidates if _run_profile(path) == profile_key]
+        if matching:
+            candidates = matching
     return sorted(candidates, key=lambda path: (_mtime(path), path.name))[-1] if candidates else None
 
 
@@ -80,6 +85,20 @@ def load_profile_summary(profile_runs_dir: str | Path, profile: str) -> dict[str
             if not rows.empty:
                 return rows.iloc[0].to_dict()
     return {}
+
+
+def load_latest_profile_run_summary(runs_root: str | Path, profile: str) -> dict[str, Any]:
+    """Load final_summary_compact/final_summary for the newest run matching a profile."""
+
+    latest = latest_run_dir(Path(runs_root), profile=profile)
+    if latest is None:
+        return {}
+    compact = _read_json(latest / "final_summary_compact.json")
+    full = _read_json(latest / "final_summary.json")
+    payload = {**full, **compact}
+    if payload:
+        payload.setdefault("run_id", latest.name)
+    return payload
 
 
 def normalize_trade_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -169,6 +188,15 @@ def _read_json(path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def _run_profile(path: Path) -> str:
+    for candidate in (path / "final_summary_compact.json", path / "final_summary.json"):
+        payload = _read_json(candidate)
+        profile = str(payload.get("signal_profile_used") or payload.get("signal_profile") or "").strip().upper()
+        if profile:
+            return profile
+    return ""
 
 
 def _mtime(path: Path) -> float:

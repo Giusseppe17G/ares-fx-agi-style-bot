@@ -64,6 +64,9 @@ class TelegramCommandCenter:
         "/paper_vs_backtest",
         "/validation",
         "/pipeline",
+        "/stable",
+        "/stable_gate",
+        "/shadow_stable",
     }
 
     def __init__(
@@ -215,6 +218,13 @@ class TelegramCommandCenter:
                 response = decision_path.read_text(encoding="utf-8")[:1000]
             else:
                 response = '{"mode":"full-validation","status":"NO_PIPELINE_RUN","execution_attempted":false}'
+            return TelegramCommandResult(command, True, response, "OK")
+        if command in {"/stable", "/stable_gate", "/shadow_stable"}:
+            summary_path = Path("data/reports/stable_gate/stable_gate_summary.json")
+            if summary_path.exists():
+                response = summary_path.read_text(encoding="utf-8")[:1000]
+            else:
+                response = '{"mode":"stable-robustness-gate","stable_gate_decision":"NO_STABLE_GATE_RUN","paper_shadow_ready":false,"execution_attempted":false}'
             return TelegramCommandResult(command, True, response, "OK")
         return TelegramCommandResult(command, True, self._help(), "OK")
 

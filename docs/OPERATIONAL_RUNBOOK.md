@@ -14,6 +14,22 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\run_forward_shadow.ps1
 powershell.exe -ExecutionPolicy Bypass -File .\scripts\watchdog_forward_shadow.ps1
 ```
 
+## Start BALANCED_STABLE Shadow
+
+Only after `stable-robustness-gate` returns `PAPER_SHADOW_READY`:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\run_forward_shadow_balanced_stable.ps1
+```
+
+For 24/7 paper observation:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\watchdog_forward_shadow_balanced_stable.ps1
+```
+
+These scripts keep `DEMO_ONLY=True`, `LIVE_TRADING_APPROVED=False`, and paper/shadow mode only.
+
 ## Check Status
 
 ```powershell

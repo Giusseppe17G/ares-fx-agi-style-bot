@@ -58,6 +58,16 @@ $env:PYTHONPATH="src/python"
 py -m agi_style_forex_bot_mt5.cli --mode forward-shadow --symbols EURUSD --log-dir data\logs\forward-shadow-smoke --sqlite data\sqlite\forward-shadow-smoke.sqlite3 --cycle-seconds 0 --max-cycles 1
 ```
 
+## BALANCED_STABLE Paper Observation
+
+`BALANCED_STABLE` can run forward-shadow only after `stable-robustness-gate` writes `PAPER_SHADOW_READY`.
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\run_forward_shadow_balanced_stable.ps1
+```
+
+This remains paper/shadow only and uses `data\sqlite\forward-shadow-stable.sqlite3` plus `data\logs\forward-shadow-stable`. It does not call `order_send` or `order_check`.
+
 Example cycle summary:
 
 ```json

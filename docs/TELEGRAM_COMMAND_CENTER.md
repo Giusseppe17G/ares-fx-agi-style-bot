@@ -79,6 +79,14 @@ They cannot enable demo/live execution, cannot change `DEMO_ONLY`, cannot change
 
 `/outbox` attempts a safe Telegram outbox flush without duplicating delivered messages.
 
+Stable profile commands are read-only:
+
+- `/stable`
+- `/stable_gate`
+- `/shadow_stable`
+
+They return the latest stable gate summary and never enable demo/live execution.
+
 These commands are operational only and cannot enable trading.
 
 ## Execution Simulation Commands

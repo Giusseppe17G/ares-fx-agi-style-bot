@@ -31,6 +31,18 @@ py -m agi_style_forex_bot_mt5.cli --mode real-data-research --symbols EURUSD,GBP
 
 The rerun is still research/backtest only. After it, rerun edge evaluation and `robustness-fast`.
 
+## Stable Shadow Gate
+
+After a profitable `BALANCED_STABLE` rerun, validate it before any prolonged paper/shadow observation:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode robustness-fast --runs-root data\runs --profile-runs-dir data\reports\profile_runs --profile BALANCED_STABLE --profile-config data\reports\stability_repair\balanced_stable.ini --output-dir data\reports\robustness
+
+py -m agi_style_forex_bot_mt5.cli --mode stable-robustness-gate --runs-root data\runs --robustness-dir data\reports\robustness --stability-dir data\reports\stability_repair --profile BALANCED_STABLE --output-dir data\reports\stable_gate
+```
+
+`PAPER_SHADOW_READY` means paper observation only. It does not enable demo/live execution.
+
 Stable filters can produce explicit backtest blockers:
 
 - `STABLE_SYMBOL_DISABLED`

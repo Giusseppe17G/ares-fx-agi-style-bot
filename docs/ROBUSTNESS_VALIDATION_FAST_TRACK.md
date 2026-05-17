@@ -75,6 +75,18 @@ py -m agi_style_forex_bot_mt5.cli --mode stability-repair --runs-root data\runs 
 
 The generated `BALANCED_STABLE` profile must be rerun with `--profile-config` and remains `NOT_FOR_DEMO_LIVE=true` until a new robustness rerun says otherwise. Missing or non-actionable stable configs fail closed.
 
+## BALANCED_STABLE Robustness
+
+After the stable rerun creates trade evidence, validate the stable profile directly:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode robustness-fast --runs-root data\runs --profile-runs-dir data\reports\profile_runs --profile BALANCED_STABLE --profile-config data\reports\stability_repair\balanced_stable.ini --output-dir data\reports\robustness
+
+py -m agi_style_forex_bot_mt5.cli --mode stable-robustness-gate --runs-root data\runs --robustness-dir data\reports\robustness --stability-dir data\reports\stability_repair --profile BALANCED_STABLE --output-dir data\reports\stable_gate
+```
+
+`PAPER_SHADOW_READY` means the profile is worth prolonged paper/shadow observation. It still does not authorize demo/live execution.
+
 ## Reports
 
 - `robustness_summary.json`
