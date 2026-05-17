@@ -975,6 +975,16 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
             payload["recommended_next_action"] = (
                 "Run profile-comparison-run with BALANCED and ACTIVE research-only; do not use BALANCED_FILTERED because no actionable filter was created."
             )
+    profile_integrity = _load_optional_json(latest / "reports" / "profile_validation" / "profile_integrity.json") or _load_optional_json(Path("data/reports/profile_validation/profile_integrity.json")) or {}
+    balanced_gate = _load_optional_json(latest / "reports" / "profile_validation" / "balanced_candidate_gate.json") or _load_optional_json(Path("data/reports/profile_validation/balanced_candidate_gate.json")) or {}
+    if profile_integrity:
+        payload["profile_integrity_status"] = profile_integrity.get("profile_integrity_status", "")
+        payload["active_vs_balanced_similarity"] = profile_integrity.get("active_vs_balanced_similarity", "")
+    if balanced_gate:
+        payload["balanced_candidate_decision"] = balanced_gate.get("balanced_decision", "")
+        payload["balanced_candidate_reason"] = balanced_gate.get("reason", "")
+        if balanced_gate.get("balanced_decision") == "BALANCED_NEEDS_ROBUSTNESS_VALIDATION":
+            payload["recommended_next_action"] = "Run walk-forward, Monte Carlo, stress-test and full-validation before any paper-only forward-shadow expansion."
     if payload.get("timestamp_status") == "FAILED":
         payload["recommended_next_action"] = "Run FASE 18D timestamp normalization repair or re-export history."
     elif payload.get("data_contract_status") not in {"", "OK"}:

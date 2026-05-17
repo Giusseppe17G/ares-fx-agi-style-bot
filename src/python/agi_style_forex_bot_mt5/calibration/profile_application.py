@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from configparser import ConfigParser
 from dataclasses import replace
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -42,6 +43,13 @@ def profile_to_config(profile: SignalProfileSettings) -> dict[str, Any]:
     }
 
 
+def profile_hash(profile: SignalProfileSettings | Mapping[str, Any]) -> str:
+    """Return a stable hash for profile thresholds and safety flags."""
+
+    payload = profile.to_dict() if isinstance(profile, SignalProfileSettings) else dict(profile)
+    return sha256(json.dumps(_jsonable(payload), sort_keys=True).encode("utf-8")).hexdigest()
+
+
 def bot_config_with_signal_profile(config: BotConfig, profile_name: str) -> BotConfig:
     """Return a safe config copy with only the signal profile changed."""
 
@@ -75,6 +83,7 @@ def apply_signal_profile(
         "profile_name": profile.name,
         "source_config": str(source_config) if source_config else "",
         "thresholds": thresholds,
+        "profile_hash": profile_hash(profile),
         "not_for_demo_live": bool(profile.not_for_demo_live),
         "profile_allowed_for_shadow": profile_allowed_for_shadow(profile.name),
         "research_only": bool(profile.research_only),
@@ -100,9 +109,19 @@ def write_profile_comparison(output_dir: str | Path, metrics_by_profile: Mapping
     metrics = {key.upper(): dict(value) for key, value in dict(metrics_by_profile or {}).items()}
     for name, profile in PROFILES.items():
         observed = metrics.get(name, {})
+        thresholds = profile.to_dict()
         rows.append(
             {
                 "profile": name,
+                "thresholds_used": thresholds,
+                "profile_hash": profile_hash(profile),
+                "ensemble_min_score": profile.ensemble_min_score,
+                "min_component_score": profile.min_component_score,
+                "min_setup_score": profile.min_setup_score,
+                "cost_fit_min": profile.cost_fit_min,
+                "session_fit_min": profile.session_fit_min,
+                "structure_fit_min": profile.structure_fit_min,
+                "volatility_fit_min": profile.volatility_fit_min,
                 "signals_generated": int(observed.get("signals_generated", 0) or 0),
                 "trades_generated": int(observed.get("trades_generated", 0) or 0),
                 "winrate": float(observed.get("winrate", 0.0) or 0.0),

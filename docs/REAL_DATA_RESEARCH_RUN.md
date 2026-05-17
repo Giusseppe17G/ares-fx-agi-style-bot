@@ -312,3 +312,13 @@ If the profile config contains `APPLY_FILTERS=false`, the run records `FILTERED_
 $env:PYTHONPATH="src/python"
 py -m agi_style_forex_bot_mt5.cli --mode profile-comparison-run --symbols EURUSD,GBPUSD,USDJPY --data-dir data\runs\<RUN_ID>\historical --output-dir data\reports\profile_runs --compare-profiles BALANCED,ACTIVE
 ```
+
+Then validate the comparison and gate BALANCED:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode profile-integrity --profile-runs-dir data\reports\profile_runs --output-dir data\reports\profile_validation
+py -m agi_style_forex_bot_mt5.cli --mode balanced-candidate-gate --runs-root data\runs --profile-runs-dir data\reports\profile_runs --edge-dir data\reports\edge --output-dir data\reports\profile_validation
+```
+
+If the gate returns `BALANCED_NEEDS_ROBUSTNESS_VALIDATION`, run walk-forward, Monte Carlo, stress testing, and full validation before any paper-only forward-shadow expansion.

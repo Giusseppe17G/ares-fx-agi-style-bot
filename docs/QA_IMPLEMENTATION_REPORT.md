@@ -984,3 +984,24 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## Phase 22 Profile Validation Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 294 tests collected.
+
+Integrated in Phase 22:
+
+- Added `profile_validation` package with threshold diff, metric comparison, profile integrity, and BALANCED candidate gate.
+- Added CLI modes `profile-integrity` and `balanced-candidate-gate`.
+- Profile comparison artifacts now include `thresholds_used`, threshold columns, and `profile_hash`.
+- The backtester now recognizes `BALANCED_FILTERED` thresholds and emits profile hashes.
+- The BALANCED gate returns `BALANCED_METRICS_UNTRUSTED` when profile integrity fails, and `BALANCED_NEEDS_ROBUSTNESS_VALIDATION` when BALANCED has positive quick metrics but still lacks robustness validation.
+- `latest-run-summary` surfaces profile integrity status, ACTIVE vs BALANCED similarity, BALANCED candidate decision, and reason.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

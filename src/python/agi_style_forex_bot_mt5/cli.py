@@ -43,6 +43,7 @@ from .persistence import (
     validate_event_integrity,
 )
 from .portfolio import build_correlation_report, build_exposure_report, build_portfolio_status
+from .profile_validation import run_balanced_candidate_gate, run_profile_integrity
 from .real_data_research import RealDataResearchConfig, load_latest_run_summary, run_real_data_research
 from .research import run_research
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
@@ -168,6 +169,8 @@ def main(argv: list[str] | None = None) -> int:
             "strategy-selection",
             "edge-filtering",
             "build-filtered-profile",
+            "profile-integrity",
+            "balanced-candidate-gate",
         ],
         default="shadow",
     )
@@ -192,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--require-actionable-filter", default="false", help="Require edge-filtering to create an actionable BALANCED_FILTERED overlay.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
     parser.add_argument("--reports-root", type=Path, default=Path("data/reports"), help="Reports root for validation-report.")
+    parser.add_argument("--profile-runs-dir", type=Path, default=Path("data/reports/profile_runs"), help="Profile comparison report directory.")
     parser.add_argument("--trades", type=Path, default=None, help="Trades CSV for monte-carlo.")
     parser.add_argument("--dataset", type=Path, default=None, help="ML dataset CSV for train-ml-filter.")
     parser.add_argument("--model-dir", type=Path, default=Path("data/models/ml_filter"), help="ML model registry directory.")
@@ -407,6 +411,18 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "build-filtered-profile":
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/edge_filtering")
             summary = run_filtered_profile_builder(runs_root=args.runs_root, edge_dir=args.edge_dir, output_dir=output_dir, base_profile=args.base_profile, require_actionable_filter=_bool_arg(args.require_actionable_filter))
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "profile-integrity":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/profile_validation")
+            summary = run_profile_integrity(profile_runs_dir=args.profile_runs_dir, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "balanced-candidate-gate":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/profile_validation")
+            summary = run_balanced_candidate_gate(runs_root=args.runs_root, profile_runs_dir=args.profile_runs_dir, edge_dir=args.edge_dir, output_dir=output_dir)
             print(_json_dumps(summary))
             return 0
 

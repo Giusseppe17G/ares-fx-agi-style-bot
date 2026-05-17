@@ -95,6 +95,8 @@ This creates `BALANCED_FILTERED`, which keeps the safer BALANCED frequency while
 
 If edge filtering returns `NO_ACTIONABLE_FILTER`, do not use `BALANCED_FILTERED`; compare `BALANCED` against `ACTIVE` in research-only mode instead.
 
+Before trusting profile comparison output, run `profile-integrity`. If ACTIVE and BALANCED are `IDENTICAL_METRICS`, treat ACTIVE conclusions as untrusted until threshold consumption is inspected.
+
 ## Outputs
 
 Reports are written to `data/reports/edge` unless another output directory is provided:

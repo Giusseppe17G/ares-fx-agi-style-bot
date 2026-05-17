@@ -722,13 +722,16 @@ def _signal_profile_settings(name: str) -> dict[str, Any]:
     profiles = {
         "CONSERVATIVE": {"name": "CONSERVATIVE", "min_setup_score": 72.0, "min_component_score": 60.0, "cost_fit_min": 70.0, "structure_fit_min": 65.0, "volatility_fit_min": 65.0, "session_fit_min": 60.0, "ensemble_min_score": 70.0, "near_miss_window": 5.0, "research_only": False, "not_for_demo_live": False},
         "BALANCED": {"name": "BALANCED", "min_setup_score": 62.0, "min_component_score": 50.0, "cost_fit_min": 55.0, "structure_fit_min": 50.0, "volatility_fit_min": 50.0, "session_fit_min": 50.0, "ensemble_min_score": 60.0, "near_miss_window": 8.0, "research_only": False, "not_for_demo_live": False},
+        "BALANCED_FILTERED": {"name": "BALANCED_FILTERED", "min_setup_score": 62.0, "min_component_score": 50.0, "cost_fit_min": 55.0, "structure_fit_min": 50.0, "volatility_fit_min": 50.0, "session_fit_min": 50.0, "ensemble_min_score": 60.0, "near_miss_window": 8.0, "research_only": False, "not_for_demo_live": False},
         "ACTIVE": {"name": "ACTIVE", "min_setup_score": 55.0, "min_component_score": 45.0, "cost_fit_min": 45.0, "structure_fit_min": 45.0, "volatility_fit_min": 45.0, "session_fit_min": 45.0, "ensemble_min_score": 55.0, "near_miss_window": 10.0, "research_only": True, "not_for_demo_live": True},
         "RESEARCH_ONLY": {"name": "RESEARCH_ONLY", "min_setup_score": 48.0, "min_component_score": 35.0, "cost_fit_min": 35.0, "structure_fit_min": 35.0, "volatility_fit_min": 35.0, "session_fit_min": 35.0, "ensemble_min_score": 50.0, "near_miss_window": 15.0, "research_only": True, "not_for_demo_live": True},
     }
     key = str(name or "CONSERVATIVE").strip().upper()
     if key not in profiles:
         key = "CONSERVATIVE"
-    return profiles[key]
+    profile = dict(profiles[key])
+    profile["profile_hash"] = sha256(json.dumps(profile, sort_keys=True).encode("utf-8")).hexdigest()
+    return profile
 
 
 def classify_sample_size(total_trades: int) -> str:
@@ -841,8 +844,9 @@ def run_backtest_for_symbols(
         "mode": "backtest",
         "signal_profile_used": profile["name"],
         "thresholds_used": dict(profile),
+        "profile_hash": profile["profile_hash"],
         "profile_not_for_demo_live": bool(profile["not_for_demo_live"]),
-        "profile_allowed_for_shadow": profile["name"] in {"CONSERVATIVE", "BALANCED"} and not bool(profile["not_for_demo_live"]),
+        "profile_allowed_for_shadow": profile["name"] in {"CONSERVATIVE", "BALANCED", "BALANCED_FILTERED"} and not bool(profile["not_for_demo_live"]),
         "symbols_tested": len(qualities),
         "data_valid_symbols": data_valid_symbols,
         "signals_generated": signals_generated,
