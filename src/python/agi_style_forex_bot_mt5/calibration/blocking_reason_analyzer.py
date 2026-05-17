@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -50,34 +49,47 @@ def load_strategy_diagnostics(reports_root: str | Path) -> list[dict[str, Any]]:
 
     root = Path(reports_root)
     records: list[dict[str, Any]] = []
-    for path in sorted(root.glob("**/strategy_diagnose.json")) + sorted(root.glob("**/strategy_diagnostics.json")):
+    candidate_paths = _diagnostic_paths(root)
+    for path in candidate_paths:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             continue
-        if "diagnostics" in payload and isinstance(payload["diagnostics"], list):
-            records.extend(dict(item) for item in payload["diagnostics"])
-        else:
-            records.append(payload)
+        records.extend(_records_from_payload(payload))
     return records
 
 
 def _flatten_record(record: Mapping[str, Any]) -> dict[str, Any]:
     metadata = dict(record.get("metadata") or {})
     component_scores = dict(metadata.get("component_scores") or record.get("component_scores") or {})
-    blocking = record.get("blocking_reasons") or metadata.get("blocking_reasons") or record.get("reasons") or ("unknown",)
+    blocking = (
+        record.get("blocking_reasons")
+        or metadata.get("blocking_reasons")
+        or record.get("blocking_reason")
+        or record.get("top_blocking_reasons")
+        or record.get("reasons")
+        or record.get("top_issues")
+        or ("unknown",)
+    )
     if isinstance(blocking, str):
         blocking = (blocking,)
-    reason = str(next(iter(blocking), "unknown"))
+    if isinstance(blocking, list) and blocking and isinstance(blocking[0], Mapping):
+        reason = str(blocking[0].get("blocking_reason") or blocking[0].get("reason") or "unknown")
+    else:
+        reason = str(next(iter(blocking), "unknown"))
     weakest_component = _weakest_component(component_scores)
     return {
         "symbol": str(record.get("symbol", "")),
-        "strategy": str(record.get("strategy_name") or metadata.get("suggested_strategy_name") or ""),
+        "strategy": str(record.get("strategy_name") or record.get("strategy") or metadata.get("suggested_strategy_name") or ""),
         "regime": str(record.get("regime") or metadata.get("regime") or ""),
         "session": str(record.get("session") or metadata.get("session") or ""),
         "blocking_reason": reason,
         "component": weakest_component[0],
         "component_score": weakest_component[1],
+        "setup_score": record.get("setup_score", metadata.get("setup_quality_score", "")),
+        "score": record.get("score", ""),
+        "threshold": record.get("threshold", ""),
+        "required_data_missing": record.get("required_data_missing", False),
     }
 
 
@@ -93,3 +105,70 @@ def _count_by(frame: pd.DataFrame, column: str) -> pd.DataFrame:
     if frame.empty or column not in frame.columns:
         return pd.DataFrame(columns=[column, "count"])
     return frame[column].fillna("").astype(str).value_counts().reset_index(name="count").rename(columns={"index": column})
+
+
+def _diagnostic_paths(root: Path) -> list[Path]:
+    paths: set[Path] = set()
+    for folder in ("strategy_diagnostics", "backtests", "research"):
+        base = root / folder
+        if base.exists():
+            paths.update(path for path in base.rglob("*.json") if path.is_file())
+    for name in ("final_summary.json", "final_summary_compact.json"):
+        path = root / name
+        if path.exists():
+            paths.add(path)
+    paths.update(root.glob("**/strategy_diagnose.json"))
+    paths.update(root.glob("**/strategy_diagnostics.json"))
+    return sorted(paths)
+
+
+def _records_from_payload(payload: Any) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    if isinstance(payload, list):
+        for item in payload:
+            records.extend(_records_from_payload(item))
+        return records
+    if not isinstance(payload, Mapping):
+        return records
+    for key in ("diagnostics", "records", "signals", "candidates"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, Mapping):
+                    records.append(dict(item))
+            if records:
+                return records
+    if "stages" in payload and isinstance(payload["stages"], list):
+        for stage in payload["stages"]:
+            if isinstance(stage, Mapping):
+                summary = stage.get("summary")
+                if isinstance(summary, Mapping):
+                    records.extend(_records_from_payload(summary))
+                elif stage.get("error_message"):
+                    records.append(
+                        {
+                            "strategy_name": str(stage.get("stage_name") or stage.get("name") or ""),
+                            "blocking_reasons": [str(stage.get("error_message"))],
+                        }
+                    )
+        if records:
+            return records
+    if any(
+        key in payload
+        for key in (
+            "blocking_reasons",
+            "blocking_reason",
+            "top_blocking_reasons",
+            "component_scores",
+            "metadata",
+            "setup_score",
+            "score",
+            "top_issues",
+            "zero_trade_detected",
+        )
+    ):
+        record = dict(payload)
+        if record.get("zero_trade_detected") and "blocking_reasons" not in record and "top_blocking_reasons" not in record:
+            record["blocking_reasons"] = ["ZERO_TRADE_DETECTED"]
+        records.append(record)
+    return records

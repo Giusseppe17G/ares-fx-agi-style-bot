@@ -622,9 +622,13 @@ class RealDataResearchRunner:
         if not summary:
             return {}
         return {
+            "calibration_status": str(summary.get("classification") or summary.get("status") or ""),
             "recommended_profile": summary.get("recommended_profile", ""),
             "suggested_threshold_changes": summary.get("suggested_threshold_changes", {}),
             "expected_signal_frequency": summary.get("expected_signal_frequency", summary.get("signals_found", 0)),
+            "signals_found": summary.get("signals_found", 0),
+            "near_misses": summary.get("near_misses", 0),
+            "top_blocking_reasons": summary.get("top_blocking_reasons", []),
             "top_blockers": summary.get("top_blocking_reasons", []),
         }
 
@@ -665,6 +669,17 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
         }
     latest = sorted(candidates, key=lambda path: (path.name, path.stat().st_mtime))[-1]
     payload = json.loads((latest / "final_summary_compact.json").read_text(encoding="utf-8"))
+    calibration = payload.get("calibration") if isinstance(payload.get("calibration"), dict) else {}
+    latest_calibration = _load_optional_json(latest / "reports" / "calibration" / "threshold_sweep_summary.json") or _load_optional_json(latest / "reports" / "calibration" / "summary.json")
+    if latest_calibration:
+        calibration = {**calibration, **latest_calibration}
+        payload["calibration"] = calibration
+    payload["calibration_status"] = calibration.get("calibration_status") or calibration.get("classification", "")
+    payload["recommended_profile"] = calibration.get("recommended_profile", payload.get("recommended_profile", ""))
+    payload["signals_found"] = calibration.get("signals_found", payload.get("signals_found", 0))
+    payload["near_misses"] = calibration.get("near_misses", payload.get("near_misses", 0))
+    payload["top_blocking_reasons"] = calibration.get("top_blocking_reasons") or calibration.get("top_blockers") or payload.get("top_blocking_reasons", [])
+    payload["suggested_threshold_changes"] = calibration.get("suggested_threshold_changes", payload.get("suggested_threshold_changes", {}))
     return {"mode": "latest-run-summary", "run_dir": str(latest), **payload, "execution_attempted": False}
 
 

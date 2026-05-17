@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -24,6 +25,7 @@ def run_threshold_sweep(
     rows: list[dict[str, Any]] = []
     profile_list = tuple(profiles)
     base_by_profile = {profile.name: analyze_signal_frequency(symbols=symbols, data_dir=data_dir, profile=profile) for profile in profile_list}
+    all_records = [record for base in base_by_profile.values() for record in base.get("records", [])]
     for profile in profile_list:
         configs = _sample_grid(profile, max_combinations=max_combinations_per_profile)
         base = base_by_profile[profile.name]
@@ -41,12 +43,30 @@ def run_threshold_sweep(
                 }
             )
     best = _recommend(rows)
+    best_frequency = _best_by(rows, "accepted_candidates")
+    best_quality = _best_quality(rows)
+    signals_found = int(sum(int(base.get("signals_found", 0) or 0) for base in base_by_profile.values()))
+    near_misses = int(sum(int(base.get("near_misses", 0) or 0) for base in base_by_profile.values()))
+    accepted_candidates = int(sum(int(base.get("accepted_candidates", 0) or 0) for base in base_by_profile.values()))
+    blocked_candidates = int(sum(int(base.get("blocked_candidates", 0) or 0) for base in base_by_profile.values()))
+    top_blockers = _top_blockers(all_records)
+    all_zero = signals_found == 0 and accepted_candidates == 0
+    recommended_profile = "RESEARCH_ONLY" if all_zero else str(best.get("profile", "BALANCED"))
     return {
         "rows": rows,
-        "signals_found": int(sum(row["signals_generated"] for row in rows[: len(profile_list)])) if rows else 0,
-        "near_misses": int(sum(row["near_misses"] for row in rows[: len(profile_list)])) if rows else 0,
-        "recommended_profile": best.get("profile", "CONSERVATIVE"),
+        "records": all_records,
+        "candidates_evaluated": len(all_records),
+        "accepted_candidates": accepted_candidates,
+        "blocked_candidates": blocked_candidates,
+        "signals_found": signals_found,
+        "near_misses": near_misses,
+        "top_blocking_reasons": top_blockers,
+        "best_profile_by_frequency": str(best_frequency.get("profile", "")),
+        "best_profile_by_quality_proxy": str(best_quality.get("profile", "")),
+        "recommended_profile": recommended_profile,
         "suggested_threshold_changes": best,
+        "classification": "NEEDS_STRATEGY_RESEARCH" if all_zero else "THRESHOLD_SWEEP_COMPLETED",
+        "likely_next_step": "Relax diagnostic thresholds or inspect data/feature generation" if all_zero else "Validate selected profile with backtest/research.",
         "execution_attempted": False,
     }
 
@@ -93,3 +113,29 @@ def _recommend(rows: list[dict[str, Any]]) -> dict[str, Any]:
         candidates = frame
     row = candidates.sort_values(["quality_proxy", "accepted_candidates"], ascending=False).iloc[0]
     return row.to_dict()
+
+
+def _best_by(rows: list[dict[str, Any]], column: str) -> dict[str, Any]:
+    if not rows:
+        return {}
+    frame = pd.DataFrame(rows)
+    if column not in frame:
+        return {}
+    return frame.sort_values(column, ascending=False).iloc[0].to_dict()
+
+
+def _best_quality(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if not rows:
+        return {}
+    frame = pd.DataFrame(rows)
+    frame["quality_proxy"] = frame["accepted_candidates"].astype(float) * 2.0 + frame["near_misses"].astype(float) * 0.25 + frame["average_setup_score"].astype(float)
+    return frame.sort_values(["quality_proxy", "accepted_candidates"], ascending=False).iloc[0].to_dict()
+
+
+def _top_blockers(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    counter = Counter(
+        str(record.get("blocking_reason") or "UNKNOWN_BLOCKER")
+        for record in records
+        if not bool(record.get("accepted_candidate"))
+    )
+    return [{"blocking_reason": reason, "count": count} for reason, count in counter.most_common(10) if reason]

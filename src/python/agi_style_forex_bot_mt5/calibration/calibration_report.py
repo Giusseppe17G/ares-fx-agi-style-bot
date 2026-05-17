@@ -29,20 +29,25 @@ def run_signal_calibration(
     output.mkdir(parents=True, exist_ok=True)
     records = pd.DataFrame(result["records"])
     records_path = output / "signal_frequency.csv"
+    near_path = output / "near_misses.csv"
     records.to_csv(records_path, index=False)
+    _near_misses_frame(result["records"]).to_csv(near_path, index=False)
     blocking = analyze_blocking_reasons(result["records"], output_dir=output)
     suggestions = write_config_suggestions(output / "config_suggestions")
     summary_path = output / "summary.json"
     summary = {
         "mode": "signal-calibration",
+        "classification": result.get("classification", ""),
+        "data_dir_used": result.get("data_dir_used", str(data_dir)),
         "signals_found": result["signals_found"],
         "near_misses": result["near_misses"],
         "accepted_candidates": result["accepted_candidates"],
-        "top_blocking_reasons": blocking["top_blocking_reasons"],
+        "blocked_candidates": result["blocked_candidates"],
+        "top_blocking_reasons": result.get("top_blocking_reasons") or blocking["top_blocking_reasons"],
         "recommended_profile": _recommended_profile(result, profile),
         "suggested_threshold_changes": _suggested_changes(result),
         "expected_signal_frequency": result["accepted_candidates"],
-        "reports_created": [str(summary_path), str(records_path), *blocking["reports_created"], *suggestions],
+        "reports_created": [str(summary_path), str(records_path), str(near_path), *blocking["reports_created"], *suggestions],
         "execution_attempted": False,
     }
     summary_path.write_text(json.dumps(_jsonable(summary), indent=2, sort_keys=True), encoding="utf-8")
@@ -63,16 +68,27 @@ def run_threshold_sweep_report(
     output = Path(report_dir)
     output.mkdir(parents=True, exist_ok=True)
     rows_path = output / "threshold_sweep.csv"
+    near_path = output / "near_misses.csv"
     summary_path = output / "threshold_sweep_summary.json"
     pd.DataFrame(sweep["rows"]).to_csv(rows_path, index=False)
+    _near_misses_frame(sweep.get("records", [])).to_csv(near_path, index=False)
+    blocking = analyze_blocking_reasons(sweep.get("records", []), output_dir=output)
+    suggestions = write_config_suggestions(output / "config_suggestions")
     summary = {
         "mode": "threshold-sweep",
+        "classification": sweep.get("classification", ""),
+        "candidates_evaluated": sweep.get("candidates_evaluated", 0),
+        "accepted_candidates": sweep.get("accepted_candidates", 0),
+        "blocked_candidates": sweep.get("blocked_candidates", 0),
         "signals_found": sweep["signals_found"],
         "near_misses": sweep["near_misses"],
-        "top_blocking_reasons": [],
+        "top_blocking_reasons": sweep.get("top_blocking_reasons") or blocking["top_blocking_reasons"],
+        "best_profile_by_frequency": sweep.get("best_profile_by_frequency", ""),
+        "best_profile_by_quality_proxy": sweep.get("best_profile_by_quality_proxy", ""),
         "recommended_profile": sweep["recommended_profile"],
         "suggested_threshold_changes": sweep["suggested_threshold_changes"],
-        "reports_created": [str(summary_path), str(rows_path), *write_config_suggestions(output / "config_suggestions")],
+        "likely_next_step": sweep.get("likely_next_step", ""),
+        "reports_created": [str(summary_path), str(rows_path), str(near_path), *blocking["reports_created"], *suggestions],
         "execution_attempted": False,
     }
     summary_path.write_text(json.dumps(_jsonable(summary), indent=2, sort_keys=True), encoding="utf-8")
@@ -145,6 +161,26 @@ def _suggested_changes(result: Mapping[str, Any]) -> dict[str, Any]:
     if int(result.get("accepted_candidates", 0) or 0) == 0:
         return {"review": "thresholds and blocking filters", "next_step": "threshold-sweep"}
     return {"review": "validate quality with backtest", "next_step": "real-data-research"}
+
+
+def _near_misses_frame(records: Iterable[Mapping[str, Any]]) -> pd.DataFrame:
+    rows = [dict(record) for record in records if bool(record.get("near_miss"))]
+    columns = [
+        "symbol",
+        "strategy",
+        "action",
+        "score",
+        "setup_score",
+        "threshold",
+        "blocking_reason",
+        "missing_components",
+        "suggested_relaxation",
+        "regime",
+        "session",
+    ]
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(rows).reindex(columns=columns)
 
 
 def _jsonable(value: Any) -> Any:

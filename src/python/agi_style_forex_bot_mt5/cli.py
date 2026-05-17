@@ -319,17 +319,20 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.mode == "signal-calibration":
-            summary = run_signal_calibration(symbols=selected_symbols, data_dir=args.data_dir, report_dir=args.report_dir, profile_name=config.signal_profile)
+            data_dir = _resolve_calibration_data_dir(args.data_dir, args.runs_root)
+            summary = run_signal_calibration(symbols=selected_symbols, data_dir=data_dir, report_dir=args.report_dir, profile_name=config.signal_profile)
             print(_json_dumps(summary))
             return 0
 
         if args.mode == "threshold-sweep":
-            summary = run_threshold_sweep_report(symbols=selected_symbols, data_dir=args.data_dir, report_dir=args.report_dir, profiles_value=args.profiles or None)
+            data_dir = _resolve_calibration_data_dir(args.data_dir, args.runs_root)
+            summary = run_threshold_sweep_report(symbols=selected_symbols, data_dir=data_dir, report_dir=args.report_dir, profiles_value=args.profiles or None)
             print(_json_dumps(summary))
             return 0
 
         if args.mode == "blocking-reasons":
-            summary = run_blocking_reasons_report(reports_root=args.reports_root, output_dir=args.output_dir)
+            reports_root = _resolve_calibration_reports_root(args.reports_root, args.runs_root)
+            summary = run_blocking_reasons_report(reports_root=reports_root, output_dir=args.output_dir)
             print(_json_dumps(summary))
             return 0
 
@@ -631,6 +634,43 @@ def _selected_symbols(single_symbol: str, symbols: str) -> tuple[str, ...]:
     if single_symbol.strip():
         return (single_symbol.strip().upper(),)
     return tuple(item.strip().upper() for item in symbols.split(",") if item.strip())
+
+
+def _resolve_calibration_data_dir(data_dir: Path, runs_root: Path) -> Path:
+    """Prefer explicit CSV data, otherwise use the newest real-data run."""
+
+    if _contains_csv(data_dir):
+        return data_dir
+    latest = _latest_run_dir(runs_root)
+    if latest is not None and _contains_csv(latest / "historical"):
+        return latest / "historical"
+    return data_dir
+
+
+def _resolve_calibration_reports_root(reports_root: Path, runs_root: Path) -> Path:
+    """Prefer explicit reports, otherwise use the newest real-data run reports."""
+
+    latest = _latest_run_dir(runs_root)
+    if reports_root == Path("data/reports") and latest is not None and (latest / "reports").exists():
+        return latest / "reports"
+    if reports_root.exists() and any(reports_root.rglob("*.json")):
+        return reports_root
+    if latest is not None and (latest / "reports").exists():
+        return latest / "reports"
+    return reports_root
+
+
+def _latest_run_dir(runs_root: Path) -> Path | None:
+    if not runs_root.exists():
+        return None
+    candidates = [path for path in runs_root.iterdir() if path.is_dir()]
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda path: (path.name, path.stat().st_mtime))[-1]
+
+
+def _contains_csv(path: Path) -> bool:
+    return path.exists() and any(candidate.is_file() for candidate in path.rglob("*.csv"))
 
 
 def _json_dumps(payload: object) -> str:

@@ -9,6 +9,7 @@ import pytest
 from agi_style_forex_bot_mt5 import cli
 from agi_style_forex_bot_mt5.calibration import (
     analyze_blocking_reasons,
+    load_strategy_diagnostics,
     generate_threshold_grid,
     get_signal_profile,
     is_near_miss,
@@ -16,7 +17,7 @@ from agi_style_forex_bot_mt5.calibration import (
     run_signal_calibration,
     run_threshold_sweep_report,
 )
-from agi_style_forex_bot_mt5.real_data_research import RealDataResearchConfig, RealDataResearchRunner
+from agi_style_forex_bot_mt5.real_data_research import RealDataResearchConfig, RealDataResearchRunner, load_latest_run_summary
 
 
 def test_signal_profile_loads_and_invalid_fails() -> None:
@@ -35,7 +36,7 @@ def test_threshold_sweep_generates_combinations() -> None:
 
 def test_near_miss_detects_threshold_window() -> None:
     assert is_near_miss(setup_score=58, threshold=62, blocking_reasons=("score below threshold",), window=5)
-    assert not is_near_miss(setup_score=40, threshold=62, blocking_reasons=("score below threshold",), window=5)
+    assert not is_near_miss(setup_score=30, threshold=62, blocking_reasons=("score below threshold",), window=5)
 
 
 def test_blocking_reason_analyzer_counts_motives(tmp_path: Path) -> None:
@@ -96,6 +97,55 @@ def test_blocking_reasons_cli(tmp_path: Path, capsys) -> None:
     assert output["execution_attempted"] is False
 
 
+def test_blocked_candidates_produce_blocking_reasons(tmp_path: Path) -> None:
+    report_dir = tmp_path / "calibration"
+
+    summary = run_threshold_sweep_report(
+        symbols=("EURUSD",),
+        data_dir=tmp_path / "empty_historical",
+        report_dir=report_dir,
+        profiles_value="CONSERVATIVE,BALANCED",
+    )
+
+    assert summary["blocked_candidates"] > 0
+    assert summary["top_blocking_reasons"]
+    assert summary["top_blocking_reasons"][0]["blocking_reason"] == "DATA_MISSING"
+    assert (report_dir / "blocking_reasons.csv").exists()
+
+
+def test_diagnostics_reader_extracts_strategy_diagnose_json(tmp_path: Path) -> None:
+    reports_root = tmp_path / "reports"
+    diag_dir = reports_root / "strategy_diagnostics" / "EURUSD"
+    diag_dir.mkdir(parents=True)
+    (diag_dir / "strategy_diagnose.json").write_text(
+        json.dumps(
+            {
+                "diagnostics": [
+                    {
+                        "symbol": "EURUSD",
+                        "strategy_name": "Trend Pullback",
+                        "blocking_reasons": ["STRUCTURE_BLOCK"],
+                        "component_scores": {"structure_fit": 25},
+                        "setup_score": 54,
+                        "threshold": 62,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    records = load_strategy_diagnostics(reports_root)
+    result = analyze_blocking_reasons(records)
+
+    assert records[0]["blocking_reasons"] == ["STRUCTURE_BLOCK"]
+    assert result["top_blocking_reasons"][0]["blocking_reason"] == "STRUCTURE_BLOCK"
+
+
+def test_near_miss_uses_diagnostic_twenty_five_point_window() -> None:
+    assert is_near_miss(setup_score=40, threshold=62, blocking_reasons=("ENSEMBLE_SCORE_LOW",), window=5)
+
+
 def test_real_data_research_recommends_phase18_when_zero_trades(tmp_path: Path) -> None:
     config = RealDataResearchConfig(symbols=("EURUSD",), output_root=str(tmp_path), run_id="phase18-reco")
     runner = RealDataResearchRunner(config)
@@ -117,6 +167,61 @@ def test_real_data_research_recommends_phase18_when_zero_trades(tmp_path: Path) 
     assert compact["likely_next_step"] == "Run FASE 18: Signal Frequency Calibration"
     assert compact["calibration"]["recommended_profile"] == "BALANCED"
     assert compact["execution_attempted"] is False
+
+
+def test_threshold_sweep_zero_signal_profiles_recommend_research_only(tmp_path: Path) -> None:
+    report_dir = tmp_path / "calibration"
+
+    summary = run_threshold_sweep_report(
+        symbols=("EURUSD",),
+        data_dir=tmp_path / "missing_historical",
+        report_dir=report_dir,
+        profiles_value="CONSERVATIVE,BALANCED,ACTIVE,RESEARCH_ONLY",
+    )
+
+    assert summary["recommended_profile"] == "RESEARCH_ONLY"
+    assert summary["classification"] == "NEEDS_STRATEGY_RESEARCH"
+    assert summary["signals_found"] == 0
+    assert (report_dir / "near_misses.csv").exists()
+    assert summary["execution_attempted"] is False
+
+
+def test_latest_run_summary_includes_calibration_status(tmp_path: Path) -> None:
+    run_dir = tmp_path / "20260101-000000-real-data-research"
+    calibration_dir = run_dir / "reports" / "calibration"
+    calibration_dir.mkdir(parents=True)
+    (run_dir / "final_summary_compact.json").write_text(
+        json.dumps(
+            {
+                "run_id": "20260101-000000-real-data-research",
+                "final_decision": "NEEDS_STRATEGY_RESEARCH",
+                "execution_attempted": False,
+                "order_send_called": False,
+                "order_check_called": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (calibration_dir / "threshold_sweep_summary.json").write_text(
+        json.dumps(
+            {
+                "classification": "NEEDS_STRATEGY_RESEARCH",
+                "recommended_profile": "RESEARCH_ONLY",
+                "signals_found": 0,
+                "near_misses": 3,
+                "top_blocking_reasons": [{"blocking_reason": "ENSEMBLE_SCORE_LOW", "count": 3}],
+                "suggested_threshold_changes": {"next_step": "inspect data/feature generation"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = load_latest_run_summary(tmp_path)
+
+    assert summary["calibration_status"] == "NEEDS_STRATEGY_RESEARCH"
+    assert summary["recommended_profile"] == "RESEARCH_ONLY"
+    assert summary["near_misses"] == 3
+    assert summary["top_blocking_reasons"][0]["blocking_reason"] == "ENSEMBLE_SCORE_LOW"
 
 
 def _stage(name: str, status: str, summary: dict[str, object]):

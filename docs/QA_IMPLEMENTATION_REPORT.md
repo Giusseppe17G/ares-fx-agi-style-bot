@@ -1,4 +1,4 @@
-# QA Implementation Report
+﻿# QA Implementation Report
 
 ## Scope
 
@@ -773,3 +773,24 @@ Safety remains unchanged:
 - `LIVE_TRADING_APPROVED=False`.
 - `execution_attempted=false`.
 - `order_send was not called`.
+
+## Phase 18B Calibration Diagnostics Repair
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 215 tests collected.
+
+Integrated in Phase 18B:
+
+- Repaired threshold sweep so `blocked_candidates > 0` always produces non-empty `top_blocking_reasons`.
+- Added canonical blocker codes: `DATA_MISSING`, `REGIME_MISMATCH`, `SESSION_BLOCK`, `SPREAD_BLOCK`, `STRUCTURE_BLOCK`, `VOLATILITY_BLOCK`, `ENSEMBLE_SCORE_LOW`, and `UNKNOWN_BLOCKER`.
+- Added latest-run auto-discovery for calibration modes through `--runs-root data\runs` when `data\historical` is empty.
+- Expanded blocking-reasons ingestion to read strategy diagnostics, backtest/research JSON, and compact/final run summaries.
+- Added required calibration outputs: `near_misses.csv`, blocking summaries, per-symbol, per-strategy, per-regime, and per-session CSVs.
+- Updated `latest-run-summary` to surface calibration status, recommended profile, signal counts, near misses, blockers, and suggested threshold changes.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

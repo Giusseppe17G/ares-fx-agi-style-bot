@@ -136,6 +136,19 @@ py -m agi_style_forex_bot_mt5.cli --mode threshold-sweep --symbols EURUSD,GBPUSD
 
 If a calibration report exists under the run reports folder, `final_summary_compact.json` includes recommended profile, expected signal frequency, suggested threshold changes, and top blockers.
 
+Phase 18B also exposes these fields through `latest-run-summary`:
+
+- `calibration_status`
+- `recommended_profile`
+- `signals_found`
+- `near_misses`
+- `top_blocking_reasons`
+- `suggested_threshold_changes`
+
+Use `--runs-root data\runs` with calibration commands when the root `data\historical` folder is empty. The CLI will prefer the newest `data\runs\<run_id>\historical` directory with CSV files.
+
+If threshold sweep returns `RESEARCH_ONLY`, treat it as a diagnosis state, not an execution profile. Inspect `blocking_reasons.csv`, `near_misses.csv`, and the strategy diagnostics before changing thresholds.
+
 If Monte Carlo is skipped:
 
 - First fix backtest trade generation.
