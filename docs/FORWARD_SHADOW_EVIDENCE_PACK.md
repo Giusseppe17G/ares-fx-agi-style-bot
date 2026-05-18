@@ -60,3 +60,15 @@ For operational continuation, collect at least:
 - at least 10 closed paper trades, unless the decision remains `NEEDS_MORE_FORWARD_DATA` without critical issues.
 
 Before any future discussion beyond paper/shadow, collect multiple days and hundreds of paper trades. This phase does not authorize demo/live execution.
+# Phase 29 Signal Diagnostics Integration
+
+Forward evidence now includes signal scarcity context when `data/reports/forward_diagnostics/signal_scarcity_summary.json` exists:
+
+- `forward_diagnostics_status`
+- `top_forward_blockers`
+- `candidate_count`
+- `near_miss_count`
+- `live_feature_ready_symbols`
+- `recommended_signal_diagnosis_action`
+
+Use this when evidence shows many healthy cycles but zero signals. A lack of trades is not automatically a bug; the diagnostics separate "no setup yet" from data, feature, filter, spread, or threshold problems.

@@ -74,3 +74,16 @@ Safety remains fixed: `DEMO_ONLY=True`, `LIVE_TRADING_APPROVED=False`, `executio
 `BALANCED_STABLE` forward-shadow now requires the stable gate as before and also consumes normalized MT5 tick timestamps. If a broker reports server time ahead of UTC, the bot audits `STABLE_TICK_TIME_NORMALIZED` with the detected offset and normalized tick age.
 
 If the offset cannot be validated or the normalized tick remains stale, the symbol is rejected as market data invalid. This remains paper/shadow only and never enables demo/live execution.
+
+# Phase 29 Signal Scarcity Diagnostics
+
+If forward-shadow is connected but `signals_detected=0`, run `--mode forward-signal-diagnose`. The diagnostic path checks live ticks, runtime M5/M15/H1 bars, feature availability, BALANCED_STABLE filters, strategy threshold failures and near misses.
+
+Forward-shadow also emits diagnostic events per evaluated candidate:
+
+- `FORWARD_CANDIDATE_EVALUATED`
+- `FORWARD_CANDIDATE_BLOCKED`
+- `FORWARD_NEAR_MISS`
+- `FORWARD_NO_SIGNAL_DIAGNOSTIC`
+
+These events are read-only and do not create paper trades unless the existing full shadow gates pass.

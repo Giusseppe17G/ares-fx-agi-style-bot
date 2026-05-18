@@ -156,6 +156,26 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 29 Forward Signal Scarcity Diagnostics
+
+Status: PASS pending full-suite verification for this phase.
+
+Integrated in Phase 29:
+
+- Added `forward_diagnostics` package for runtime MT5 data quality, live feature probing, live strategy probing, near-miss aggregation and scarcity reporting.
+- Added CLI mode `forward-signal-diagnose`.
+- Forward-shadow now emits candidate diagnostic events before paper trade creation gates.
+- Forward evidence surfaces diagnostics status, top forward blockers, candidate count, near misses and feature-ready symbols when diagnostics are available.
+- Added Telegram read-only commands `/signal_diag`, `/near_misses`, `/forward_blockers` and `/live_features`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 28 MT5 Time Normalization Update
 
 Status: PASS pending full-suite verification for this phase.

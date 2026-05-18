@@ -280,6 +280,8 @@ class ForwardShadowBot:
                 if "session_levels" in features:
                     self._audit("SESSION_LEVEL_CONTEXT", Severity.INFO, dict(features.get("session_levels") or {}), symbol=resolution.canonical_symbol)
                 strategy_signal = evaluate_ensemble(snapshot, features, mode="shadow")
+                candidate_payload = self._forward_candidate_payload(resolution.canonical_symbol, strategy_signal, features)
+                self._audit("FORWARD_CANDIDATE_EVALUATED", Severity.INFO, candidate_payload, symbol=resolution.canonical_symbol)
                 if "component_scores" in strategy_signal.metadata:
                     self._audit("STRATEGY_COMPONENT_SCORE", Severity.INFO, {"component_scores": dict(strategy_signal.metadata.get("component_scores", {})), "setup_quality": strategy_signal.metadata.get("setup_quality"), "execution_attempted": False}, symbol=resolution.canonical_symbol)
                 if strategy_signal.action == SignalAction.NONE and strategy_signal.metadata.get("blocking_reasons"):
@@ -296,6 +298,10 @@ class ForwardShadowBot:
                     notify=True,
                 )
                 if strategy_signal.action == SignalAction.NONE:
+                    self._audit("FORWARD_CANDIDATE_BLOCKED", Severity.INFO, candidate_payload, symbol=resolution.canonical_symbol)
+                    if candidate_payload.get("near_miss"):
+                        self._audit("FORWARD_NEAR_MISS", Severity.INFO, candidate_payload, symbol=resolution.canonical_symbol)
+                    self._audit("FORWARD_NO_SIGNAL_DIAGNOSTIC", Severity.INFO, {"symbol": resolution.canonical_symbol, "no_signal_reason": candidate_payload.get("top_blocking_reason", "NO_SETUP_DETECTED"), "candidate": candidate_payload, "execution_attempted": False}, symbol=resolution.canonical_symbol)
                     self._audit(
                         "SIGNAL_REJECTED",
                         Severity.INFO,
@@ -475,6 +481,48 @@ class ForwardShadowBot:
         self.database.update_paper_trade(updated.to_dict())
         self.database.insert_paper_trade_event(updated.paper_trade_id, "STABLE_PROFILE_METADATA_ATTACHED", updated.to_dict())
         return updated
+
+    def _forward_candidate_payload(self, symbol: str, strategy_signal: Any, features: Mapping[str, Any]) -> dict[str, Any]:
+        effective = effective_profile_config(self.config.signal_profile, source="forward-shadow", profile_config=self.config.profile_config or None)
+        metadata = dict(strategy_signal.metadata)
+        blockers = tuple(metadata.get("blocking_reasons") or strategy_signal.reasons or ("NO_SETUP_DETECTED",))
+        threshold_failures = self._forward_threshold_failures(strategy_signal.score, metadata, effective.thresholds)
+        near_distance = max(0.0, float(effective.thresholds.get("ensemble_min_score", 0.0)) - float(strategy_signal.score or 0.0))
+        near_miss = strategy_signal.action == SignalAction.NONE and near_distance <= float(effective.thresholds.get("near_miss_window", 8.0))
+        return {
+            "symbol": symbol,
+            "strategy_name": strategy_signal.strategy_name,
+            "action": strategy_signal.action.value,
+            "signal_score": strategy_signal.score,
+            "setup_score": metadata.get("setup_quality_score", metadata.get("setup_score", 0.0)),
+            "ensemble_score": strategy_signal.score,
+            "component_scores": dict(metadata.get("component_scores") or {}),
+            "thresholds_used": effective.thresholds,
+            "profile_hash": effective.profile_hash,
+            "passed_thresholds": not threshold_failures,
+            "threshold_failures": threshold_failures,
+            "blocking_reasons": blockers,
+            "child_signals": metadata.get("child_signals", ()),
+            "near_miss": near_miss,
+            "near_miss_distance": near_distance,
+            "top_blocking_reason": str(blockers[0]) if blockers else "NO_SETUP_DETECTED",
+            "session": str(features.get("session", "")),
+            "regime": str(features.get("regime", "")),
+            "execution_attempted": False,
+        }
+
+    def _forward_threshold_failures(self, score: float, metadata: Mapping[str, Any], thresholds: Mapping[str, Any]) -> tuple[str, ...]:
+        failures: list[str] = []
+        if float(score or 0.0) < float(thresholds.get("ensemble_min_score", 0.0) or 0.0):
+            failures.append("ENSEMBLE_SCORE_LOW")
+        components = dict(metadata.get("component_scores") or {})
+        if components:
+            if min(float(value) for value in components.values()) < float(thresholds.get("min_component_score", 0.0) or 0.0):
+                failures.append("COMPONENT_SCORE_LOW")
+            for key, code in (("cost_fit", "COST_BLOCK"), ("structure_fit", "STRUCTURE_BLOCK"), ("volatility_fit", "VOLATILITY_BLOCK"), ("session_fit", "SESSION_BLOCK")):
+                if float(components.get(key, 0.0) or 0.0) < float(thresholds.get(f"{key}_min", 0.0) or 0.0):
+                    failures.append(code)
+        return tuple(dict.fromkeys(failures))
 
     def _risk_pct_from_decision(self, decision: RiskDecision, account: AccountState) -> float:
         if account.equity > 0 and decision.risk_amount_account_currency > 0:

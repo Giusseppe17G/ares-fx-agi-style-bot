@@ -1100,6 +1100,16 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
             payload["stable_recommended_action"] = "Pause BALANCED_STABLE shadow and inspect drift/cost reports."
         else:
             payload["stable_recommended_action"] = "Continue BALANCED_STABLE paper/shadow monitoring; do not enable demo/live."
+    forward_diagnostics = _load_optional_json(Path("data/reports/forward_diagnostics/signal_scarcity_summary.json")) or {}
+    if forward_diagnostics:
+        payload["forward_diagnostics_status"] = forward_diagnostics.get("classification", "")
+        payload["top_forward_blockers"] = forward_diagnostics.get("top_blockers", [])
+        payload["candidate_count"] = forward_diagnostics.get("candidate_count", payload.get("candidate_count", 0))
+        payload["near_miss_count"] = forward_diagnostics.get("near_miss_count", payload.get("near_miss_count", 0))
+        payload["live_feature_ready_symbols"] = forward_diagnostics.get("feature_ready_symbols", [])
+        payload["recommended_signal_diagnosis_action"] = forward_diagnostics.get("recommended_action", "")
+        if forward_diagnostics.get("recommended_action"):
+            payload["recommended_next_action"] = forward_diagnostics.get("recommended_action")
     if payload.get("timestamp_status") == "FAILED":
         payload["recommended_next_action"] = "Run FASE 18D timestamp normalization repair or re-export history."
     elif payload.get("data_contract_status") not in {"", "OK"}:

@@ -28,6 +28,7 @@ from .edge_filtering import run_edge_filtering, run_filtered_profile_builder
 from .edge_evaluation import run_edge_evaluation, run_strategy_selection, run_symbol_selection
 from .execution_simulation import compare_paper_vs_backtest, run_simulation_calibration
 from .forward_evidence import run_forward_acceptance, run_forward_evidence
+from .forward_diagnostics import run_forward_signal_diagnose
 from .market_structure import run_strategy_diagnose, write_structure_report
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
@@ -137,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
             "forward-shadow",
             "forward-evidence",
             "forward-acceptance",
+            "forward-signal-diagnose",
             "stable-health",
             "stable-daily-summary",
             "status",
@@ -266,6 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         "stable-daily-summary",
         "forward-evidence",
         "forward-acceptance",
+        "forward-signal-diagnose",
         "broker-quality",
         "readiness-report",
         "build-ml-dataset",
@@ -489,6 +492,23 @@ def main(argv: list[str] | None = None) -> int:
             assert database is not None
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/forward_evidence")
             summary = run_forward_acceptance(database=database, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "forward-signal-diagnose":
+            assert database is not None
+            if args.signal_profile:
+                config = bot_config_with_signal_profile(config, args.signal_profile, str(args.profile_config) if args.profile_config else "")
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/forward_diagnostics")
+            summary = run_forward_signal_diagnose(
+                config=config,
+                symbols=selected_symbols,
+                database=database,
+                log_dir=args.log_dir,
+                reports_root=args.reports_root,
+                output_dir=output_dir,
+                bars=args.bars,
+            )
             print(_json_dumps(summary))
             return 0
 

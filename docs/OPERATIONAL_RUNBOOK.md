@@ -206,3 +206,14 @@ py -m agi_style_forex_bot_mt5.cli --mode mt5-diagnose --symbols EURUSD,GBPUSD,US
 ```
 
 If `timestamp_normalized=true` and `tick_time_status=NORMALIZED_FRESH`, the broker/server offset was handled safely. If `tick_time_status` is `FUTURE_TOO_FAR`, `INVALID_TIMESTAMP`, or `NORMALIZED_STALE`, keep the system in read-only/shadow mode and inspect broker sessions, symbol availability, and MT5 terminal clock behavior.
+
+# Phase 29 Zero Signal Forward Check
+
+When BALANCED_STABLE forward-shadow is connected but no signals are detected, run:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode forward-signal-diagnose --symbols EURUSD,GBPUSD,USDJPY --signal-profile BALANCED_STABLE --profile-config data\reports\stability_repair\balanced_stable.ini --stable-gate data\reports\stable_gate\stable_gate_summary.json --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\forward_diagnostics
+```
+
+If the result is `FORWARD_PIPELINE_OK_WAIT_FOR_SETUP`, keep observing. If it is `FEATURE_PIPELINE_NOT_READY`, inspect live bars/features. If it is `STABLE_FILTER_TOO_RESTRICTIVE`, revisit stability repair in research only. Do not adjust thresholds directly in forward-shadow.

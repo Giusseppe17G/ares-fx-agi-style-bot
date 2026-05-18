@@ -78,6 +78,10 @@ class TelegramCommandCenter:
         "/acceptance",
         "/stable_report",
         "/paper_audit",
+        "/signal_diag",
+        "/near_misses",
+        "/forward_blockers",
+        "/live_features",
     }
 
     def __init__(
@@ -286,6 +290,26 @@ class TelegramCommandCenter:
 
                 run_forward_evidence(database=self.database, log_dir="data/logs/forward-shadow-stable", reports_root="data/reports", output_dir="data/reports/forward_evidence")
             response = path.read_text(encoding="utf-8")[:1000] if path.exists() else '{"mode":"paper-trade-audit","status":"NO_AUDIT","execution_attempted":false}'
+            return TelegramCommandResult(command, True, response, "OK")
+        if command == "/signal_diag":
+            path = Path("data/reports/forward_diagnostics/signal_scarcity_summary.json")
+            response = path.read_text(encoding="utf-8")[:1000] if path.exists() else '{"mode":"forward-signal-diagnose","status":"NO_DIAGNOSTIC_RUN","execution_attempted":false}'
+            return TelegramCommandResult(command, True, response, "OK")
+        if command == "/near_misses":
+            path = Path("data/reports/forward_diagnostics/near_misses.csv")
+            response = path.read_text(encoding="utf-8")[:1000] if path.exists() else "near_misses=0 execution_attempted=false"
+            return TelegramCommandResult(command, True, response, "OK")
+        if command == "/forward_blockers":
+            path = Path("data/reports/forward_diagnostics/signal_scarcity_summary.json")
+            if path.exists():
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                response = str(payload.get("top_blockers", []))[:1000]
+            else:
+                response = "top_forward_blockers=[] execution_attempted=false"
+            return TelegramCommandResult(command, True, response, "OK")
+        if command == "/live_features":
+            path = Path("data/reports/forward_diagnostics/live_feature_probe.csv")
+            response = path.read_text(encoding="utf-8")[:1000] if path.exists() else "live_feature_probe=NO_DIAGNOSTIC_RUN execution_attempted=false"
             return TelegramCommandResult(command, True, response, "OK")
         return TelegramCommandResult(command, True, self._help(), "OK")
 

@@ -40,6 +40,7 @@ def run_forward_evidence(
     drift = summarize_forward_drift(forward_metrics=metrics, baseline=baseline)
     rejections, rejection_frame = analyze_rejections(database=database)
     audit = audit_paper_trades(database=database, log_dir=str(log_dir))
+    diagnostics = _load_json(Path(reports_root) / "forward_diagnostics" / "signal_scarcity_summary.json")
     acceptance = decide_operational_acceptance(evidence=evidence, metrics=metrics, drift=drift, paper_audit=audit)
     paths = _write_reports(output, evidence, metrics, drift, rejections, rejection_frame, audit, acceptance)
     return {
@@ -48,6 +49,12 @@ def run_forward_evidence(
         "drift_classification": drift.get("classification"),
         "paper_trade_audit_status": audit.get("status"),
         "operational_acceptance": acceptance.get("decision"),
+        "forward_diagnostics_status": diagnostics.get("classification", ""),
+        "top_forward_blockers": diagnostics.get("top_blockers", []),
+        "candidate_count": diagnostics.get("candidate_count", 0),
+        "near_miss_count": diagnostics.get("near_miss_count", 0),
+        "live_feature_ready_symbols": diagnostics.get("feature_ready_symbols", []),
+        "recommended_signal_diagnosis_action": diagnostics.get("recommended_action", ""),
         "reports_created": paths,
         "execution_attempted": False,
         "order_send_called": False,
