@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 from uuid import uuid4
@@ -67,6 +68,16 @@ class TelegramCommandCenter:
         "/stable",
         "/stable_gate",
         "/shadow_stable",
+        "/stable_status",
+        "/stable_trades",
+        "/stable_drift",
+        "/stable_today",
+        "/pause_stable_shadow",
+        "/resume_stable_shadow",
+        "/evidence",
+        "/acceptance",
+        "/stable_report",
+        "/paper_audit",
     }
 
     def __init__(
@@ -149,6 +160,13 @@ class TelegramCommandCenter:
         if command == "/resume_shadow":
             self.database.set_shadow_paused(False, reason="", paused_by="telegram")
             return TelegramCommandResult(command, True, "Shadow entries resumed.", "OK")
+        if command == "/pause_stable_shadow":
+            reason = text.partition(" ")[2].strip() or "stable telegram command"
+            self.database.set_shadow_paused(True, reason=reason, paused_by="telegram_stable")
+            return TelegramCommandResult(command, True, "BALANCED_STABLE shadow entries paused. Open paper trades will still be managed.", "OK")
+        if command == "/resume_stable_shadow":
+            self.database.set_shadow_paused(False, reason="", paused_by="telegram_stable")
+            return TelegramCommandResult(command, True, "BALANCED_STABLE shadow entries resumed.", "OK")
         if command == "/health":
             return TelegramCommandResult(command, True, str(build_health_status(self.database)), "OK")
         if command == "/status":
@@ -226,6 +244,49 @@ class TelegramCommandCenter:
             else:
                 response = '{"mode":"stable-robustness-gate","stable_gate_decision":"NO_STABLE_GATE_RUN","paper_shadow_ready":false,"execution_attempted":false}'
             return TelegramCommandResult(command, True, response, "OK")
+        if command == "/stable_status":
+            summary_path = Path("data/reports/stable_gate/stable_gate_summary.json")
+            health = self.database.get_latest_health()
+            response = {
+                "stable_gate": json_safe(summary_path),
+                "last_heartbeat_utc": health.get("last_heartbeat_utc"),
+                "open_paper_trades": health.get("open_paper_trades", 0),
+                "shadow_paused": health.get("shadow_paused", False),
+                "execution_attempted": False,
+            }
+            return TelegramCommandResult(command, True, str(response)[:1000], "OK")
+        if command == "/stable_trades":
+            rows = [json.loads(row["payload_json"]) for row in self.database.fetch_paper_trades()]
+            stable = [row for row in rows if str((row.get("metadata") or {}).get("profile", "")).upper() == "BALANCED_STABLE"]
+            open_count = sum(1 for row in stable if str(row.get("status", "")).upper() == "OPEN")
+            closed_count = sum(1 for row in stable if str(row.get("status", "")).upper() == "CLOSED")
+            return TelegramCommandResult(command, True, f"stable_open={open_count} stable_closed={closed_count} execution_attempted=false", "OK")
+        if command == "/stable_drift":
+            path = Path("data/reports/forward_shadow_stable/daily/drift.json")
+            response = path.read_text(encoding="utf-8")[:1000] if path.exists() else '{"stable_drift_status":"NEEDS_MORE_DATA","execution_attempted":false}'
+            return TelegramCommandResult(command, True, response, "OK")
+        if command == "/stable_today":
+            path = Path("data/reports/forward_shadow_stable/daily/daily_summary.json")
+            response = path.read_text(encoding="utf-8")[:1000] if path.exists() else '{"mode":"stable-daily-summary","status":"NO_DAILY_SUMMARY","execution_attempted":false}'
+            return TelegramCommandResult(command, True, response, "OK")
+        if command in {"/evidence", "/stable_report"}:
+            from agi_style_forex_bot_mt5.forward_evidence import run_forward_evidence
+
+            summary = run_forward_evidence(database=self.database, log_dir="data/logs/forward-shadow-stable", reports_root="data/reports", output_dir="data/reports/forward_evidence")
+            return TelegramCommandResult(command, True, str(summary)[:1000], "OK")
+        if command == "/acceptance":
+            from agi_style_forex_bot_mt5.forward_evidence import run_forward_acceptance
+
+            summary = run_forward_acceptance(database=self.database, log_dir="data/logs/forward-shadow-stable", reports_root="data/reports", output_dir="data/reports/forward_evidence")
+            return TelegramCommandResult(command, True, str(summary)[:1000], "OK")
+        if command == "/paper_audit":
+            path = Path("data/reports/forward_evidence/paper_trade_audit.json")
+            if not path.exists():
+                from agi_style_forex_bot_mt5.forward_evidence import run_forward_evidence
+
+                run_forward_evidence(database=self.database, log_dir="data/logs/forward-shadow-stable", reports_root="data/reports", output_dir="data/reports/forward_evidence")
+            response = path.read_text(encoding="utf-8")[:1000] if path.exists() else '{"mode":"paper-trade-audit","status":"NO_AUDIT","execution_attempted":false}'
+            return TelegramCommandResult(command, True, response, "OK")
         return TelegramCommandResult(command, True, self._help(), "OK")
 
     def _help(self) -> str:
@@ -280,6 +341,15 @@ class TelegramCommandCenter:
 
 def _default_getter(url: str, params: Mapping[str, Any], timeout: float) -> requests.Response:
     return requests.get(url, params=params, timeout=timeout)
+
+
+def json_safe(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"stable_gate_decision": "NO_STABLE_GATE_RUN", "paper_shadow_ready": False}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"stable_gate_decision": "STABLE_GATE_READ_ERROR", "paper_shadow_ready": False}
 
 
 def _default_sender(url: str, payload: Mapping[str, Any], timeout: float) -> requests.Response:

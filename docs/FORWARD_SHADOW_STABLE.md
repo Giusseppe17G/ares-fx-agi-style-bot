@@ -1,0 +1,71 @@
+# BALANCED_STABLE Forward Shadow
+
+`BALANCED_STABLE` forward-shadow is prolonged paper observation after the stable gate returns `PAPER_SHADOW_READY`.
+
+It does not enable demo or live execution. It only creates and manages paper trades in SQLite/JSONL.
+
+## Required Gate
+
+Before starting:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode stable-robustness-gate --runs-root data\runs --robustness-dir data\reports\robustness --stability-dir data\reports\stability_repair --profile BALANCED_STABLE --output-dir data\reports\stable_gate
+```
+
+If the gate is missing, `forward-shadow` returns `STABLE_GATE_REQUIRED`.
+If `paper_shadow_ready=false`, it returns `STABLE_PROFILE_NOT_READY`.
+
+## Run
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode forward-shadow --symbols EURUSD,GBPUSD,USDJPY --signal-profile BALANCED_STABLE --profile-config data\reports\stability_repair\balanced_stable.ini --stable-gate data\reports\stable_gate\stable_gate_summary.json --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --cycle-seconds 30
+```
+
+Windows helper:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\run_forward_shadow_balanced_stable.ps1
+```
+
+Watchdog:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\watchdog_forward_shadow_balanced_stable.ps1
+```
+
+## Monitor
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode stable-health --sqlite data\sqlite\forward-shadow-stable.sqlite3 --stable-gate data\reports\stable_gate\stable_gate_summary.json
+
+py -m agi_style_forex_bot_mt5.cli --mode stable-daily-summary --sqlite data\sqlite\forward-shadow-stable.sqlite3 --report-dir data\reports\forward_shadow_stable\daily
+```
+
+Daily reports include open/closed trades, by-symbol, by-strategy, by-session, by-regime, drift and HTML summary.
+
+## Evidence Pack
+
+After several hours or days, consolidate evidence:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode forward-evidence --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\forward_evidence
+
+py -m agi_style_forex_bot_mt5.cli --mode forward-acceptance --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\forward_evidence
+```
+
+`CONTINUE_FORWARD_SHADOW` means paper/shadow observation can continue. It is not demo/live approval.
+
+## Pause Rules
+
+Pause stable shadow if:
+
+- `stable_drift_status=CRITICAL_DRIFT`
+- `stable_drift_status=PAUSE_STABLE_SHADOW`
+- spread or cost drift worsens.
+- SQLite/JSONL audit fails.
+- MT5 data becomes stale.
+- drawdown or loss streak breaches paper limits.
+
+Safety remains fixed: `DEMO_ONLY=True`, `LIVE_TRADING_APPROVED=False`, `execution_attempted=false`, and no `order_send` or `order_check`.

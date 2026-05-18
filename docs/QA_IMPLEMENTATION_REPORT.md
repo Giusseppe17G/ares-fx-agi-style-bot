@@ -156,6 +156,46 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 27 Forward Evidence Pack Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 348 tests collected.
+
+Integrated in Phase 27:
+
+- Added `forward_evidence` package for evidence collection, forward metrics, drift summary, rejection analysis, paper trade audit and operational acceptance.
+- Added CLI modes `forward-evidence` and `forward-acceptance`.
+- Added reports under `data/reports/forward_evidence`.
+- Added Telegram commands `/evidence`, `/acceptance`, `/stable_report`, and `/paper_audit`.
+- Added Windows scripts `forward_evidence_stable.ps1` and `forward_acceptance_stable.ps1`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
+## Phase 26 BALANCED_STABLE Forward Shadow Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully, 341 tests collected.
+
+Integrated in Phase 26:
+
+- `forward-shadow` now blocks `BALANCED_STABLE` unless `--profile-config` and a `PAPER_SHADOW_READY` stable gate are present.
+- Added `STABLE_GATE_CONFIRMED` audit event before stable paper-shadow startup.
+- Paper trades opened under `BALANCED_STABLE` receive stable metadata including `stable_profile_hash`, stable filters and gate decision.
+- Added stable drift detector, stable daily report, `stable-health`, and `stable-daily-summary`.
+- Added Telegram stable commands and Windows stable status/daily scripts.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 25 Stable Shadow Readiness Update
 
 Status: PASS. Verification: `py -m pytest -q` completed successfully, 334 tests collected.

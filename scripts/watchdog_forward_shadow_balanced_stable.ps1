@@ -2,6 +2,7 @@ param(
     [int]$RestartDelaySeconds = 15,
     [string]$Symbols = "EURUSD,GBPUSD,USDJPY",
     [string]$ProfileConfig = "data\reports\stability_repair\balanced_stable.ini",
+    [string]$StableGate = "data\reports\stable_gate\stable_gate_summary.json",
     [int]$CycleSeconds = 30
 )
 
@@ -41,7 +42,7 @@ while ($true) {
 
     Write-WatchdogLog "WATCHDOG_RESTART: BALANCED_STABLE forward-shadow process missing; starting."
     try {
-        & (Join-Path $repoRoot "scripts\run_forward_shadow_balanced_stable.ps1") -Symbols $Symbols -ProfileConfig $ProfileConfig -CycleSeconds $CycleSeconds
+        & (Join-Path $repoRoot "scripts\run_forward_shadow_balanced_stable.ps1") -Symbols $Symbols -ProfileConfig $ProfileConfig -StableGate $StableGate -CycleSeconds $CycleSeconds
         $exitCode = $LASTEXITCODE
         Write-WatchdogLog "BALANCED_STABLE forward-shadow exited with code $exitCode"
     } catch {

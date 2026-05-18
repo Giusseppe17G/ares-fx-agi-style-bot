@@ -2,6 +2,7 @@ param(
     [string]$LogDir = "data\logs\forward-shadow-stable",
     [string]$SqlitePath = "data\sqlite\forward-shadow-stable.sqlite3",
     [string]$ProfileConfig = "data\reports\stability_repair\balanced_stable.ini",
+    [string]$StableGate = "data\reports\stable_gate\stable_gate_summary.json",
     [string]$Symbols = "EURUSD,GBPUSD,USDJPY",
     [int]$CycleSeconds = 30,
     [int]$MaxCycles = 0
@@ -18,6 +19,9 @@ if (-not (Test-Path $venvPython)) {
 if (-not (Test-Path $ProfileConfig)) {
     throw "BALANCED_STABLE profile config not found: $ProfileConfig"
 }
+if (-not (Test-Path $StableGate)) {
+    throw "BALANCED_STABLE stable gate not found: $StableGate"
+}
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path $SqlitePath -Parent) | Out-Null
@@ -28,6 +32,7 @@ $runLog = Join-Path $LogDir "forward-shadow-balanced-stable-$timestamp.log"
 Write-Host "[$(Get-Date -Format o)] Starting BALANCED_STABLE forward-shadow paper run"
 Write-Host "DEMO_ONLY=True LIVE_TRADING_APPROVED=False execution_attempted=false order_send=false order_check=false"
 Write-Host "Profile config: $ProfileConfig"
+Write-Host "Stable gate: $StableGate"
 Write-Host "Log file: $runLog"
 
 $env:PYTHONPATH = "src/python"
@@ -39,7 +44,8 @@ $argsList = @(
     "--sqlite", $SqlitePath,
     "--cycle-seconds", "$CycleSeconds",
     "--signal-profile", "BALANCED_STABLE",
-    "--profile-config", $ProfileConfig
+    "--profile-config", $ProfileConfig,
+    "--stable-gate", $StableGate
 )
 if ($MaxCycles -gt 0) {
     $argsList += @("--max-cycles", "$MaxCycles")

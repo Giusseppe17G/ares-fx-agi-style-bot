@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, is_dataclass
 from time import sleep
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 from uuid import uuid4
 
 from agi_style_forex_bot_mt5.config import BotConfig
 from agi_style_forex_bot_mt5.contracts import AccountState, Environment, Event, RiskDecision, Severity, SignalAction
+from agi_style_forex_bot_mt5.calibration import effective_profile_config
 from agi_style_forex_bot_mt5.execution import MT5Connector
 from agi_style_forex_bot_mt5.mt5_data_bot import MT5DataOnlyBot
 from agi_style_forex_bot_mt5.ml import MLFilter
@@ -40,6 +41,10 @@ class ForwardShadowSummary:
     telegram_commands_processed: int = 0
     shadow_paused: bool = False
     execution_attempted: bool = False
+    signal_profile_used: str = ""
+    stable_gate_confirmed: bool = False
+    order_send_called: bool = False
+    order_check_called: bool = False
 
 
 class ForwardShadowBot:
@@ -57,6 +62,8 @@ class ForwardShadowBot:
         cycle_seconds: int = 30,
         max_cycles: int | None = None,
         report_dir: str = "data/reports/forward_shadow",
+        stable_gate_confirmed: bool = False,
+        stable_gate_decision: str = "",
     ) -> None:
         self.config = config or BotConfig()
         self.config.validate_safety()
@@ -68,6 +75,8 @@ class ForwardShadowBot:
         self.cycle_seconds = max(0, cycle_seconds)
         self.max_cycles = max_cycles
         self.report_dir = report_dir
+        self.stable_gate_confirmed = bool(stable_gate_confirmed)
+        self.stable_gate_decision = stable_gate_decision
         self.run_id = f"forward_{uuid4().hex}"
         self.connector: MT5Connector | None = None
         self.manager = PaperPositionManager(database=database, fill_model=PaperFillModel(max_spread_points=self.config.max_spread_points_default))
@@ -97,14 +106,14 @@ class ForwardShadowBot:
         recovery = self.recovery_manager.recover()
         if recovery.get("status") != "OK":
             self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"reason": "recovery failed", "recovery": recovery, "execution_attempted": False}, notify=True)
-            return ForwardShadowSummary("forward-shadow", False, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, self.database.get_shadow_paused(), False)
+            return self._summary(False, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed)
         if not self._connect():
             self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"execution_attempted": False}, notify=True)
-            return ForwardShadowSummary("forward-shadow", False, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, self.database.get_shadow_paused(), False)
+            return self._summary(False, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed)
         account = self._read_account()
         if account is None:
             self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"reason": "account_info unavailable", "execution_attempted": False}, notify=True)
-            return ForwardShadowSummary("forward-shadow", True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, self.database.get_shadow_paused(), False)
+            return self._summary(True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed)
         if self.config.demo_only and not account.is_demo:
             self._audit(
                 "ACCOUNT_REAL_DETECTED_READ_ONLY",
@@ -112,7 +121,7 @@ class ForwardShadowBot:
                 {"trade_mode": account.trade_mode, "is_demo": account.is_demo, "execution_attempted": False},
                 notify=True,
             )
-            return ForwardShadowSummary("forward-shadow", True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, self.database.get_shadow_paused(), False)
+            return self._summary(True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed)
         try:
             while self.max_cycles is None or cycles < self.max_cycles:
                 commands_processed += self.command_center.poll_and_process() if self.telegram_notifier is not None else 0
@@ -141,6 +150,9 @@ class ForwardShadowBot:
                         "closed_paper_trades_today": closed,
                         "last_error": "",
                         "shadow_paused": shadow_paused,
+                        "signal_profile_used": self.config.signal_profile,
+                        "stable_gate_confirmed": self.stable_gate_confirmed,
+                        "stable_gate_decision": self.stable_gate_decision,
                         "execution_attempted": False,
                     }
                 )
@@ -175,10 +187,39 @@ class ForwardShadowBot:
             trades = self.manager.load_all_trades()
             write_forward_shadow_report(trades, self.report_dir)
             self._audit("FORWARD_SHADOW_STOPPED", Severity.INFO, {"cycles": cycles, "execution_attempted": False}, notify=True)
-            return ForwardShadowSummary("forward-shadow", True, cycles, len(self.manager.load_open_trades()), opened, closed, heartbeat_written, alerts_emitted, commands_processed, self.database.get_shadow_paused(), False)
+            return self._summary(True, cycles, len(self.manager.load_open_trades()), opened, closed, heartbeat_written, alerts_emitted, commands_processed)
         except Exception as exc:
             self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"error": str(exc), "execution_attempted": False}, notify=True)
-            return ForwardShadowSummary("forward-shadow", True, cycles, len(self.manager.load_open_trades()), opened, closed, heartbeat_written, alerts_emitted, commands_processed, self.database.get_shadow_paused(), False)
+            return self._summary(True, cycles, len(self.manager.load_open_trades()), opened, closed, heartbeat_written, alerts_emitted, commands_processed)
+
+    def _summary(
+        self,
+        mt5_connected: bool,
+        cycles_completed: int,
+        open_trades: int,
+        paper_trades_opened: int,
+        paper_trades_closed: int,
+        heartbeat_written: bool,
+        alerts_emitted: int,
+        telegram_commands_processed: int,
+    ) -> ForwardShadowSummary:
+        return ForwardShadowSummary(
+            mode="forward-shadow",
+            mt5_connected=mt5_connected,
+            cycles_completed=cycles_completed,
+            open_trades=open_trades,
+            paper_trades_opened=paper_trades_opened,
+            paper_trades_closed=paper_trades_closed,
+            heartbeat_written=heartbeat_written,
+            alerts_emitted=alerts_emitted,
+            telegram_commands_processed=telegram_commands_processed,
+            shadow_paused=self.database.get_shadow_paused(),
+            execution_attempted=False,
+            signal_profile_used=self.config.signal_profile,
+            stable_gate_confirmed=self.stable_gate_confirmed,
+            order_send_called=False,
+            order_check_called=False,
+        )
 
     def _connect(self) -> bool:
         self.connector = MT5Connector(config=self.config, mt5_client=self.mt5_client)
@@ -397,6 +438,7 @@ class ForwardShadowBot:
                     regime=str(features.get("regime", "")),
                     session=str(features.get("session", "")),
                 )
+                trade = self._decorate_stable_trade(trade, strategy_signal, features)
                 after = self.database.count_rows("paper_trades")
                 if after > before:
                     opened += 1
@@ -410,6 +452,29 @@ class ForwardShadowBot:
                     notify=True,
                 )
         return opened
+
+    def _decorate_stable_trade(self, trade: PaperTrade, strategy_signal: Any, features: Mapping[str, Any]) -> PaperTrade:
+        if self.config.signal_profile != "BALANCED_STABLE":
+            return trade
+        effective = effective_profile_config("BALANCED_STABLE", source="forward-shadow", profile_config=self.config.profile_config or None)
+        metadata = {
+            **dict(trade.metadata),
+            "profile": "BALANCED_STABLE",
+            "signal_profile_used": "BALANCED_STABLE",
+            "stable_profile_hash": effective.profile_hash,
+            "stable_filters_applied": bool(effective.filters.get("apply_stability_filters", False)),
+            "stable_gate_decision": self.stable_gate_decision,
+            "stable_gate_confirmed": self.stable_gate_confirmed,
+            "setup_score": strategy_signal.metadata.get("setup_score", strategy_signal.score),
+            "ensemble_score": strategy_signal.score,
+            "component_scores": dict(strategy_signal.metadata.get("component_scores", {})),
+            "session": str(features.get("session", "")),
+            "regime": str(features.get("regime", "")),
+        }
+        updated = trade.replace(metadata=metadata)
+        self.database.update_paper_trade(updated.to_dict())
+        self.database.insert_paper_trade_event(updated.paper_trade_id, "STABLE_PROFILE_METADATA_ATTACHED", updated.to_dict())
+        return updated
 
     def _risk_pct_from_decision(self, decision: RiskDecision, account: AccountState) -> float:
         if account.equity > 0 and decision.risk_amount_account_currency > 0:

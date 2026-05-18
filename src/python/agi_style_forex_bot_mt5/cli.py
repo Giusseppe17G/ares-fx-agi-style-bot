@@ -22,17 +22,18 @@ from .benchmarks import build_competitive_scorecard, run_benchmarks
 from .calibration import apply_signal_profile, bot_config_with_signal_profile, profile_allowed_for_shadow, run_blocking_reasons_report, run_signal_calibration, run_threshold_sweep_report
 from .broker_quality import build_readiness_report, run_broker_quality
 from .config import load_config
-from .contracts import AccountState, MarketSnapshot, utc_now
+from .contracts import AccountState, Environment, Event, MarketSnapshot, Severity, utc_now
 from .data_pipeline import audit_historical_data, audit_timestamps, build_broker_cost_profile, build_dataset_manifest, build_feature_availability_report, build_strategy_data_contract_report, cost_for_symbol
 from .edge_filtering import run_edge_filtering, run_filtered_profile_builder
 from .edge_evaluation import run_edge_evaluation, run_strategy_selection, run_symbol_selection
 from .execution_simulation import compare_paper_vs_backtest, run_simulation_calibration
+from .forward_evidence import run_forward_acceptance, run_forward_evidence
 from .market_structure import run_strategy_diagnose, write_structure_report
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .ml import build_ml_dataset, build_ml_report, train_ml_filter
 from .observability import DailySummary, build_health_status, build_status
-from .paper_trading import ForwardShadowBot, forward_summary_to_json
+from .paper_trading import ForwardShadowBot, build_stable_health, forward_summary_to_json, write_stable_shadow_daily_report
 from .persistence import (
     check_db_health,
     compact_jsonl_logs,
@@ -134,6 +135,10 @@ def main(argv: list[str] | None = None) -> int:
             "competitive-scorecard",
             "research",
             "forward-shadow",
+            "forward-evidence",
+            "forward-acceptance",
+            "stable-health",
+            "stable-daily-summary",
             "status",
             "health",
             "daily-summary",
@@ -200,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--edge-dir", type=Path, default=Path("data/reports/edge"), help="Edge evaluation report directory.")
     parser.add_argument("--base-profile", default="BALANCED", help="Base profile for filtered edge profile generation.")
     parser.add_argument("--profile-config", type=Path, default=None, help="Profile overlay INI for BALANCED_FILTERED research runs.")
+    parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
     parser.add_argument("--require-actionable-filter", default="false", help="Require edge-filtering to create an actionable BALANCED_FILTERED overlay.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
     parser.add_argument("--reports-root", type=Path, default=Path("data/reports"), help="Reports root for validation-report.")
@@ -256,6 +262,10 @@ def main(argv: list[str] | None = None) -> int:
         "status",
         "health",
         "daily-summary",
+        "stable-health",
+        "stable-daily-summary",
+        "forward-evidence",
+        "forward-acceptance",
         "broker-quality",
         "readiness-report",
         "build-ml-dataset",
@@ -465,6 +475,20 @@ def main(argv: list[str] | None = None) -> int:
                 profile=args.profile,
                 output_dir=output_dir,
             )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "forward-evidence":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/forward_evidence")
+            summary = run_forward_evidence(database=database, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "forward-acceptance":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/forward_evidence")
+            summary = run_forward_acceptance(database=database, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=output_dir)
             print(_json_dumps(summary))
             return 0
 
@@ -689,8 +713,16 @@ def main(argv: list[str] | None = None) -> int:
             if args.signal_profile:
                 config = bot_config_with_signal_profile(config, args.signal_profile, str(args.profile_config) if args.profile_config else "")
             if config.signal_profile == "BALANCED_STABLE":
-                if not _stable_gate_ready():
-                    parser.error("SIGNAL_PROFILE=BALANCED_STABLE requires PAPER_SHADOW_READY from --mode stable-robustness-gate")
+                if not config.profile_config:
+                    print(_json_dumps(_stable_forward_block("STABLE_PROFILE_CONFIG_REQUIRED", "BALANCED_STABLE requires --profile-config", args.stable_gate)))
+                    return 0
+                stable_gate = _stable_gate_status(args.stable_gate)
+                if not stable_gate["exists"]:
+                    print(_json_dumps(_stable_forward_block("STABLE_GATE_REQUIRED", "BALANCED_STABLE requires stable_gate_summary.json with PAPER_SHADOW_READY", args.stable_gate)))
+                    return 0
+                if not stable_gate["paper_shadow_ready"]:
+                    print(_json_dumps(_stable_forward_block("STABLE_PROFILE_NOT_READY", "stable gate is not PAPER_SHADOW_READY", args.stable_gate, stable_gate)))
+                    return 0
             elif not profile_allowed_for_shadow(config.signal_profile):
                 parser.error(f"SIGNAL_PROFILE={config.signal_profile} is not allowed to create forward-shadow paper trades")
             bot = ForwardShadowBot(
@@ -704,8 +736,34 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 cycle_seconds=args.cycle_seconds,
                 max_cycles=args.max_cycles,
+                report_dir="data/reports/forward_shadow_stable" if config.signal_profile == "BALANCED_STABLE" else "data/reports/forward_shadow",
+                stable_gate_confirmed=config.signal_profile == "BALANCED_STABLE",
+                stable_gate_decision="PAPER_SHADOW_READY" if config.signal_profile == "BALANCED_STABLE" else "",
             )
+            if config.signal_profile == "BALANCED_STABLE":
+                event = Event.create(
+                    run_id="forward-shadow-stable",
+                    environment=Environment.DEMO,
+                    severity=Severity.INFO,
+                    module="cli",
+                    event_type="STABLE_GATE_CONFIRMED",
+                    message="BALANCED_STABLE stable gate confirmed for paper-shadow",
+                    correlation_id="forward-shadow-stable:stable-gate",
+                    payload={"stable_gate": str(args.stable_gate), "execution_attempted": False},
+                )
+                database.insert_event(event)
             print(forward_summary_to_json(bot.run()))
+            return 0
+
+        if args.mode == "stable-health":
+            assert database is not None
+            print(_json_dumps(build_stable_health(database=database, stable_gate_path=args.stable_gate)))
+            return 0
+
+        if args.mode == "stable-daily-summary":
+            assert database is not None
+            report_dir = args.report_dir if args.report_dir != Path("data/reports/backtests") else Path("data/reports/forward_shadow_stable/daily")
+            print(_json_dumps(write_stable_shadow_daily_report(database=database, report_dir=report_dir)))
             return 0
 
         if args.mode == "status":
@@ -897,8 +955,34 @@ def _bool_arg(value: object) -> bool:
 
 
 def _stable_gate_ready(path: Path = Path("data/reports/stable_gate/stable_gate_summary.json")) -> bool:
-    payload = _load_optional_json(path)
-    return bool(payload and payload.get("stable_gate_decision") == "PAPER_SHADOW_READY" and payload.get("paper_shadow_ready") is True and payload.get("execution_attempted") is False)
+    return bool(_stable_gate_status(path)["paper_shadow_ready"])
+
+
+def _stable_gate_status(path: Path) -> dict[str, object]:
+    payload = _load_optional_json(path) or {}
+    ready = bool(payload and payload.get("stable_gate_decision") == "PAPER_SHADOW_READY" and payload.get("paper_shadow_ready") is True and payload.get("execution_attempted") is False)
+    return {
+        "exists": path.exists(),
+        "path": str(path),
+        "stable_gate_decision": payload.get("stable_gate_decision", ""),
+        "paper_shadow_ready": ready,
+        "execution_attempted": bool(payload.get("execution_attempted", False)),
+    }
+
+
+def _stable_forward_block(classification: str, message: str, stable_gate: Path, gate_status: dict[str, object] | None = None) -> dict[str, object]:
+    return {
+        "mode": "forward-shadow",
+        "signal_profile_used": "BALANCED_STABLE",
+        "classification": classification,
+        "error_message": message,
+        "stable_gate": str(stable_gate),
+        "stable_gate_status": gate_status or {},
+        "stable_gate_confirmed": False,
+        "execution_attempted": False,
+        "order_send_called": False,
+        "order_check_called": False,
+    }
 
 
 def _json_dumps(payload: object) -> str:

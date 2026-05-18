@@ -1074,7 +1074,11 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
             "--profile-config data\\reports\\stability_repair\\balanced_stable.ini --quick"
         )
         payload["recommended_next_action"] = "Rerun BALANCED_STABLE in research/backtest only and then rerun robustness-fast."
-    stable_gate = _load_optional_json(latest / "reports" / "stable_gate" / "stable_gate_summary.json") or _load_optional_json(Path("data/reports/stable_gate/stable_gate_summary.json")) or {}
+    stable_context = str(payload.get("signal_profile_used") or payload.get("signal_profile") or "").upper() == "BALANCED_STABLE"
+    local_stable_gate_path = latest / "reports" / "stable_gate" / "stable_gate_summary.json"
+    stable_gate = _load_optional_json(local_stable_gate_path) or {}
+    if not stable_gate and stable_context:
+        stable_gate = _load_optional_json(Path("data/reports/stable_gate/stable_gate_summary.json")) or {}
     if stable_gate:
         payload["stable_gate_decision"] = stable_gate.get("stable_gate_decision", "")
         payload["paper_shadow_ready"] = bool(stable_gate.get("paper_shadow_ready", False))
@@ -1083,6 +1087,19 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
             payload["recommended_next_action"] = "Run forward-shadow with BALANCED_STABLE in paper/shadow only. Do not enable demo/live."
         elif stable_gate.get("stable_gate_decision"):
             payload["recommended_next_action"] = "Review stable gate report and rerun BALANCED_STABLE robustness before paper/shadow observation."
+    stable_daily = _load_optional_json(Path("data/reports/forward_shadow_stable/daily/daily_summary.json")) or {} if stable_context or stable_gate else {}
+    stable_drift = _load_optional_json(Path("data/reports/forward_shadow_stable/daily/drift.json")) or {} if stable_context or stable_gate else {}
+    if stable_daily or stable_drift:
+        payload["forward_stable_running"] = bool(stable_daily.get("paper_total_trades", 0) or stable_daily.get("open_trades", 0))
+        payload["stable_last_heartbeat"] = stable_daily.get("last_heartbeat_utc", payload.get("stable_last_heartbeat", ""))
+        payload["stable_open_paper_trades"] = stable_daily.get("open_trades", 0)
+        payload["stable_closed_paper_trades_today"] = stable_daily.get("closed_trades", 0)
+        payload["stable_drift_status"] = stable_drift.get("classification", stable_daily.get("stable_drift_status", "NEEDS_MORE_DATA"))
+        payload["stable_shadow_paused"] = bool(stable_daily.get("shadow_paused", False))
+        if payload["stable_drift_status"] in {"CRITICAL_DRIFT", "PAUSE_STABLE_SHADOW"}:
+            payload["stable_recommended_action"] = "Pause BALANCED_STABLE shadow and inspect drift/cost reports."
+        else:
+            payload["stable_recommended_action"] = "Continue BALANCED_STABLE paper/shadow monitoring; do not enable demo/live."
     if payload.get("timestamp_status") == "FAILED":
         payload["recommended_next_action"] = "Run FASE 18D timestamp normalization repair or re-export history."
     elif payload.get("data_contract_status") not in {"", "OK"}:

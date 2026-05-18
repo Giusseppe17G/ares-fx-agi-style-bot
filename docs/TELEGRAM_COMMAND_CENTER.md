@@ -84,8 +84,23 @@ Stable profile commands are read-only:
 - `/stable`
 - `/stable_gate`
 - `/shadow_stable`
+- `/stable_status`
+- `/stable_trades`
+- `/stable_drift`
+- `/stable_today`
+- `/pause_stable_shadow`
+- `/resume_stable_shadow`
 
-They return the latest stable gate summary and never enable demo/live execution.
+They return stable gate, drift and paper-trade status or pause/resume paper entries only. They never enable demo/live execution.
+
+Forward evidence commands are read-only:
+
+- `/evidence`
+- `/acceptance`
+- `/stable_report`
+- `/paper_audit`
+
+They generate or read the evidence pack and operational acceptance report. They never send broker orders.
 
 These commands are operational only and cannot enable trading.
 

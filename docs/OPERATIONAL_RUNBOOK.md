@@ -30,6 +30,24 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\watchdog_forward_shadow_b
 
 These scripts keep `DEMO_ONLY=True`, `LIVE_TRADING_APPROVED=False`, and paper/shadow mode only.
 
+Stable health and daily report:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\status_forward_shadow_stable.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\daily_summary_stable.ps1
+```
+
+Pause `BALANCED_STABLE` paper observation if stable drift becomes `CRITICAL_DRIFT` or `PAUSE_STABLE_SHADOW`.
+
+Forward evidence pack:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\forward_evidence_stable.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\forward_acceptance_stable.ps1
+```
+
+If acceptance returns `PAUSE_FORWARD_SHADOW`, stop the stable watchdog and inspect drift, paper trade audit and telemetry before restarting.
+
 ## Check Status
 
 ```powershell
