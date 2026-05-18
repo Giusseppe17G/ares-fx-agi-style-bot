@@ -79,6 +79,8 @@ If the offset cannot be validated or the normalized tick remains stale, the symb
 
 If forward-shadow is connected but `signals_detected=0`, run `--mode forward-signal-diagnose`. The diagnostic path checks live ticks, runtime M5/M15/H1 bars, feature availability, BALANCED_STABLE filters, strategy threshold failures and near misses.
 
+Phase 30 also adds the narrower `--mode live-feature-contract` audit. Use it when diagnostics show `FEATURE_PIPELINE_NOT_READY`; it verifies the live MT5 OHLCV schema, timestamp parsing, numeric casts, duplicate timestamps and diagnostic bar counts before any strategy threshold is reviewed.
+
 Forward-shadow also emits diagnostic events per evaluated candidate:
 
 - `FORWARD_CANDIDATE_EVALUATED`

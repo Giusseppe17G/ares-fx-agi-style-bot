@@ -42,7 +42,8 @@ def probe_runtime_data_quality(
         last_candle: dict[str, str | None] = {}
         for timeframe in TIMEFRAMES:
             mt5_timeframe = getattr(connector.mt5, f"TIMEFRAME_{timeframe}", timeframe)
-            raw = connector.mt5.copy_rates_from_pos(broker_symbol, mt5_timeframe, 0, max(1, int(bars)))
+            requested = max(1, int(bars), _bars_for(config, timeframe))
+            raw = connector.mt5.copy_rates_from_pos(broker_symbol, mt5_timeframe, 0, requested)
             if raw is None or len(raw) == 0:
                 raw = _copy_rates_range_fallback(connector, broker_symbol, mt5_timeframe, max(1, int(bars)))
             count = 0 if raw is None else len(raw)
@@ -53,7 +54,7 @@ def probe_runtime_data_quality(
                 last_candle[timeframe] = None
             else:
                 last_candle[timeframe] = _last_candle_timestamp(raw)
-                if count < 220:
+                if count < _diagnostic_min(timeframe):
                     blockers.append("LIVE_INSUFFICIENT_BARS")
         if not check.accepted:
             reason = _market_data_blocker(check.code, check.payload)
@@ -98,6 +99,14 @@ def _copy_rates_range_fallback(connector: MT5Connector, broker_symbol: str, mt5_
         return None
     now = datetime.now(timezone.utc)
     return copy_rates_range(broker_symbol, mt5_timeframe, now, now)
+
+
+def _bars_for(config: BotConfig, timeframe: str) -> int:
+    return int(getattr(config, f"live_{timeframe.lower()}_bars", 1000 if timeframe != "H1" else 500))
+
+
+def _diagnostic_min(timeframe: str) -> int:
+    return 100 if timeframe == "H1" else 200
 
 
 def _last_candle_timestamp(raw: Any) -> str | None:

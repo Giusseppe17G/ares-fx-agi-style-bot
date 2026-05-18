@@ -3,20 +3,20 @@
   "broker": "Raw Trading Ltd",
   "confidence": 1.0,
   "detected_at_utc": "2026-05-18T04:35:17.729704+00:00",
-  "last_confirmed_utc": "2026-05-18T09:03:31.446398+00:00",
+  "last_confirmed_utc": "2026-05-18T09:32:05.913525+00:00",
   "offsets_by_symbol": {
     "EURUSD": {
-      "last_confirmed_utc": "2026-05-18T09:03:31.410246+00:00",
+      "last_confirmed_utc": "2026-05-18T09:32:05.876469+00:00",
       "offset_seconds": 10800,
       "tick_time_status": "NORMALIZED_FRESH"
     },
     "GBPUSD": {
-      "last_confirmed_utc": "2026-05-18T09:03:31.429497+00:00",
+      "last_confirmed_utc": "2026-05-18T09:32:05.895637+00:00",
       "offset_seconds": 10800,
       "tick_time_status": "NORMALIZED_FRESH"
     },
     "USDJPY": {
-      "last_confirmed_utc": "2026-05-18T09:03:31.446398+00:00",
+      "last_confirmed_utc": "2026-05-18T09:32:05.913525+00:00",
       "offset_seconds": 10800,
       "tick_time_status": "NORMALIZED_FRESH"
     }

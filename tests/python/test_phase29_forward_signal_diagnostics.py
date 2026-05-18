@@ -121,7 +121,7 @@ def test_live_feature_probe_detects_missing_features() -> None:
     rows, features = probe_live_features(config=BotConfig(), runtime_payloads={"EURUSD": {"snapshot": snapshot, "rates": {"M5": _rates(20)}}})
     assert features == {}
     assert rows[0]["features_generated"] is False
-    assert "INSUFFICIENT_STRUCTURE_DATA" in rows[0]["blockers"]
+    assert "LIVE_INSUFFICIENT_ROWS_FOR_FEATURES" in rows[0]["blockers"]
 
 
 def test_live_strategy_probe_reports_threshold_failures(monkeypatch) -> None:

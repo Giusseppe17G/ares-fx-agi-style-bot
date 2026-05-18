@@ -65,7 +65,7 @@ def run_forward_signal_diagnose(
         strategy_rows=strategy_rows,
         data_rows=data_rows,
     )
-    paths = _write_reports(output, data_rows, feature_rows, strategy_rows, near_rows, stable_filter, context, scarcity)
+    paths = _write_reports(output, data_rows, feature_rows, strategy_rows, near_rows, stable_filter, context, scarcity, features_by_symbol if mt5_connected else {})
     feature_ready_symbols = [row["symbol"] for row in feature_rows if row.get("features_generated")]
     candidate_count = len(strategy_rows)
     summary = {
@@ -165,10 +165,14 @@ def _write_reports(
     stable_filter: Mapping[str, Any],
     context: Mapping[str, Any],
     scarcity: Mapping[str, Any],
+    features_by_symbol: Mapping[str, Mapping[str, Any]],
 ) -> list[str]:
     paths = {
         "live_data_quality": output / "live_data_quality.csv",
         "live_feature_probe": output / "live_feature_probe.csv",
+        "live_feature_contract_summary": output / "live_feature_contract_summary.json",
+        "live_feature_contract_by_symbol": output / "live_feature_contract_by_symbol.csv",
+        "feature_build_errors": output / "feature_build_errors.csv",
         "live_strategy_probe": output / "live_strategy_probe.csv",
         "near_misses": output / "near_misses.csv",
         "stable_filter": output / "stable_filter_audit.json",
@@ -177,12 +181,60 @@ def _write_reports(
     }
     _frame(data_rows).to_csv(paths["live_data_quality"], index=False)
     _frame(feature_rows).to_csv(paths["live_feature_probe"], index=False)
+    feature_errors = [row for row in feature_rows if not row.get("features_generated")]
+    contract_summary = {
+        "mode": "live-feature-contract",
+        "symbols_checked": len(feature_rows),
+        "feature_ready_symbols": [row.get("symbol") for row in feature_rows if row.get("features_generated")],
+        "schema_ok": bool(feature_rows) and not feature_errors,
+        "features_ok": bool(feature_rows) and not feature_errors,
+        "top_blockers": _top_blockers(feature_rows),
+        "execution_attempted": False,
+    }
+    paths["live_feature_contract_summary"].write_text(json.dumps(_jsonable(contract_summary), indent=2, sort_keys=True), encoding="utf-8")
+    _frame(_contract_rows(feature_rows)).to_csv(paths["live_feature_contract_by_symbol"], index=False)
+    _frame(feature_errors).to_csv(paths["feature_build_errors"], index=False)
+    for symbol, features in features_by_symbol.items():
+        sample_path = output / f"feature_sample_{str(symbol).upper()}.csv"
+        _frame([{key: value for key, value in features.items() if isinstance(value, (str, int, float, bool)) or value is None}]).to_csv(sample_path, index=False)
+        paths[f"feature_sample_{str(symbol).upper()}"] = sample_path
     _frame(strategy_rows).to_csv(paths["live_strategy_probe"], index=False)
     _frame(near_rows).to_csv(paths["near_misses"], index=False)
     paths["stable_filter"].write_text(json.dumps(_jsonable(stable_filter), indent=2, sort_keys=True), encoding="utf-8")
     paths["context"].write_text(json.dumps(_jsonable(context), indent=2, sort_keys=True), encoding="utf-8")
     paths["html"].write_text(f"<html><body><h1>Forward Signal Diagnostics</h1><pre>{json.dumps(_jsonable({'scarcity': scarcity, 'stable_filter': stable_filter, 'context': context}), indent=2, sort_keys=True)}</pre></body></html>", encoding="utf-8")
     return [str(path) for path in paths.values()]
+
+
+def _contract_rows(feature_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in feature_rows:
+        blockers = _as_tuple(row.get("blockers"))
+        rows.append(
+            {
+                "symbol": row.get("symbol"),
+                "timeframe": "M5",
+                "schema_ok": bool(row.get("features_generated")),
+                "timestamps_ok": row.get("timestamp_status") == "OK",
+                "numeric_ok": row.get("feature_build_error_type") != "LIVE_NUMERIC_CAST_FAILED",
+                "row_counts_ok": row.get("feature_build_error_type") != "LIVE_INSUFFICIENT_ROWS_FOR_FEATURES",
+                "features_ok": bool(row.get("features_generated")),
+                "rows": (row.get("row_count_by_timeframe") or {}).get("M5", 0) if isinstance(row.get("row_count_by_timeframe"), Mapping) else 0,
+                "columns_before": "|".join(str(item) for item in _as_tuple(row.get("schema_before"))),
+                "columns_after": "|".join(str(item) for item in _as_tuple(row.get("schema_after"))),
+                "blockers": "|".join(str(item) for item in blockers),
+                "execution_attempted": False,
+            }
+        )
+    return rows
+
+
+def _top_blockers(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    counter: Counter[str] = Counter()
+    for row in rows:
+        for blocker in _as_tuple(row.get("blockers")):
+            counter[str(blocker)] += 1
+    return [{"blocking_reason": key, "count": value} for key, value in counter.most_common(10)]
 
 
 def _frame(rows: list[dict[str, Any]]) -> pd.DataFrame:

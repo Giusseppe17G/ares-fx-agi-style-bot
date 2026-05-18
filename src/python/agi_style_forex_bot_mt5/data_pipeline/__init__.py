@@ -11,6 +11,7 @@ from .historical_data_resolver import (
     resolve_historical_data,
 )
 from .historical_csv_loader import HistoricalCSVLoadResult, build_strategy_data_contract_report, load_historical_csv_contract
+from .live_data_contract import LiveContractResult, build_live_feature_contract_report, normalize_ohlcv_contract
 from .history_quality import (
     HistoryQualityResult,
     dataset_fingerprint,
@@ -24,6 +25,7 @@ __all__ = [
     "HistoryQualityResult",
     "HistoricalDataResolution",
     "HistoricalCSVLoadResult",
+    "LiveContractResult",
     "TimestampNormalizationResult",
     "CALIBRATION_MIN_BARS",
     "FULL_VALIDATION_MIN_BARS",
@@ -31,6 +33,7 @@ __all__ = [
     "build_dataset_manifest",
     "build_feature_availability_report",
     "build_strategy_data_contract_report",
+    "build_live_feature_contract_report",
     "cost_for_symbol",
     "dataset_fingerprint",
     "evaluate_history_quality",
@@ -39,6 +42,7 @@ __all__ = [
     "load_history_csv",
     "load_historical_csv_contract",
     "normalize_timestamps",
+    "normalize_ohlcv_contract",
     "resolve_historical_data",
     "scan_history_directory",
 ]

@@ -9,6 +9,7 @@
 - Reads `symbol_info` and `symbol_info_tick`.
 - Resolves canonical symbols such as `EURUSD` to broker symbols such as `EURUSDm`, `EURUSD.r`, `EURUSD.raw`, `EURUSDpro`, or `EURUSD.` when exposed by `symbols_get()`.
 - Reads bars for `M5`, `M15`, and `H1` with `copy_rates_from_pos`, then falls back to `copy_rates_range` when the first read is empty.
+- Normalizes runtime MT5 bars through the canonical live OHLCV contract before indicators or strategies run.
 - Validates symbol properties, tick freshness, and market data quality.
 - Computes indicators, features, and regime labels.
 - Runs the strategy ensemble in shadow mode.
@@ -118,6 +119,31 @@ If the market is probably closed or the symbol has no fresh ticks, the bot rejec
 ```
 
 That is not a critical bot error; it is a safe read-only rejection.
+
+## Live Feature Contract
+
+Runtime bars from MT5 must normalize to the same schema as historical CSV research:
+
+```text
+timestamp_utc, time, open, high, low, close, tick_volume, spread, real_volume
+```
+
+Use this read-only audit when forward-shadow is connected but feature generation is not ready:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode live-feature-contract --symbols EURUSD,GBPUSD,USDJPY --output-dir data\reports\forward_diagnostics
+```
+
+The live loop requests enough bars for feature generation without pulling full validation history:
+
+```text
+LIVE_M5_BARS=1000
+LIVE_M15_BARS=1000
+LIVE_H1_BARS=500
+```
+
+If `LIVE_MISSING_REQUIRED_COLUMNS`, `LIVE_TIMESTAMP_NOT_DATETIME`, `LIVE_NUMERIC_CAST_FAILED`, or `LIVE_INSUFFICIENT_ROWS_FOR_FEATURES` appears, fix the data contract before changing strategy thresholds.
 
 ## Verifying No `order_send`
 

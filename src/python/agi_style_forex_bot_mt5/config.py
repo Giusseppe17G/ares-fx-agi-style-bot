@@ -66,6 +66,9 @@ class BotConfig:
     known_broker_time_offsets_seconds: tuple[int, ...] = (-10800, -7200, -3600, 0, 3600, 7200, 10800)
     broker_time_offset_detection: bool = True
     broker_time_offset_required_confirmations: int = 1
+    live_m5_bars: int = 1000
+    live_m15_bars: int = 1000
+    live_h1_bars: int = 500
     allow_partial_fill: bool = False
     telegram_enabled: bool = False
     database_enabled: bool = False
@@ -150,6 +153,9 @@ def load_config(path: str | Path | None = None) -> BotConfig:
         ),
         broker_time_offset_detection=bool(values.get("BROKER_TIME_OFFSET_DETECTION", True)),
         broker_time_offset_required_confirmations=int(values.get("BROKER_TIME_OFFSET_REQUIRED_CONFIRMATIONS", 1)),
+        live_m5_bars=int(values.get("LIVE_M5_BARS", 1000)),
+        live_m15_bars=int(values.get("LIVE_M15_BARS", 1000)),
+        live_h1_bars=int(values.get("LIVE_H1_BARS", 500)),
         allow_partial_fill=bool(values.get("ALLOW_PARTIAL_FILL", False)),
         telegram_enabled=bool(values.get("TELEGRAM_ENABLED", False)),
         database_enabled=bool(values.get("DATABASE_ENABLED", False)),

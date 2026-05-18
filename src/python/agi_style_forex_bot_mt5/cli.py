@@ -23,7 +23,7 @@ from .calibration import apply_signal_profile, bot_config_with_signal_profile, p
 from .broker_quality import build_readiness_report, run_broker_quality
 from .config import load_config
 from .contracts import AccountState, Environment, Event, MarketSnapshot, Severity, utc_now
-from .data_pipeline import audit_historical_data, audit_timestamps, build_broker_cost_profile, build_dataset_manifest, build_feature_availability_report, build_strategy_data_contract_report, cost_for_symbol
+from .data_pipeline import audit_historical_data, audit_timestamps, build_broker_cost_profile, build_dataset_manifest, build_feature_availability_report, build_live_feature_contract_report, build_strategy_data_contract_report, cost_for_symbol
 from .edge_filtering import run_edge_filtering, run_filtered_profile_builder
 from .edge_evaluation import run_edge_evaluation, run_strategy_selection, run_symbol_selection
 from .execution_simulation import compare_paper_vs_backtest, run_simulation_calibration
@@ -171,6 +171,7 @@ def main(argv: list[str] | None = None) -> int:
             "historical-data-audit",
             "timestamp-audit",
             "strategy-data-contract",
+            "live-feature-contract",
             "apply-signal-profile",
             "profile-comparison-run",
             "edge-evaluation",
@@ -585,6 +586,16 @@ def main(argv: list[str] | None = None) -> int:
                 report_dir=args.report_dir,
                 symbols=selected_symbols,
                 timeframes=tuple(item.strip() for item in args.timeframes.split(",") if item.strip()),
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "live-feature-contract":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/forward_diagnostics")
+            summary = build_live_feature_contract_report(
+                config=config,
+                symbols=selected_symbols,
+                output_dir=output_dir,
             )
             print(_json_dumps(summary))
             return 0

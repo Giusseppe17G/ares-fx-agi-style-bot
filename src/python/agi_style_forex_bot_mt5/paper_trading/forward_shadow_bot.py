@@ -272,7 +272,27 @@ class ForwardShadowBot:
                 bars_by_tf = helper._read_timeframes(resolution.canonical_symbol, resolution.broker_symbol, snapshot)
                 if bars_by_tf is None:
                     continue
-                features = helper._features_from_bars(bars_by_tf["M5"], snapshot)
+                try:
+                    features = helper._features_from_bars(bars_by_tf["M5"], snapshot)
+                except Exception as exc:
+                    feature_error = self._feature_build_error_payload(
+                        resolution.canonical_symbol,
+                        exc,
+                        bars_by_tf.get("M5"),
+                    )
+                    self._audit("FORWARD_FEATURE_BUILD_FAILED", Severity.WARNING, feature_error, symbol=resolution.canonical_symbol)
+                    self._audit(
+                        "FORWARD_NO_SIGNAL_DIAGNOSTIC",
+                        Severity.INFO,
+                        {
+                            "symbol": resolution.canonical_symbol,
+                            "no_signal_reason": feature_error["feature_build_error_type"],
+                            "feature_error": feature_error,
+                            "execution_attempted": False,
+                        },
+                        symbol=resolution.canonical_symbol,
+                    )
+                    continue
                 if "market_structure" in features:
                     self._audit("MARKET_STRUCTURE_DETECTED", Severity.INFO, dict(features.get("market_structure") or {}), symbol=resolution.canonical_symbol)
                 if "liquidity" in features and str(dict(features.get("liquidity") or {}).get("sweep_direction", "NONE")) != "NONE":
@@ -458,6 +478,39 @@ class ForwardShadowBot:
                     notify=True,
                 )
         return opened
+
+    def _feature_build_error_payload(self, symbol: str, exc: Exception, frame: Any) -> dict[str, Any]:
+        message = str(exc)
+        code = message.split(":", 1)[0].strip().upper() if message else "FEATURE_ENGINE_EXCEPTION"
+        if not code.startswith("LIVE_") and not code.startswith("FEATURE_"):
+            code = "FEATURE_ENGINE_EXCEPTION"
+        columns = tuple(getattr(frame, "columns", ()))
+        rows = int(len(frame)) if frame is not None and hasattr(frame, "__len__") else 0
+        timestamp_status = "UNKNOWN"
+        first_timestamp = ""
+        last_timestamp = ""
+        if frame is not None and "timestamp_utc" in columns:
+            try:
+                timestamp_status = "OK" if getattr(frame["timestamp_utc"], "dt", None) is not None else "LIVE_TIMESTAMP_NOT_DATETIME"
+                first_timestamp = frame["timestamp_utc"].iloc[0].isoformat() if rows else ""
+                last_timestamp = frame["timestamp_utc"].iloc[-1].isoformat() if rows else ""
+            except Exception:
+                timestamp_status = "LIVE_TIMESTAMP_NOT_DATETIME"
+        return {
+            "symbol": symbol,
+            "feature_build_error_type": code,
+            "feature_build_exception": message,
+            "missing_columns": [column for column in ("timestamp_utc", "open", "high", "low", "close", "tick_volume", "spread", "real_volume") if column not in columns],
+            "invalid_dtypes": [],
+            "row_count_by_timeframe": {"M5": rows},
+            "timestamp_status": timestamp_status,
+            "null_counts": {},
+            "first_timestamp_utc": first_timestamp,
+            "last_timestamp_utc": last_timestamp,
+            "schema_after": list(columns),
+            "blockers": [code],
+            "execution_attempted": False,
+        }
 
     def _decorate_stable_trade(self, trade: PaperTrade, strategy_signal: Any, features: Mapping[str, Any]) -> PaperTrade:
         if self.config.signal_profile != "BALANCED_STABLE":

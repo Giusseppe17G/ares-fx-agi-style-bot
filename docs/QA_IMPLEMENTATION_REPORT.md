@@ -156,6 +156,27 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 30 Live Feature Pipeline Repair
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully after adding live feature contract coverage.
+
+Integrated in Phase 30:
+
+- Added `data_pipeline/live_data_contract.py` with a shared `normalize_ohlcv_contract` for live MT5 rates and historical CSV frames.
+- Added CLI mode `live-feature-contract`.
+- Forward diagnostics now emit live feature contract reports, feature build error reports and compact feature samples.
+- `mt5-data` and forward-shadow now normalize runtime MT5 rates before feature engineering.
+- Forward-shadow audits `FORWARD_FEATURE_BUILD_FAILED` with specific contract/schema errors and keeps the loop alive.
+- Runtime live bars are configurable through `LIVE_M5_BARS`, `LIVE_M15_BARS` and `LIVE_H1_BARS`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 29 Forward Signal Scarcity Diagnostics
 
 Status: PASS pending full-suite verification for this phase.

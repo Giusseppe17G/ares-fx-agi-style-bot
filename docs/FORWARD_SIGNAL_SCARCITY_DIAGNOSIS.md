@@ -26,7 +26,11 @@ The command writes:
 
 - `data/reports/forward_diagnostics/signal_scarcity_summary.json`
 - `data/reports/forward_diagnostics/live_data_quality.csv`
+- `data/reports/forward_diagnostics/live_feature_contract_summary.json`
+- `data/reports/forward_diagnostics/live_feature_contract_by_symbol.csv`
 - `data/reports/forward_diagnostics/live_feature_probe.csv`
+- `data/reports/forward_diagnostics/feature_build_errors.csv`
+- `data/reports/forward_diagnostics/feature_sample_<SYMBOL>.csv`
 - `data/reports/forward_diagnostics/live_strategy_probe.csv`
 - `data/reports/forward_diagnostics/near_misses.csv`
 - `data/reports/forward_diagnostics/stable_filter_audit.json`
@@ -46,6 +50,15 @@ The command writes:
 If classification is `FORWARD_PIPELINE_OK_WAIT_FOR_SETUP`, the data and feature path is healthy and the correct action is continued observation.
 
 If classification is `FEATURE_PIPELINE_NOT_READY`, fix MT5 runtime bars/features before reviewing thresholds.
+
+Phase 30 adds `--mode live-feature-contract` to isolate schema issues from strategy issues:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode live-feature-contract --symbols EURUSD,GBPUSD,USDJPY --output-dir data\reports\forward_diagnostics
+```
+
+If the live contract is OK but signals are still zero, blockers should move to strategy/context reasons such as `NO_SETUP_DETECTED`, `ENSEMBLE_SCORE_LOW`, `SESSION_BLOCK`, `REGIME_BLOCK` or `SPREAD_BLOCK`.
 
 If classification is `STABLE_FILTER_TOO_RESTRICTIVE`, rerun stability repair in research only. It is not permission to loosen paper/live controls.
 

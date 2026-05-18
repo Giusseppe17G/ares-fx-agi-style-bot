@@ -28,7 +28,8 @@ from .contracts import (
     SignalAction,
     TradeSignal,
 )
-from .data import add_indicators, add_regime_labels, normalize_ohlcv_bars
+from .data import add_indicators, add_regime_labels
+from .data_pipeline.live_data_contract import DIAGNOSTIC_MIN_BARS, normalize_ohlcv_contract
 from .execution import MT5Connector, ShadowExecutionEngine, ShadowOrder
 from .market_structure import build_market_structure_features
 from .risk import RiskEngine, RiskRuntimeState
@@ -442,7 +443,8 @@ class MT5DataOnlyBot:
         for timeframe in TIMEFRAMES:
             const_name = f"TIMEFRAME_{timeframe}"
             mt5_timeframe = getattr(self.connector.mt5, const_name, timeframe)
-            raw = self.connector.mt5.copy_rates_from_pos(broker_symbol, mt5_timeframe, 0, self.bars)
+            requested_bars = max(self.bars, self._live_bars_for(timeframe))
+            raw = self.connector.mt5.copy_rates_from_pos(broker_symbol, mt5_timeframe, 0, requested_bars)
             if raw is None or len(raw) == 0:
                 self._audit(
                     severity=Severity.WARNING,
@@ -476,7 +478,19 @@ class MT5DataOnlyBot:
                 )
                 return None
             try:
-                frame = normalize_ohlcv_bars(raw, symbol=canonical_symbol, timeframe=timeframe)
+                contract = normalize_ohlcv_contract(
+                    raw,
+                    source="live_mt5",
+                    symbol=canonical_symbol,
+                    timeframe=timeframe,
+                    min_rows=DIAGNOSTIC_MIN_BARS.get(timeframe, 200),
+                )
+                if contract.diagnostics["status"] != "OK":
+                    raise ValueError(
+                        f"{contract.diagnostics['status']}: "
+                        f"{', '.join(contract.diagnostics.get('blockers', ())) or 'live OHLCV contract failed'}"
+                    )
+                frame = contract.frame
                 if "spread_points" not in frame.columns:
                     frame["spread_points"] = snapshot.spread_points
                 if len(frame) < 220:
@@ -511,14 +525,18 @@ class MT5DataOnlyBot:
                 return None
         return frames
 
+    def _live_bars_for(self, timeframe: str) -> int:
+        return int(getattr(self.config, f"live_{timeframe.lower()}_bars", 1000 if timeframe != "H1" else 500))
+
     def _copy_rates_range_fallback(self, broker_symbol: str, mt5_timeframe: Any, timeframe: str) -> Any:
         assert self.connector is not None
         copy_rates_range = getattr(self.connector.mt5, "copy_rates_range", None)
         if not callable(copy_rates_range):
             return None
         minutes = {"M5": 5, "M15": 15, "H1": 60}.get(timeframe, 5)
+        bars = max(self.bars, self._live_bars_for(timeframe))
         date_to = datetime.now(timezone.utc)
-        date_from = date_to - timedelta(minutes=minutes * (self.bars + 10))
+        date_from = date_to - timedelta(minutes=minutes * (bars + 10))
         return copy_rates_range(broker_symbol, mt5_timeframe, date_from, date_to)
 
     def _features_from_bars(

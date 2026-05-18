@@ -13,6 +13,7 @@ import pandas as pd
 from ..data import add_indicators, add_regime_labels
 from .historical_data_resolver import CALIBRATION_MIN_BARS, resolve_historical_data
 from .timestamp_normalizer import normalize_timestamps
+from .live_data_contract import normalize_ohlcv_contract
 
 
 REQUIRED_CONTRACT_COLUMNS = (
@@ -50,6 +51,9 @@ def load_historical_csv_contract(path: str | Path, *, symbol: str = "", timefram
     columns_before = tuple(str(column) for column in raw.columns)
     if raw.empty:
         return HistoricalCSVLoadResult(pd.DataFrame(columns=REQUIRED_CONTRACT_COLUMNS), _diagnostics(csv_path, "CSV_EMPTY", symbol=symbol, timeframe=timeframe, columns_before=columns_before))
+    common = normalize_ohlcv_contract(raw, source="historical", symbol=symbol, timeframe=timeframe, min_rows=0)
+    if common.diagnostics["status"] == "OK":
+        return HistoricalCSVLoadResult(common.frame, _diagnostics(csv_path, "OK", symbol=symbol, timeframe=timeframe, columns_before=columns_before, columns_after=tuple(common.frame.columns), rows_before=int(len(raw)), rows_after=int(len(common.frame)), timestamp_diagnostics={"status": "OK", "timestamp_source_column": common.diagnostics.get("timestamp_source_column", "timestamp_utc")}, warnings=common.diagnostics.get("blockers", ()), duplicates=int(common.diagnostics.get("duplicate_timestamps", 0) or 0)))
     frame = _normalize_columns(raw)
     missing_ohlc = tuple(column for column in OHLC_COLUMNS if column not in frame.columns)
     if missing_ohlc:
