@@ -81,6 +81,8 @@ If forward-shadow is connected but `signals_detected=0`, run `--mode forward-sig
 
 Phase 30 also adds the narrower `--mode live-feature-contract` audit. Use it when diagnostics show `FEATURE_PIPELINE_NOT_READY`; it verifies the live MT5 OHLCV schema, timestamp parsing, numeric casts, duplicate timestamps and diagnostic bar counts before any strategy threshold is reviewed.
 
+If live features are healthy and candidates are blocked by regime or ensemble score, use the Phase 31 research-only replay tools. They read JSONL/CSV/SQLite evidence and write `data\reports\forward_research`, but they do not alter the running BALANCED_STABLE process or create paper trades.
+
 Forward-shadow also emits diagnostic events per evaluated candidate:
 
 - `FORWARD_CANDIDATE_EVALUATED`

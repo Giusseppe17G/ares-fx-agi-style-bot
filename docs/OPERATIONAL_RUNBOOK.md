@@ -217,3 +217,14 @@ py -m agi_style_forex_bot_mt5.cli --mode forward-signal-diagnose --symbols EURUS
 ```
 
 If the result is `FORWARD_PIPELINE_OK_WAIT_FOR_SETUP`, keep observing. If it is `FEATURE_PIPELINE_NOT_READY`, inspect live bars/features. If it is `STABLE_FILTER_TOO_RESTRICTIVE`, revisit stability repair in research only. Do not adjust thresholds directly in forward-shadow.
+
+# Phase 31 Candidate Replay
+
+When candidates exist but are blocked by `REGIME_MISMATCH` or `ENSEMBLE_SCORE_LOW`, replay them in research-only mode:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode forward-candidate-replay --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --diagnostics-dir data\reports\forward_diagnostics --profile-config data\reports\stability_repair\balanced_stable.ini --output-dir data\reports\forward_research
+py -m agi_style_forex_bot_mt5.cli --mode forward-blocker-sensitivity --diagnostics-dir data\reports\forward_diagnostics --profile-config data\reports\stability_repair\balanced_stable.ini --output-dir data\reports\forward_research
+```
+
+These modes only read evidence and write reports. They do not modify the active forward-shadow terminal, paper trade SQLite state, risk limits, thresholds, or execution settings.

@@ -41,6 +41,8 @@ def run_forward_evidence(
     rejections, rejection_frame = analyze_rejections(database=database)
     audit = audit_paper_trades(database=database, log_dir=str(log_dir))
     diagnostics = _load_json(Path(reports_root) / "forward_diagnostics" / "signal_scarcity_summary.json")
+    forward_research = _load_json(Path(reports_root) / "forward_research" / "candidate_replay_summary.json")
+    blocker_sensitivity = _load_json(Path(reports_root) / "forward_research" / "blocker_sensitivity.json")
     acceptance = decide_operational_acceptance(evidence=evidence, metrics=metrics, drift=drift, paper_audit=audit)
     paths = _write_reports(output, evidence, metrics, drift, rejections, rejection_frame, audit, acceptance)
     return {
@@ -55,6 +57,10 @@ def run_forward_evidence(
         "near_miss_count": diagnostics.get("near_miss_count", 0),
         "live_feature_ready_symbols": diagnostics.get("feature_ready_symbols", []),
         "recommended_signal_diagnosis_action": diagnostics.get("recommended_action", ""),
+        "forward_research_status": forward_research.get("status", ""),
+        "top_research_blockers": forward_research.get("top_research_blockers", []),
+        "research_variants_available": bool(blocker_sensitivity.get("variants_evaluated")),
+        "recommended_research_action": _recommended_research_action(forward_research, blocker_sensitivity),
         "reports_created": paths,
         "execution_attempted": False,
         "order_send_called": False,
@@ -115,6 +121,16 @@ def _write_reports(
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(json.dumps(_jsonable(payload), indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _recommended_research_action(forward_research: Mapping[str, Any], blocker_sensitivity: Mapping[str, Any]) -> str:
+    if not forward_research and not blocker_sensitivity:
+        return ""
+    if str(forward_research.get("status", "")).upper() == "NEEDS_MORE_FORWARD_CANDIDATES":
+        return "Collect more blocked forward candidates before changing research variants."
+    if blocker_sensitivity.get("best_research_variant"):
+        return f"Review {blocker_sensitivity.get('best_research_variant')} in research only; do not modify live BALANCED_STABLE."
+    return "Review candidate replay before proposing BALANCED_STABLE_V2 research."
 
 
 def _load_json(path: Path) -> dict[str, Any]:

@@ -177,6 +177,26 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 31 Forward Candidate Research Replay
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully after adding forward candidate replay coverage.
+
+Integrated in Phase 31:
+
+- Added `forward_research` package for candidate event loading, replay classification, regime mismatch analysis, ensemble score analysis and blocker sensitivity.
+- Added CLI modes `forward-candidate-replay` and `forward-blocker-sensitivity`.
+- Added reports under `data/reports/forward_research`.
+- Forward evidence now surfaces forward research status, top research blockers, available variants and recommended research action.
+- Telegram read-only commands were added for candidate replay, blocker sensitivity, regime blocks and score blocks.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 29 Forward Signal Scarcity Diagnostics
 
 Status: PASS pending full-suite verification for this phase.

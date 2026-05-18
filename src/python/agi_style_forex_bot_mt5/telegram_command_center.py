@@ -82,6 +82,10 @@ class TelegramCommandCenter:
         "/near_misses",
         "/forward_blockers",
         "/live_features",
+        "/candidate_replay",
+        "/blocker_sensitivity",
+        "/regime_blocks",
+        "/score_blocks",
     }
 
     def __init__(
@@ -310,6 +314,22 @@ class TelegramCommandCenter:
         if command == "/live_features":
             path = Path("data/reports/forward_diagnostics/live_feature_probe.csv")
             response = path.read_text(encoding="utf-8")[:1000] if path.exists() else "live_feature_probe=NO_DIAGNOSTIC_RUN execution_attempted=false"
+            return TelegramCommandResult(command, True, response, "OK")
+        if command == "/candidate_replay":
+            path = Path("data/reports/forward_research/candidate_replay_summary.json")
+            response = path.read_text(encoding="utf-8")[:1000] if path.exists() else '{"mode":"forward-candidate-replay","status":"NO_REPLAY_RUN","execution_attempted":false}'
+            return TelegramCommandResult(command, True, response, "OK")
+        if command == "/blocker_sensitivity":
+            path = Path("data/reports/forward_research/blocker_sensitivity.json")
+            response = path.read_text(encoding="utf-8")[:1000] if path.exists() else '{"mode":"forward-blocker-sensitivity","status":"NO_SENSITIVITY_RUN","execution_attempted":false}'
+            return TelegramCommandResult(command, True, response, "OK")
+        if command == "/regime_blocks":
+            path = Path("data/reports/forward_research/regime_mismatch_analysis.json")
+            response = path.read_text(encoding="utf-8")[:1000] if path.exists() else '{"blocked_by_regime":{},"execution_attempted":false}'
+            return TelegramCommandResult(command, True, response, "OK")
+        if command == "/score_blocks":
+            path = Path("data/reports/forward_research/ensemble_score_analysis.json")
+            response = path.read_text(encoding="utf-8")[:1000] if path.exists() else '{"top_score_drag_components":[],"execution_attempted":false}'
             return TelegramCommandResult(command, True, response, "OK")
         return TelegramCommandResult(command, True, self._help(), "OK")
 

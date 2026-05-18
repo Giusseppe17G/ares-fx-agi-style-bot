@@ -29,6 +29,7 @@ from .edge_evaluation import run_edge_evaluation, run_strategy_selection, run_sy
 from .execution_simulation import compare_paper_vs_backtest, run_simulation_calibration
 from .forward_evidence import run_forward_acceptance, run_forward_evidence
 from .forward_diagnostics import run_forward_signal_diagnose
+from .forward_research import run_forward_blocker_sensitivity, run_forward_candidate_replay
 from .market_structure import run_strategy_diagnose, write_structure_report
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
@@ -139,6 +140,8 @@ def main(argv: list[str] | None = None) -> int:
             "forward-evidence",
             "forward-acceptance",
             "forward-signal-diagnose",
+            "forward-candidate-replay",
+            "forward-blocker-sensitivity",
             "stable-health",
             "stable-daily-summary",
             "status",
@@ -212,6 +215,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--require-actionable-filter", default="false", help="Require edge-filtering to create an actionable BALANCED_FILTERED overlay.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
     parser.add_argument("--reports-root", type=Path, default=Path("data/reports"), help="Reports root for validation-report.")
+    parser.add_argument("--diagnostics-dir", type=Path, default=Path("data/reports/forward_diagnostics"), help="Forward diagnostics report directory.")
     parser.add_argument("--profile-runs-dir", type=Path, default=Path("data/reports/profile_runs"), help="Profile comparison report directory.")
     parser.add_argument("--robustness-dir", type=Path, default=Path("data/reports/robustness"), help="Robustness fast-track report directory.")
     parser.add_argument("--stability-dir", type=Path, default=Path("data/reports/stability_repair"), help="Stability repair report directory.")
@@ -270,6 +274,7 @@ def main(argv: list[str] | None = None) -> int:
         "forward-evidence",
         "forward-acceptance",
         "forward-signal-diagnose",
+        "forward-candidate-replay",
         "broker-quality",
         "readiness-report",
         "build-ml-dataset",
@@ -509,6 +514,29 @@ def main(argv: list[str] | None = None) -> int:
                 reports_root=args.reports_root,
                 output_dir=output_dir,
                 bars=args.bars,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "forward-candidate-replay":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/forward_research")
+            summary = run_forward_candidate_replay(
+                log_dir=args.log_dir,
+                diagnostics_dir=args.diagnostics_dir,
+                sqlite_path=args.sqlite,
+                profile_config=args.profile_config,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "forward-blocker-sensitivity":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/forward_research")
+            summary = run_forward_blocker_sensitivity(
+                log_dir=args.log_dir,
+                diagnostics_dir=args.diagnostics_dir,
+                profile_config=args.profile_config,
+                output_dir=output_dir,
             )
             print(_json_dumps(summary))
             return 0

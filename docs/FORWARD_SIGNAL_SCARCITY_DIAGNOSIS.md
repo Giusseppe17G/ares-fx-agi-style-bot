@@ -62,4 +62,16 @@ If the live contract is OK but signals are still zero, blockers should move to s
 
 If classification is `STABLE_FILTER_TOO_RESTRICTIVE`, rerun stability repair in research only. It is not permission to loosen paper/live controls.
 
+## Candidate Replay
+
+When diagnostics show candidates but they are blocked by `REGIME_MISMATCH` or `ENSEMBLE_SCORE_LOW`, run Phase 31 replay before touching thresholds:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode forward-candidate-replay --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --diagnostics-dir data\reports\forward_diagnostics --profile-config data\reports\stability_repair\balanced_stable.ini --output-dir data\reports\forward_research
+
+py -m agi_style_forex_bot_mt5.cli --mode forward-blocker-sensitivity --diagnostics-dir data\reports\forward_diagnostics --profile-config data\reports\stability_repair\balanced_stable.ini --output-dir data\reports\forward_research
+```
+
+`REGIME_MISMATCH` means the strategy is seeing a live regime it does not currently accept. `ENSEMBLE_SCORE_LOW` means the aggregate score is below the effective profile threshold. Sensitivity variants are research-only and never modify the running BALANCED_STABLE forward-shadow process.
+
 Safety remains unchanged: no `order_send`, no `order_check`, and `execution_attempted=false`.
