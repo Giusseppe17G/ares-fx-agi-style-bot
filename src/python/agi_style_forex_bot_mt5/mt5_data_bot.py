@@ -290,6 +290,7 @@ class MT5DataOnlyBot:
         check, snapshot = self.connector.ensure_symbol_snapshot(
             broker_symbol,
             canonical_symbol=resolution.canonical_symbol,
+            source="mt5-data",
         )
         if not check.accepted or snapshot is None:
             self._symbol_rejected(canonical_symbol, check.code, check.reason, check.payload, broker_symbol=broker_symbol)
@@ -788,7 +789,7 @@ class MT5DiagnoseBot(MT5DataOnlyBot):
             counters["symbols_seen"] += 1
             diagnostic = self._diagnose_symbol(canonical_symbol)
             diagnostics.append(diagnostic)
-            if diagnostic["status"] != "OK":
+            if diagnostic["status"] not in {"OK", "PASSED"}:
                 counters["symbols_rejected"] += 1
 
         self._audit_bot_stopped(counters, mt5_connected=True)
@@ -826,6 +827,7 @@ class MT5DiagnoseBot(MT5DataOnlyBot):
             broker_symbol,
             canonical_symbol=resolution.canonical_symbol,
             now_utc=now,
+            source="mt5-diagnose",
         )
         symbol_info = self.connector.mt5.symbol_info(broker_symbol)
         tick = self.connector.mt5.symbol_info_tick(broker_symbol)
@@ -843,17 +845,27 @@ class MT5DiagnoseBot(MT5DataOnlyBot):
             "spread_points": spread_points,
             "tick.time": getattr(tick, "time", None) if tick is not None else None,
             "tick.time_msc": getattr(tick, "time_msc", None) if tick is not None else None,
+            "tick_time_raw": getattr(tick, "time", None) if tick is not None else None,
+            "tick_time_msc_raw": getattr(tick, "time_msc", None) if tick is not None else None,
             "tick_time_utc": freshness.tick_time_utc.isoformat() if freshness and freshness.tick_time_utc else None,
             "tick_time_msc_utc": freshness.tick_time_msc_utc.isoformat() if freshness and freshness.tick_time_msc_utc else None,
+            "tick_time_utc_raw": freshness.tick_time_utc_raw.isoformat() if freshness and freshness.tick_time_utc_raw else None,
+            "normalized_tick_utc": freshness.normalized_tick_utc.isoformat() if freshness and freshness.normalized_tick_utc else None,
+            "timestamp_normalized": freshness.timestamp_normalized if freshness else False,
+            "broker_time_offset_seconds": freshness.broker_time_offset_seconds if freshness else 0,
+            "tick_age_seconds_raw": freshness.tick_age_seconds_raw if freshness else None,
+            "tick_age_seconds_normalized": freshness.tick_age_seconds_normalized if freshness else None,
+            "tick_time_status": freshness.tick_time_status if freshness else "MARKET_CLOSED_OR_NO_TICKS",
+            "normalization_reason": freshness.normalization_reason if freshness else "",
             "now_utc": now.isoformat(),
             "tick_age_seconds": freshness.tick_age_seconds if freshness else None,
             "tick_age_seconds_from_time": freshness.tick_age_seconds_from_time if freshness else None,
             "tick_age_seconds_from_time_msc": freshness.tick_age_seconds_from_time_msc if freshness else None,
             "mt5.last_error()": self.connector.last_error_payload(),
             "market_is_probably_closed": bool(check.payload.get("market_is_probably_closed", False)),
-            "status": "OK" if check.accepted else "REJECTED",
-            "reject_code": "" if check.accepted else check.code,
-            "reject_reason": "" if check.accepted else check.reason,
+            "status": "PASSED" if check.accepted else "REJECTED",
+            "reject_code": None if check.accepted else check.code,
+            "reject_reason": None if check.accepted else check.reason,
             "execution_attempted": False,
             **check.payload,
         }
@@ -865,7 +877,7 @@ class MT5DiagnoseBot(MT5DataOnlyBot):
     def _audit_diagnostic(self, payload: Mapping[str, Any]) -> None:
         symbol = str(payload.get("canonical_symbol") or payload.get("symbol") or "")
         self._audit(
-            severity=Severity.INFO if payload.get("status") == "OK" else Severity.WARNING,
+            severity=Severity.INFO if payload.get("status") in {"OK", "PASSED"} else Severity.WARNING,
             module="mt5",
             event_type="MT5_DIAGNOSTIC",
             message=f"MT5 diagnostic {payload.get('status')}",

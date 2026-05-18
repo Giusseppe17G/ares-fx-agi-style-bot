@@ -52,4 +52,9 @@ py -m agi_style_forex_bot_mt5.cli --mode broker-quality --symbols EURUSD,GBPUSD,
 `WATCHLIST` means the broker environment is incomplete or borderline.
 
 `NOT_READY` means the symbol must not move toward execution planning.
+# Phase 28 Broker Time Normalization
+
+Broker quality now scores tick freshness using normalized MT5 broker/server time. Reports include `timestamp_normalization_rate`, `offset_detected`, `symbols_with_normalized_ticks`, and `symbols_with_invalid_time`.
+
+Readiness blocks symbols when ticks remain stale, future, or invalid after normalization. A known broker offset can make a fresh tick pass, but invalid bid/ask, missing rates, high spread, or invalid volume constraints still fail closed.
 

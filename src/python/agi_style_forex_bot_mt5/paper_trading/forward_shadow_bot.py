@@ -523,10 +523,26 @@ class ForwardShadowBot:
 
     def _snapshot_for(self, broker_symbol: str, canonical_symbol: str):
         assert self.connector is not None
-        check, snapshot = self.connector.ensure_symbol_snapshot(broker_symbol, canonical_symbol=canonical_symbol)
+        check, snapshot = self.connector.ensure_symbol_snapshot(broker_symbol, canonical_symbol=canonical_symbol, source="forward-shadow")
         if not check.accepted:
             self._audit("SYMBOL_REJECTED", Severity.WARNING, check.payload, symbol=canonical_symbol)
             return None
+        if check.payload.get("timestamp_normalized"):
+            event_type = "STABLE_TICK_TIME_NORMALIZED" if self.config.signal_profile == "BALANCED_STABLE" else "TICK_TIME_NORMALIZED"
+            self._audit(
+                event_type,
+                Severity.INFO,
+                {
+                    "canonical_symbol": canonical_symbol,
+                    "broker_symbol": broker_symbol,
+                    "timestamp_normalized": True,
+                    "broker_time_offset_seconds": check.payload.get("broker_time_offset_seconds"),
+                    "tick_age_seconds_normalized": check.payload.get("tick_age_seconds_normalized"),
+                    "tick_time_status": check.payload.get("tick_time_status"),
+                    "execution_attempted": False,
+                },
+                symbol=canonical_symbol,
+            )
         return snapshot
 
     def _audit(self, event_type: str, severity: Severity, payload: dict[str, Any], *, symbol: str | None = None, notify: bool = False) -> None:

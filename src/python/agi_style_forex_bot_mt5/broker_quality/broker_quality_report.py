@@ -28,9 +28,15 @@ def write_broker_quality_report(summary: Mapping[str, Any], report_dir: str | Pa
         "readiness_score": output / "readiness_score.csv",
         "html": output / "report.html",
     }
-    paths["summary"].write_text(json.dumps({**dict(summary), "spread": spread, "tick_freshness": freshness}, indent=2, sort_keys=True), encoding="utf-8")
+    timestamp_summary = {
+        "timestamp_normalization_rate": summary.get("timestamp_normalization_rate", 0.0),
+        "offset_detected": summary.get("offset_detected", 0),
+        "symbols_with_normalized_ticks": summary.get("symbols_with_normalized_ticks", []),
+        "symbols_with_invalid_time": summary.get("symbols_with_invalid_time", []),
+    }
+    paths["summary"].write_text(json.dumps({**dict(summary), "spread": spread, "tick_freshness": freshness, "timestamp_normalization": timestamp_summary}, indent=2, sort_keys=True), encoding="utf-8")
     _write_rows(paths["by_symbol"], symbols)
-    _write_rows(paths["tick_freshness"], [{"canonical_symbol": item.get("canonical_symbol"), "tick_age_seconds": item.get("tick_age_seconds"), "status": item.get("status")} for item in symbols])
+    _write_rows(paths["tick_freshness"], [{"canonical_symbol": item.get("canonical_symbol"), "tick_age_seconds": item.get("tick_age_seconds"), "tick_age_seconds_raw": item.get("tick_age_seconds_raw"), "tick_age_seconds_normalized": item.get("tick_age_seconds_normalized"), "timestamp_normalized": item.get("timestamp_normalized"), "broker_time_offset_seconds": item.get("broker_time_offset_seconds"), "tick_time_status": item.get("tick_time_status"), "status": item.get("status")} for item in symbols])
     _write_rows(paths["latency"], [{"canonical_symbol": item.get("canonical_symbol"), "read_latency_ms_tick": item.get("read_latency_ms_tick"), "read_latency_ms_rates": item.get("read_latency_ms_rates")} for item in symbols])
     _write_rows(paths["readiness_score"], [{"canonical_symbol": item.get("canonical_symbol"), "readiness_score": item.get("readiness_score"), "status": item.get("status"), "reasons": "; ".join(item.get("reasons", []))} for item in symbols])
     _write_rows(paths["spread_by_session"], [{"session": "CURRENT", "spread_p95": spread.get("p95", 0.0), "spread_p99": spread.get("p99", 0.0)}])
@@ -44,9 +50,12 @@ def build_readiness_report(*, reports_root: str | Path, output_dir: str | Path, 
     output.mkdir(parents=True, exist_ok=True)
     broker_summary = _read_json(root / "broker_quality" / "summary.json")
     symbols = list(broker_summary.get("symbols", []))
+    invalid_time = list(broker_summary.get("symbols_with_invalid_time") or broker_summary.get("timestamp_normalization", {}).get("symbols_with_invalid_time") or [])
     ready = sum(1 for item in symbols if item.get("status") == "EXECUTION_READY_SHADOW_ONLY")
     not_ready = sum(1 for item in symbols if item.get("status") == "NOT_READY")
     classification = "CONTINUE_FORWARD_SHADOW" if ready and not not_ready else "NEEDS_BROKER_FIX" if not_ready else "NEEDS_MORE_DATA"
+    if invalid_time:
+        classification = "NEEDS_BROKER_FIX"
     report = {
         "mode": "readiness-report",
         "broker_quality_available": bool(broker_summary),
@@ -56,6 +65,8 @@ def build_readiness_report(*, reports_root: str | Path, output_dir: str | Path, 
         "not_ready": not_ready,
         "classification": classification,
         "decision": classification,
+        "timestamp_normalization": broker_summary.get("timestamp_normalization", {}),
+        "invalid_time_symbols": invalid_time,
         "execution_attempted": False,
         "order_send_called": False,
         "summaries": {"broker_quality": broker_summary},
@@ -101,4 +112,3 @@ def _html(title: str, payload: Mapping[str, Any]) -> str:
 </body>
 </html>
 """
-

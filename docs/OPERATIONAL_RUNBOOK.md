@@ -188,3 +188,21 @@ Operational controls are shadow-only:
 - `LIVE_TRADING_APPROVED=False`
 - `execution_attempted=false`
 - `order_send was not called`
+# Phase 28 MT5 Clock Checks
+
+Before investigating stale/future tick rejects, compare local and UTC clocks:
+
+```powershell
+Get-Date
+(Get-Date).ToUniversalTime()
+Get-TimeZone
+```
+
+Then run:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode mt5-diagnose --symbols EURUSD,GBPUSD,USDJPY --log-dir data\logs\mt5-diagnose-open --sqlite data\sqlite\mt5-diagnose-open.sqlite3
+```
+
+If `timestamp_normalized=true` and `tick_time_status=NORMALIZED_FRESH`, the broker/server offset was handled safely. If `tick_time_status` is `FUTURE_TOO_FAR`, `INVALID_TIMESTAMP`, or `NORMALIZED_STALE`, keep the system in read-only/shadow mode and inspect broker sessions, symbol availability, and MT5 terminal clock behavior.

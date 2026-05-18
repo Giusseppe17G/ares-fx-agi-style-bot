@@ -27,6 +27,21 @@ def _coerce(value: str) -> Any:
         return value
 
 
+def _int_tuple(value: Any, default: tuple[int, ...]) -> tuple[int, ...]:
+    if isinstance(value, tuple):
+        return tuple(int(item) for item in value)
+    text = str(value or "").strip()
+    if not text:
+        return default
+    result: list[int] = []
+    for item in text.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        result.append(int(item))
+    return tuple(result) if result else default
+
+
 @dataclass(frozen=True)
 class BotConfig:
     """Runtime configuration with safe defaults."""
@@ -46,6 +61,11 @@ class BotConfig:
     max_market_snapshot_age_seconds: int = 5
     max_signal_age_seconds: int = 30
     max_tick_age_seconds: int = 5
+    normalize_broker_time: bool = True
+    max_future_tick_offset_seconds: int = 21600
+    known_broker_time_offsets_seconds: tuple[int, ...] = (-10800, -7200, -3600, 0, 3600, 7200, 10800)
+    broker_time_offset_detection: bool = True
+    broker_time_offset_required_confirmations: int = 1
     allow_partial_fill: bool = False
     telegram_enabled: bool = False
     database_enabled: bool = False
@@ -122,6 +142,14 @@ def load_config(path: str | Path | None = None) -> BotConfig:
         max_market_snapshot_age_seconds=int(values.get("MAX_MARKET_SNAPSHOT_AGE_SECONDS", 5)),
         max_signal_age_seconds=int(values.get("MAX_SIGNAL_AGE_SECONDS", 30)),
         max_tick_age_seconds=int(values.get("MAX_TICK_AGE_SECONDS", 5)),
+        normalize_broker_time=bool(values.get("NORMALIZE_BROKER_TIME", True)),
+        max_future_tick_offset_seconds=int(values.get("MAX_FUTURE_TICK_OFFSET_SECONDS", 21600)),
+        known_broker_time_offsets_seconds=_int_tuple(
+            values.get("KNOWN_BROKER_TIME_OFFSETS_SECONDS", "-10800,-7200,-3600,0,3600,7200,10800"),
+            (-10800, -7200, -3600, 0, 3600, 7200, 10800),
+        ),
+        broker_time_offset_detection=bool(values.get("BROKER_TIME_OFFSET_DETECTION", True)),
+        broker_time_offset_required_confirmations=int(values.get("BROKER_TIME_OFFSET_REQUIRED_CONFIRMATIONS", 1)),
         allow_partial_fill=bool(values.get("ALLOW_PARTIAL_FILL", False)),
         telegram_enabled=bool(values.get("TELEGRAM_ENABLED", False)),
         database_enabled=bool(values.get("DATABASE_ENABLED", False)),

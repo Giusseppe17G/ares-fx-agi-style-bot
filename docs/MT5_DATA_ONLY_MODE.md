@@ -159,3 +159,10 @@ JSONL files are written under the provided `--log-dir`, one JSON object per line
 - Broker fill quality is not proven by shadow orders.
 - MQL5/Python JSON adapter tests still need to be added before any MT5-side EA integration.
 - Real-account detection in `mt5-data` is read-only and stops before symbols, but users should still prefer demo terminals.
+# Phase 28 Timestamp Normalization
+
+`mt5-data` and `mt5-diagnose` now normalize MT5 broker/server tick timestamps before freshness checks. This protects local Windows and AWS EC2 deployments from rejecting valid ticks when a broker reports server time such as UTC+2 or UTC+3.
+
+The diagnostic payload includes raw and normalized timestamps, detected offset, host clock audit fields, and `tick_time_status`. The local OS timezone is not used for trading decisions.
+
+Read-only safety remains unchanged: `execution_attempted=false`, `order_send` is not called, and `order_check` is not called.

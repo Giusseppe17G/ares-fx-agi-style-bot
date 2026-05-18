@@ -40,6 +40,16 @@ class SymbolQuality:
     read_latency_ms_tick: int
     read_latency_ms_rates: int
     status: str
+    tick_time_raw: int | float | None = None
+    tick_time_msc_raw: int | float | None = None
+    tick_time_utc_raw: str | None = None
+    normalized_tick_utc: str | None = None
+    timestamp_normalized: bool = False
+    broker_time_offset_seconds: int = 0
+    tick_age_seconds_raw: float | None = None
+    tick_age_seconds_normalized: float | None = None
+    tick_time_status: str = ""
+    normalization_reason: str = ""
     reasons: tuple[str, ...] = field(default_factory=tuple)
     readiness_score: float = 0.0
     execution_attempted: bool = False
@@ -47,4 +57,3 @@ class SymbolQuality:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-

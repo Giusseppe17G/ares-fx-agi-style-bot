@@ -124,6 +124,16 @@ class BrokerQualityProbe:
             "filling_mode": str(getattr(symbol_info, "filling_mode", "")),
             "tick_time_utc": freshness.selected_time_utc.isoformat() if freshness and freshness.selected_time_utc else None,
             "tick_age_seconds": freshness.tick_age_seconds if freshness else None,
+            "tick_time_raw": freshness.tick_time_raw if freshness else None,
+            "tick_time_msc_raw": freshness.tick_time_msc_raw if freshness else None,
+            "tick_time_utc_raw": freshness.tick_time_utc_raw.isoformat() if freshness and freshness.tick_time_utc_raw else None,
+            "normalized_tick_utc": freshness.normalized_tick_utc.isoformat() if freshness and freshness.normalized_tick_utc else None,
+            "timestamp_normalized": freshness.timestamp_normalized if freshness else False,
+            "broker_time_offset_seconds": freshness.broker_time_offset_seconds if freshness else 0,
+            "tick_age_seconds_raw": freshness.tick_age_seconds_raw if freshness else None,
+            "tick_age_seconds_normalized": freshness.tick_age_seconds_normalized if freshness else None,
+            "tick_time_status": freshness.tick_time_status if freshness else "MARKET_CLOSED_OR_NO_TICKS",
+            "normalization_reason": freshness.normalization_reason if freshness else "",
             "mt5_last_error": self.connector.last_error_payload(),
             "market_is_probably_closed": is_market_probably_closed(now, canonical_symbol),
             "rates_available_m5": rates_counts["M5"] > 0,
@@ -194,6 +204,16 @@ class BrokerQualityProbe:
             "filling_mode": "",
             "tick_time_utc": None,
             "tick_age_seconds": None,
+            "tick_time_raw": None,
+            "tick_time_msc_raw": None,
+            "tick_time_utc_raw": None,
+            "normalized_tick_utc": None,
+            "timestamp_normalized": False,
+            "broker_time_offset_seconds": 0,
+            "tick_age_seconds_raw": None,
+            "tick_age_seconds_normalized": None,
+            "tick_time_status": "INVALID_TIMESTAMP",
+            "normalization_reason": reason,
             "mt5_last_error": None,
             "market_is_probably_closed": False,
             "rates_available_m5": False,
@@ -212,6 +232,13 @@ class BrokerQualityProbe:
         }
 
     def _summary(self, symbols: list[dict[str, Any]], *, mt5_connected: bool) -> dict[str, Any]:
+        normalized_count = sum(1 for item in symbols if item.get("timestamp_normalized"))
+        invalid_time = [
+            item.get("canonical_symbol")
+            for item in symbols
+            if str(item.get("tick_time_status") or "") in {"INVALID_TIMESTAMP", "FUTURE_TOO_FAR", "NORMALIZED_STALE", "STALE"}
+        ]
+        offsets = [int(item.get("broker_time_offset_seconds") or 0) for item in symbols if item.get("timestamp_normalized")]
         return {
             "mode": "broker-quality",
             "mt5_connected": mt5_connected,
@@ -220,6 +247,10 @@ class BrokerQualityProbe:
             "watchlist": sum(1 for item in symbols if item["status"] == "WATCHLIST"),
             "not_ready": sum(1 for item in symbols if item["status"] == "NOT_READY"),
             "symbols": symbols,
+            "timestamp_normalization_rate": (normalized_count / len(symbols) * 100.0) if symbols else 0.0,
+            "offset_detected": offsets[0] if offsets else 0,
+            "symbols_with_normalized_ticks": [item.get("canonical_symbol") for item in symbols if item.get("timestamp_normalized")],
+            "symbols_with_invalid_time": invalid_time,
             "classification": "EXECUTION_READY_SHADOW_ONLY" if symbols and all(item["status"] == "EXECUTION_READY_SHADOW_ONLY" for item in symbols) else "WATCHLIST" if any(item["status"] != "NOT_READY" for item in symbols) else "NOT_READY",
             "execution_attempted": False,
             "order_send_called": False,

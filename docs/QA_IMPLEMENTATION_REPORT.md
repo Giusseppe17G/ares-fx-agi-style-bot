@@ -156,6 +156,27 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 28 MT5 Time Normalization Update
+
+Status: PASS pending full-suite verification for this phase.
+
+Integrated in Phase 28:
+
+- Added `execution/mt5_time_normalizer.py` for MT5 broker/server offset detection and UTC normalization.
+- Added safe config defaults for broker time normalization, known offsets, and maximum future tick offset.
+- `mt5-diagnose`, `mt5-data`, `forward-shadow`, and broker quality now consume normalized tick age.
+- Diagnostics include raw tick time, normalized tick time, detected offset, local/UTC host clock audit, environment name, and normalization reason.
+- Detected broker offsets are persisted to `data/runtime/broker_time_offset.json` with redacted account login.
+- Forward-shadow audits `TICK_TIME_NORMALIZED` or `STABLE_TICK_TIME_NORMALIZED` and remains paper/shadow only.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 27 Forward Evidence Pack Update
 
 Status: PASS. Verification: `py -m pytest -q` completed successfully, 348 tests collected.

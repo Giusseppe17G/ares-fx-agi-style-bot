@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from time import perf_counter
-from typing import Any
+from typing import Any, Mapping
 
 from agi_style_forex_bot_mt5.config import BotConfig
 from agi_style_forex_bot_mt5.contracts import (
@@ -15,6 +15,11 @@ from agi_style_forex_bot_mt5.contracts import (
     ExecutionResult,
     MarketSnapshot,
     utc_now,
+)
+from agi_style_forex_bot_mt5.execution.mt5_time_normalizer import (
+    build_environment_diagnostics,
+    normalize_tick_time,
+    persist_broker_time_offset,
 )
 
 
@@ -103,6 +108,16 @@ class TickFreshness:
     tick_age_seconds_from_time: float | None
     tick_age_seconds_from_time_msc: float | None
     now_utc: datetime
+    tick_time_utc_raw: datetime | None = None
+    normalized_tick_utc: datetime | None = None
+    timestamp_normalized: bool = False
+    broker_time_offset_seconds: int = 0
+    tick_age_seconds_raw: float | None = None
+    tick_age_seconds_normalized: float | None = None
+    tick_time_status: str = ""
+    normalization_reason: str = ""
+    reject_code: str | None = None
+    reject_reason: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         """Return JSON-safe tick diagnostics for audit events."""
@@ -112,11 +127,19 @@ class TickFreshness:
             "tick_time_msc_raw": self.tick_time_msc_raw,
             "tick_time_utc": self.tick_time_utc.isoformat() if self.tick_time_utc else None,
             "tick_time_msc_utc": self.tick_time_msc_utc.isoformat() if self.tick_time_msc_utc else None,
+            "tick_time_utc_raw": self.tick_time_utc_raw.isoformat() if self.tick_time_utc_raw else None,
+            "normalized_tick_utc": self.normalized_tick_utc.isoformat() if self.normalized_tick_utc else None,
             "selected_tick_time_source": self.selected_source,
             "selected_tick_time_utc": self.selected_time_utc.isoformat() if self.selected_time_utc else None,
             "tick_age_seconds": self.tick_age_seconds,
             "tick_age_seconds_from_time": self.tick_age_seconds_from_time,
             "tick_age_seconds_from_time_msc": self.tick_age_seconds_from_time_msc,
+            "timestamp_normalized": self.timestamp_normalized,
+            "broker_time_offset_seconds": self.broker_time_offset_seconds,
+            "tick_age_seconds_raw": self.tick_age_seconds_raw,
+            "tick_age_seconds_normalized": self.tick_age_seconds_normalized,
+            "tick_time_status": self.tick_time_status,
+            "normalization_reason": self.normalization_reason,
             "now_utc": self.now_utc.isoformat(),
         }
 
@@ -349,6 +372,7 @@ class MT5Connector:
         *,
         canonical_symbol: str | None = None,
         now_utc: datetime | None = None,
+        source: str = "mt5-data",
     ) -> tuple[AdapterCheck, MarketSnapshot | None]:
         """Select a symbol, validate fresh tick/properties, and return a snapshot."""
 
@@ -450,26 +474,40 @@ class MT5Connector:
             "market_is_probably_closed": is_market_probably_closed(now, canonical),
             "max_tick_age_seconds": self.config.max_tick_age_seconds,
             **freshness.to_payload(),
+            **self.environment_diagnostics(),
         }
         if freshness.selected_time_utc is None or tick_age is None:
             return (
                 AdapterCheck.reject(
                     "MARKET_DATA_INVALID",
-                    "tick timestamp is unavailable or invalid",
+                    freshness.reject_reason or "tick timestamp is unavailable or invalid",
                     **base_payload,
                 ),
                 None,
             )
-        if abs(tick_age) > self.config.max_tick_age_seconds:
+        fresh_statuses = {"FRESH", "NORMALIZED_FRESH"}
+        if freshness.tick_time_status not in fresh_statuses or abs(tick_age) > self.config.max_tick_age_seconds:
             market_closed = is_market_probably_closed(now, canonical)
+            reject_code = "MARKET_CLOSED_OR_NO_TICKS" if market_closed and freshness.tick_time_status != "INVALID_TIMESTAMP" else "MARKET_DATA_INVALID"
+            reject_reason = freshness.reject_reason or (
+                "market appears closed or symbol has no fresh ticks" if market_closed else "tick timestamp is stale or in the future"
+            )
             return (
                 AdapterCheck.reject(
-                    "MARKET_CLOSED_OR_NO_TICKS" if market_closed else "MARKET_DATA_INVALID",
-                    "market appears closed or symbol has no fresh ticks" if market_closed else "tick timestamp is stale or in the future",
+                    reject_code,
+                    reject_reason,
                     **base_payload,
                 ),
                 None,
             )
+        if freshness.timestamp_normalized:
+            path = self.persist_time_offset_hint(
+                symbol=canonical,
+                diagnostic=base_payload,
+                source=source,
+            )
+            if path:
+                base_payload["broker_time_offset_path"] = path
 
         snapshot = MarketSnapshot(
             symbol=canonical,
@@ -516,30 +554,68 @@ class MT5Connector:
         return freshness.selected_time_utc
 
     def tick_freshness(self, tick: Any, *, now_utc: datetime | None = None) -> TickFreshness:
-        """Calculate tick age in UTC, preferring valid millisecond timestamps."""
+        """Calculate tick age in UTC, normalizing known broker-server offsets."""
 
         now = (now_utc or utc_now()).astimezone(timezone.utc)
         raw_time = getattr(tick, "time", None)
         raw_time_msc = getattr(tick, "time_msc", None)
-        time_utc = self._unix_timestamp(raw_time, divisor=1.0)
-        time_msc_utc = self._unix_timestamp(raw_time_msc, divisor=1000.0)
-        selected = time_msc_utc or time_utc
-        selected_source = "time_msc" if time_msc_utc is not None else ("time" if time_utc is not None else "none")
-        age_from_time = (now - time_utc).total_seconds() if time_utc is not None else None
-        age_from_time_msc = (now - time_msc_utc).total_seconds() if time_msc_utc is not None else None
-        age = (now - selected).total_seconds() if selected is not None else None
+        diagnostic = normalize_tick_time(raw_time, raw_time_msc, now, config=self.config)
+        time_utc = self._from_iso(diagnostic.get("tick_time_utc"))
+        time_msc_utc = self._from_iso(diagnostic.get("tick_time_msc_utc"))
+        selected = self._from_iso(diagnostic.get("selected_tick_time_utc"))
         return TickFreshness(
             tick_time_raw=raw_time,
             tick_time_msc_raw=raw_time_msc,
             tick_time_utc=time_utc,
             tick_time_msc_utc=time_msc_utc,
             selected_time_utc=selected,
-            selected_source=selected_source,
-            tick_age_seconds=age,
-            tick_age_seconds_from_time=age_from_time,
-            tick_age_seconds_from_time_msc=age_from_time_msc,
+            selected_source=str(diagnostic.get("selected_tick_time_source") or "none"),
+            tick_age_seconds=diagnostic.get("tick_age_seconds_normalized"),
+            tick_age_seconds_from_time=diagnostic.get("tick_age_seconds_from_time"),
+            tick_age_seconds_from_time_msc=diagnostic.get("tick_age_seconds_from_time_msc"),
             now_utc=now,
+            tick_time_utc_raw=self._from_iso(diagnostic.get("tick_time_utc_raw")),
+            normalized_tick_utc=self._from_iso(diagnostic.get("normalized_tick_utc")),
+            timestamp_normalized=bool(diagnostic.get("timestamp_normalized")),
+            broker_time_offset_seconds=int(diagnostic.get("broker_time_offset_seconds") or 0),
+            tick_age_seconds_raw=diagnostic.get("tick_age_seconds_raw"),
+            tick_age_seconds_normalized=diagnostic.get("tick_age_seconds_normalized"),
+            tick_time_status=str(diagnostic.get("tick_time_status") or ""),
+            normalization_reason=str(diagnostic.get("normalization_reason") or ""),
+            reject_code=diagnostic.get("reject_code"),
+            reject_reason=diagnostic.get("reject_reason"),
         )
+
+    def environment_diagnostics(self) -> dict[str, Any]:
+        terminal_info = getattr(self.mt5, "terminal_info", None)
+        terminal_available = None
+        if callable(terminal_info):
+            try:
+                terminal_available = terminal_info() is not None
+            except Exception:
+                terminal_available = False
+        return build_environment_diagnostics(mt5_terminal_available=terminal_available)
+
+    def persist_time_offset_hint(self, *, symbol: str, diagnostic: Mapping[str, Any], source: str) -> str | None:
+        account_info = getattr(self.mt5, "account_info", None)
+        account = None
+        if callable(account_info):
+            try:
+                account = account_info()
+            except Exception:
+                account = None
+        return persist_broker_time_offset(diagnostic=diagnostic, symbol=symbol, source=source, account_info=account)
+
+    def _from_iso(self, value: Any) -> datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     def _unix_timestamp(self, raw_value: Any, *, divisor: float) -> datetime | None:
         if raw_value in (None, ""):

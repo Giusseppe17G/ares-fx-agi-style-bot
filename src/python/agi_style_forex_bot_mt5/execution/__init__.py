@@ -23,6 +23,14 @@ from agi_style_forex_bot_mt5.execution.mt5_connector import (
     TickFreshness,
     is_market_probably_closed,
 )
+from agi_style_forex_bot_mt5.execution.mt5_time_normalizer import (
+    build_environment_diagnostics,
+    build_time_diagnostics,
+    classify_tick_time,
+    detect_broker_time_offset,
+    normalize_tick_time,
+    persist_broker_time_offset,
+)
 from agi_style_forex_bot_mt5.execution.slippage_monitor import (
     SlippageMeasurement,
     SlippageMonitor,
@@ -57,4 +65,10 @@ __all__ = [
     "StopManagementDecision",
     "TradeManager",
     "is_market_probably_closed",
+    "build_environment_diagnostics",
+    "build_time_diagnostics",
+    "classify_tick_time",
+    "detect_broker_time_offset",
+    "normalize_tick_time",
+    "persist_broker_time_offset",
 ]
