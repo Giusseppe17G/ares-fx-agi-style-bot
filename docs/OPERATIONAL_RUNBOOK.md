@@ -113,6 +113,25 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\dry_run_market_open.ps1
 
 Only `DRY_RUN_MARKET_OPEN_READY` means the operator can wait for market open and then run real diagnostics. It does not start forward-shadow and does not permit demo/live execution.
 
+## Offline Operator Dashboard
+
+Generate the daily offline dashboard and operator report without connecting to MT5:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\operator_dashboard.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\daily_operator_report.ps1
+```
+
+The dashboard consolidates weekend readiness, EC2 readiness, deployment pack status, operator drill, dry-run market-open state, paper state, evidence, diagnostics, stable gate, security guardrails, alerts and next commands.
+
+Telegram read-only commands:
+
+- `/dashboard`
+- `/daily_report`
+- `/next_action`
+
+They only report local status. They never start forward-shadow, never touch MT5 orders, and keep `execution_attempted=false`.
+
 ## Check Status
 
 ```powershell

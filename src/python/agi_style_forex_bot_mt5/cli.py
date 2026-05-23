@@ -35,7 +35,7 @@ from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot,
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .ml import build_ml_dataset, build_ml_report, train_ml_filter
 from .observability import DailySummary, build_health_status, build_status
-from .operational_readiness import run_dry_run_market_open, run_ec2_deployment_pack, run_ec2_readiness_audit, run_market_open_checklist, run_operator_drill, run_weekend_readiness
+from .operational_readiness import run_daily_operator_report, run_dry_run_market_open, run_ec2_deployment_pack, run_ec2_readiness_audit, run_market_open_checklist, run_operator_dashboard, run_operator_drill, run_weekend_readiness
 from .paper_trading import (
     ForwardShadowBot,
     build_paper_open_trades_report,
@@ -212,6 +212,8 @@ def main(argv: list[str] | None = None) -> int:
             "ec2-deployment-pack",
             "operator-drill",
             "dry-run-market-open",
+            "operator-dashboard",
+            "daily-operator-report",
         ],
         default="shadow",
     )
@@ -306,6 +308,8 @@ def main(argv: list[str] | None = None) -> int:
         "resume-shadow",
         "weekend-readiness",
         "dry-run-market-open",
+        "operator-dashboard",
+        "daily-operator-report",
         "broker-quality",
         "readiness-report",
         "build-ml-dataset",
@@ -456,6 +460,20 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "dry-run-market-open":
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/operator_drill")
             summary = run_dry_run_market_open(sqlite_path=args.sqlite, reports_root=args.reports_root, output_dir=output_dir, config=config)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "operator-dashboard":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/operator_dashboard")
+            summary = run_operator_dashboard(database=database, reports_root=args.reports_root, log_dir=args.log_dir, output_dir=output_dir, config=config)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "daily-operator-report":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/daily_operator")
+            summary = run_daily_operator_report(database=database, reports_root=args.reports_root, log_dir=args.log_dir, output_dir=output_dir, config=config)
             print(_json_dumps(summary))
             return 0
 

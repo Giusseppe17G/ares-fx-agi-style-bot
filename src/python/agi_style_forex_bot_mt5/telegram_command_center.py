@@ -86,6 +86,9 @@ class TelegramCommandCenter:
         "/blocker_sensitivity",
         "/regime_blocks",
         "/score_blocks",
+        "/dashboard",
+        "/daily_report",
+        "/next_action",
     }
 
     def __init__(
@@ -331,6 +334,24 @@ class TelegramCommandCenter:
             path = Path("data/reports/forward_research/ensemble_score_analysis.json")
             response = path.read_text(encoding="utf-8")[:1000] if path.exists() else '{"top_score_drag_components":[],"execution_attempted":false}'
             return TelegramCommandResult(command, True, response, "OK")
+        if command == "/dashboard":
+            path = Path("data/reports/operator_dashboard/operator_dashboard_summary.json")
+            response = path.read_text(encoding="utf-8")[:1000] if path.exists() else '{"mode":"operator-dashboard","status":"NO_DASHBOARD_RUN","execution_attempted":false}'
+            return TelegramCommandResult(command, True, response, "OK")
+        if command == "/daily_report":
+            path = Path("data/reports/daily_operator/daily_operator_report.json")
+            response = path.read_text(encoding="utf-8")[:1000] if path.exists() else '{"mode":"daily-operator-report","status":"NO_DAILY_OPERATOR_REPORT","execution_attempted":false}'
+            return TelegramCommandResult(command, True, response, "OK")
+        if command == "/next_action":
+            for path in (
+                Path("data/reports/operator_dashboard/operator_dashboard_summary.json"),
+                Path("data/reports/daily_operator/daily_operator_report.json"),
+            ):
+                if path.exists():
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                    response = str(payload.get("recommended_next_action") or payload.get("recommended_action") or "No next action found.")
+                    return TelegramCommandResult(command, True, response[:1000], "OK")
+            return TelegramCommandResult(command, True, "Run operator-dashboard or daily-operator-report. execution_attempted=false", "OK")
         return TelegramCommandResult(command, True, self._help(), "OK")
 
     def _help(self) -> str:

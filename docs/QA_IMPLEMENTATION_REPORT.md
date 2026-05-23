@@ -25,6 +25,13 @@ Added `operator-drill` and `dry-run-market-open` for weekend/closed-market train
 
 Reports are written under `data/reports/operator_drill`, including operator steps, failure scenarios, command review, dry-run summary and HTML report. Safety remains unchanged: no demo/live execution, `execution_attempted=false`, no `order_send`, and no `order_check`.
 
+
+## FASE 36 - Offline Monitoring Dashboard & Daily Operator Report
+
+Added `operator-dashboard` and `daily-operator-report` to consolidate readiness, EC2 prep, deployment pack, operator drill, dry-run market-open state, paper state, forward evidence, diagnostics, stable gate, alerts and next actions. Reports are generated offline under `data/reports/operator_dashboard` and `data/reports/daily_operator`.
+
+Added read-only Telegram commands `/dashboard`, `/daily_report`, and `/next_action`. They do not start forward-shadow and never call MT5 order APIs. Safety remains `execution_attempted=false`, `DEMO_ONLY=True`, `LIVE_TRADING_APPROVED=False`, and no `order_send`/`order_check`.
+
 ## Scope
 
 Role: QA / Integration Engineer.

@@ -65,6 +65,17 @@ py -m agi_style_forex_bot_mt5.cli --mode dry-run-market-open --sqlite data\sqlit
 
 The drill validates the handoff pack, market-open checklist, stable gate and clean paper state. It also documents safe responses to common opening failures. It does not connect to MT5 and does not start forward-shadow.
 
+## Offline Monitoring Dashboard
+
+On EC2, operators can generate a local dashboard/report without opening orders or requiring market data:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode operator-dashboard --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reports-root data\reports --log-dir data\logs\forward-shadow-stable --output-dir data\reports\operator_dashboard
+py -m agi_style_forex_bot_mt5.cli --mode daily-operator-report --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reports-root data\reports --log-dir data\logs\forward-shadow-stable --output-dir data\reports\daily_operator
+```
+
+Use these reports for shift handoff and daily review. They are offline/read-only and do not start paper shadow by themselves.
+
 ## 1. Connect By RDP
 
 1. Open the AWS EC2 console.

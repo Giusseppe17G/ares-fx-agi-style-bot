@@ -39,6 +39,17 @@ py -m agi_style_forex_bot_mt5.cli --mode dry-run-market-open --sqlite data\sqlit
 
 These modes rehearse the opening sequence and validate prerequisites offline. A blocked dry run means keep shadow paused until the reported artifact, paper state or guardrail issue is fixed.
 
+## Operator Dashboard
+
+For daily paper/shadow review:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode operator-dashboard --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reports-root data\reports --log-dir data\logs\forward-shadow-stable --output-dir data\reports\operator_dashboard
+py -m agi_style_forex_bot_mt5.cli --mode daily-operator-report --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reports-root data\reports --log-dir data\logs\forward-shadow-stable --output-dir data\reports\daily_operator
+```
+
+The dashboard shows safety guardrails, paper state, evidence, diagnostics, EC2 readiness and next commands. It is read-only and does not run forward-shadow.
+
 `BALANCED_STABLE` forward-shadow is prolonged paper observation after the stable gate returns `PAPER_SHADOW_READY`.
 
 It does not enable demo or live execution. It only creates and manages paper trades in SQLite/JSONL.
