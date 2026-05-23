@@ -35,7 +35,7 @@ from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot,
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .ml import build_ml_dataset, build_ml_report, train_ml_filter
 from .observability import DailySummary, build_health_status, build_status
-from .operational_readiness import run_ec2_deployment_pack, run_ec2_readiness_audit, run_market_open_checklist, run_weekend_readiness
+from .operational_readiness import run_dry_run_market_open, run_ec2_deployment_pack, run_ec2_readiness_audit, run_market_open_checklist, run_operator_drill, run_weekend_readiness
 from .paper_trading import (
     ForwardShadowBot,
     build_paper_open_trades_report,
@@ -210,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
             "market-open-checklist",
             "ec2-readiness-audit",
             "ec2-deployment-pack",
+            "operator-drill",
+            "dry-run-market-open",
         ],
         default="shadow",
     )
@@ -303,6 +305,7 @@ def main(argv: list[str] | None = None) -> int:
         "pause-shadow",
         "resume-shadow",
         "weekend-readiness",
+        "dry-run-market-open",
         "broker-quality",
         "readiness-report",
         "build-ml-dataset",
@@ -318,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
         "full-validation",
     } and args.sqlite is None:
         parser.error(f"--mode {args.mode} requires --sqlite for durable audit")
-    direct_persistence_modes = {"db-migrate", "db-health", "backup", "compact-logs", "weekend-readiness"}
+    direct_persistence_modes = {"db-migrate", "db-health", "backup", "compact-logs", "weekend-readiness", "dry-run-market-open"}
     database = None if args.mode in direct_persistence_modes else (TelemetryDatabase(args.sqlite) if args.sqlite else None)
     try:
         selected_symbols = _selected_symbols(args.symbol, args.symbols)
@@ -441,6 +444,18 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "ec2-deployment-pack":
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/ec2_deployment_pack")
             summary = run_ec2_deployment_pack(reports_root=args.reports_root, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "operator-drill":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/operator_drill")
+            summary = run_operator_drill(reports_root=args.reports_root, output_dir=output_dir, config=config)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "dry-run-market-open":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/operator_drill")
+            summary = run_dry_run_market_open(sqlite_path=args.sqlite, reports_root=args.reports_root, output_dir=output_dir, config=config)
             print(_json_dumps(summary))
             return 0
 

@@ -28,6 +28,17 @@ py -m agi_style_forex_bot_mt5.cli --mode ec2-deployment-pack --reports-root data
 
 The pack explains what BALANCED_STABLE is, how to run paper/shadow only, how to collect evidence, how to pause safely, and how to roll back. It does not enable demo/live execution. `paper-close-all` and pause/resume commands remain SQLite paper-state operations only.
 
+## Offline Operator Drill
+
+Before resuming BALANCED_STABLE after a weekend, run:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode operator-drill --reports-root data\reports --output-dir data\reports\operator_drill
+py -m agi_style_forex_bot_mt5.cli --mode dry-run-market-open --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reports-root data\reports --output-dir data\reports\operator_drill
+```
+
+These modes rehearse the opening sequence and validate prerequisites offline. A blocked dry run means keep shadow paused until the reported artifact, paper state or guardrail issue is fixed.
+
 `BALANCED_STABLE` forward-shadow is prolonged paper observation after the stable gate returns `PAPER_SHADOW_READY`.
 
 It does not enable demo or live execution. It only creates and manages paper trades in SQLite/JSONL.

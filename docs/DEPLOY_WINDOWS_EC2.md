@@ -54,6 +54,17 @@ The pack creates:
 
 Use it as the EC2 paper/shadow handoff. `EC2_DEPLOYMENT_PACK_READY` means the documentation and commands are ready for a paper/shadow dry run only. It does not approve demo/live execution.
 
+## Operator Drill
+
+Before market open on EC2, rehearse the operator flow offline:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode operator-drill --reports-root data\reports --output-dir data\reports\operator_drill
+py -m agi_style_forex_bot_mt5.cli --mode dry-run-market-open --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reports-root data\reports --output-dir data\reports\operator_drill
+```
+
+The drill validates the handoff pack, market-open checklist, stable gate and clean paper state. It also documents safe responses to common opening failures. It does not connect to MT5 and does not start forward-shadow.
+
 ## 1. Connect By RDP
 
 1. Open the AWS EC2 console.

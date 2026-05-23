@@ -18,6 +18,13 @@ Artifacts include operator handoff, deployment checklist, exact PowerShell comma
 
 Safety remains unchanged: paper/shadow only, no demo/live execution, `DEMO_ONLY=True`, `LIVE_TRADING_APPROVED=False`, `execution_attempted=false`, and no `order_send`/`order_check` calls.
 
+
+## FASE 35 - Pre-Market Offline Simulation & Operator Drill
+
+Added `operator-drill` and `dry-run-market-open` for weekend/closed-market training. The drill validates readiness artifacts, EC2 deployment pack, market-open checklist, stable gate, clean paper state and simulated failure scenarios without connecting to MT5 or running forward-shadow.
+
+Reports are written under `data/reports/operator_drill`, including operator steps, failure scenarios, command review, dry-run summary and HTML report. Safety remains unchanged: no demo/live execution, `execution_attempted=false`, no `order_send`, and no `order_check`.
+
 ## Scope
 
 Role: QA / Integration Engineer.

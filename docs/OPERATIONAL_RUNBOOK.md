@@ -98,6 +98,21 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\ec2_safe_stop_shadow.ps1
 
 All of them remain paper/shadow only and keep `execution_attempted=false`.
 
+## Operator Drill Before Market Open
+
+During the weekend or any closed-market window, rehearse the opening flow offline:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\operator_drill.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\dry_run_market_open.ps1
+```
+
+`operator-drill` simulates the runbook and failure handling for MT5 disconnected, all symbols rejected, feature pipeline not ready, paper daily drawdown, partial invalid timestamps and manual pause.
+
+`dry-run-market-open` validates local prerequisites without connecting to MT5: commands exist, SQLite opens, stable gate/profile config exist, EC2 scripts exist, shadow is paused, no paper trades are open, and safety flags remain intact.
+
+Only `DRY_RUN_MARKET_OPEN_READY` means the operator can wait for market open and then run real diagnostics. It does not start forward-shadow and does not permit demo/live execution.
+
 ## Check Status
 
 ```powershell
