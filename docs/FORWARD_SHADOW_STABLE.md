@@ -1,5 +1,23 @@
 # BALANCED_STABLE Forward Shadow
 
+## Weekend Offline Readiness
+
+When the market is closed, keep BALANCED_STABLE paused and run only offline/read-only checks:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode weekend-readiness --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\weekend_readiness
+```
+
+`WEEKEND_SAFE` means the paper state is clean for the next open: no open paper trades, shadow paused, stable gate and `balanced_stable.ini` present, logs parseable, and no real execution flags. It does not start forward-shadow.
+
+Before market open, generate:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode market-open-checklist --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reports-root data\reports --output-dir data\reports\market_open_checklist
+```
+
+Use that checklist to run diagnostics first, then resume only paper/shadow if `mt5-diagnose` and `live-feature-contract` pass. `DEMO_ONLY=True` and `LIVE_TRADING_APPROVED=False` remain mandatory.
+
 `BALANCED_STABLE` forward-shadow is prolonged paper observation after the stable gate returns `PAPER_SHADOW_READY`.
 
 It does not enable demo or live execution. It only creates and manages paper trades in SQLite/JSONL.

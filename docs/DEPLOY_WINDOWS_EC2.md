@@ -22,6 +22,18 @@ Required safety defaults remain:
 
 This deployment guide does not enable real trading, demo order execution, or live broker order execution.
 
+## Offline EC2 Dry-Run Readiness
+
+Before moving the repo to AWS EC2 Windows, run the local EC2 audit:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode ec2-readiness-audit --reports-root data\reports --output-dir data\reports\ec2_readiness
+```
+
+The audit checks stable shadow scripts, `PYTHONPATH` usage, `.gitignore` protection for runtime data, EC2/runbook documentation, and likely hardcoded secrets. A clean result is `EC2_READY_FOR_DRY_RUN`, which only means the machine is ready for a paper/shadow dry run. It does not permit demo/live execution.
+
+Never commit `.rdp`, `.pem`, `.key`, MT5 credentials, Telegram tokens, broker account passwords, AWS credentials, SQLite runtime databases, logs, or reports with sensitive account details.
+
 ## 1. Connect By RDP
 
 1. Open the AWS EC2 console.

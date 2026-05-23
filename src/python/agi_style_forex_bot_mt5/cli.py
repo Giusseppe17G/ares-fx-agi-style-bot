@@ -35,6 +35,7 @@ from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot,
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .ml import build_ml_dataset, build_ml_report, train_ml_filter
 from .observability import DailySummary, build_health_status, build_status
+from .operational_readiness import run_ec2_readiness_audit, run_market_open_checklist, run_weekend_readiness
 from .paper_trading import (
     ForwardShadowBot,
     build_paper_open_trades_report,
@@ -205,6 +206,9 @@ def main(argv: list[str] | None = None) -> int:
             "walk-forward-failure-analysis",
             "stability-repair",
             "build-stable-profile",
+            "weekend-readiness",
+            "market-open-checklist",
+            "ec2-readiness-audit",
         ],
         default="shadow",
     )
@@ -297,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
         "paper-close-all",
         "pause-shadow",
         "resume-shadow",
+        "weekend-readiness",
         "broker-quality",
         "readiness-report",
         "build-ml-dataset",
@@ -312,7 +317,7 @@ def main(argv: list[str] | None = None) -> int:
         "full-validation",
     } and args.sqlite is None:
         parser.error(f"--mode {args.mode} requires --sqlite for durable audit")
-    direct_persistence_modes = {"db-migrate", "db-health", "backup", "compact-logs"}
+    direct_persistence_modes = {"db-migrate", "db-health", "backup", "compact-logs", "weekend-readiness"}
     database = None if args.mode in direct_persistence_modes else (TelemetryDatabase(args.sqlite) if args.sqlite else None)
     try:
         selected_symbols = _selected_symbols(args.symbol, args.symbols)
@@ -414,6 +419,22 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.mode == "latest-run-summary":
             print(_json_dumps(load_latest_run_summary(args.runs_root)))
+            return 0
+
+        if args.mode == "weekend-readiness":
+            summary = run_weekend_readiness(sqlite_path=args.sqlite, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=args.output_dir, config=config)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "market-open-checklist":
+            sqlite_path = args.sqlite or Path("data/sqlite/forward-shadow-stable.sqlite3")
+            summary = run_market_open_checklist(sqlite_path=sqlite_path, reports_root=args.reports_root, output_dir=args.output_dir, symbols=",".join(selected_symbols))
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "ec2-readiness-audit":
+            summary = run_ec2_readiness_audit(reports_root=args.reports_root, output_dir=args.output_dir)
+            print(_json_dumps(summary))
             return 0
 
         if args.mode == "apply-signal-profile":

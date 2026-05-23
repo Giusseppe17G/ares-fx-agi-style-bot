@@ -48,6 +48,35 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\forward_acceptance_stable
 
 If acceptance returns `PAUSE_FORWARD_SHADOW`, stop the stable watchdog and inspect drift, paper trade audit and telemetry before restarting.
 
+## Weekend Closed-Market Procedure
+
+Do not run live `forward-shadow` while the Forex market is closed. Use the offline readiness checks instead:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\weekend_readiness.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\market_open_checklist.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\ec2_readiness_audit.ps1
+```
+
+`weekend-readiness` expects a clean paper state: SQLite opens, zero open paper trades, shadow paused, stable gate present, `balanced_stable.ini` present, JSONL logs parseable, and `DEMO_ONLY=True` with `LIVE_TRADING_APPROVED=False`.
+
+If the result is not `WEEKEND_SAFE`, keep shadow paused and fix the reported class first:
+
+- `NEEDS_PAPER_STATE_REVIEW`: run `paper-state-report` and inspect/close only simulated paper trades if needed.
+- `NEEDS_EVIDENCE_REPAIR`: rerun forward evidence after repairing invalid JSONL/report state.
+- `NEEDS_STABLE_GATE`: regenerate stable readiness artifacts before any BALANCED_STABLE paper run.
+- `NEEDS_CONFIG_REVIEW`: stop and restore mandatory safety defaults.
+
+## Market Open Checklist
+
+At Sunday/Monday open, generate exact commands with:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode market-open-checklist --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reports-root data\reports --output-dir data\reports\market_open_checklist
+```
+
+Run the generated `commands.ps1` steps manually in order: `mt5-diagnose`, `live-feature-contract`, `resume-shadow`, paper-only `forward-shadow`, then `forward-signal-diagnose` after 30-60 minutes and `forward-evidence` after 2-4 hours. Do not enable demo/live execution.
+
 ## Check Status
 
 ```powershell

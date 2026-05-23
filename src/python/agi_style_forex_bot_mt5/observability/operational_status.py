@@ -18,6 +18,11 @@ def build_status(database: TelemetryDatabase) -> dict[str, Any]:
         "shadow_paused": bool(state.get("shadow_paused", False)),
         "paper_shadow_paused": bool(state.get("shadow_paused", False)),
         "halt_reason": state.get("halt_reason") or state.get("paused_reason") or "",
+        "shadow_paused_reason": state.get("paused_reason") or state.get("halt_reason") or "",
+        "paper_clean_state": int(metrics.get("paper_trades_open", 0) or 0) == 0 and float(metrics.get("drawdown_paper", 0.0) or 0.0) >= 0,
+        "weekend_readiness_status": _load_json_value("data/reports/weekend_readiness/weekend_readiness_summary.json", "weekend_readiness_status"),
+        "market_open_next_action": _load_json_value("data/reports/weekend_readiness/weekend_readiness_summary.json", "market_open_next_action") or _load_json_value("data/reports/market_open_checklist/market_open_checklist_summary.json", "market_open_next_action"),
+        "ec2_readiness_status": _load_json_value("data/reports/ec2_readiness/ec2_readiness_summary.json", "ec2_readiness_status"),
         "daily_drawdown_status": "PAPER_DAILY_DRAWDOWN" if float(metrics.get("drawdown_paper", 0.0) or 0.0) <= -3.0 else "OK",
         "evidence_parse_status": _load_evidence_parse_status(),
         "all_symbols_rejected_count": 1 if int(metrics.get("symbols_seen", 0) or 0) > 0 and int(metrics.get("symbols_rejected", 0) or 0) >= int(metrics.get("symbols_seen", 0) or 0) else 0,
@@ -49,13 +54,17 @@ def build_health_status(database: TelemetryDatabase, *, log_dir: str | Path | No
 
 
 def _load_evidence_parse_status() -> str:
-    path = Path("data/reports/forward_evidence/evidence_summary.json")
+    return _load_json_value("data/reports/forward_evidence/evidence_summary.json", "evidence_parse_status")
+
+
+def _load_json_value(path_value: str, key: str) -> str:
+    path = Path(path_value)
     if not path.exists():
         return ""
     try:
         import json
 
-        return str(json.loads(path.read_text(encoding="utf-8")).get("evidence_parse_status", ""))
+        return str(json.loads(path.read_text(encoding="utf-8")).get(key, ""))
     except Exception:
         return "UNKNOWN"
 
