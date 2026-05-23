@@ -32,6 +32,7 @@ SENSITIVE_KEY_PARTS = (
 
 TELEGRAM_TOKEN_RE = re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{20,}\b")
 LONG_IDENTIFIER_RE = re.compile(r"\b\d{6,}\b")
+ISO_TIMESTAMP_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})\b")
 WINDOWS_PATH_RE = re.compile(r"\b[A-Za-z]:\\[^\s\"']+")
 POSIX_HOME_PATH_RE = re.compile(r"(?<!\w)/(?:Users|home)/[^\s\"']+")
 
@@ -67,10 +68,21 @@ def _mask(value: Any) -> str:
 def redact_text(text: str) -> str:
     """Redact tokens, long account-like identifiers and local paths in text."""
 
+    protected: dict[str, str] = {}
+
+    def _protect(match: re.Match[str]) -> str:
+        token = f"__ISO_TIMESTAMP_{len(protected)}__"
+        protected[token] = match.group(0)
+        return token
+
+    text = ISO_TIMESTAMP_RE.sub(_protect, text)
     redacted = TELEGRAM_TOKEN_RE.sub("[REDACTED:telegram_token]", text)
     redacted = WINDOWS_PATH_RE.sub("[REDACTED:path]", redacted)
     redacted = POSIX_HOME_PATH_RE.sub("[REDACTED:path]", redacted)
-    return LONG_IDENTIFIER_RE.sub(lambda match: _mask(match.group(0)), redacted)
+    redacted = LONG_IDENTIFIER_RE.sub(lambda match: _mask(match.group(0)), redacted)
+    for token, value in protected.items():
+        redacted = redacted.replace(token, value)
+    return redacted
 
 
 def redact_identifier(value: Any) -> str:

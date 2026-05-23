@@ -60,6 +60,18 @@ For operational continuation, collect at least:
 - at least 10 closed paper trades, unless the decision remains `NEEDS_MORE_FORWARD_DATA` without critical issues.
 
 Before any future discussion beyond paper/shadow, collect multiple days and hundreds of paper trades. This phase does not authorize demo/live execution.
+
+## Invalid Timestamps
+
+If SQLite or JSONL contains corrupted/redacted timestamps, evidence generation returns `PARTIAL_INVALID_TIMESTAMPS` instead of crashing. Review:
+
+- `evidence_parse_status`
+- `invalid_timestamp_count`
+- `invalid_timestamp_fields`
+- `invalid_timestamp_examples`
+
+`PARTIAL_INVALID_TIMESTAMPS` means telemetry must be repaired or isolated before operational acceptance. It does not justify changing strategy thresholds or resuming shadow entries.
+
 # Phase 29 Signal Diagnostics Integration
 
 Forward evidence now includes signal scarcity context when `data/reports/forward_diagnostics/signal_scarcity_summary.json` exists:

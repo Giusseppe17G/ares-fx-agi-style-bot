@@ -45,6 +45,11 @@ class ForwardShadowSummary:
     stable_gate_confirmed: bool = False
     order_send_called: bool = False
     order_check_called: bool = False
+    exit_reason: str = ""
+    halt_reason: str = ""
+    paper_shadow_paused: bool = False
+    critical_alerts_recent: tuple[str, ...] = ()
+    next_recommended_command: str = ""
 
 
 class ForwardShadowBot:
@@ -106,14 +111,14 @@ class ForwardShadowBot:
         recovery = self.recovery_manager.recover()
         if recovery.get("status") != "OK":
             self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"reason": "recovery failed", "recovery": recovery, "execution_attempted": False}, notify=True)
-            return self._summary(False, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed)
+            return self._summary(False, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, exit_reason="CONFIG_ERROR", halt_reason="RECOVERY_FAILED")
         if not self._connect():
             self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"execution_attempted": False}, notify=True)
-            return self._summary(False, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed)
+            return self._summary(False, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, exit_reason="CONFIG_ERROR", halt_reason="MT5_CONNECT_FAILED")
         account = self._read_account()
         if account is None:
             self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"reason": "account_info unavailable", "execution_attempted": False}, notify=True)
-            return self._summary(True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed)
+            return self._summary(True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, exit_reason="CONFIG_ERROR", halt_reason="ACCOUNT_INFO_UNAVAILABLE")
         if self.config.demo_only and not account.is_demo:
             self._audit(
                 "ACCOUNT_REAL_DETECTED_READ_ONLY",
@@ -121,7 +126,7 @@ class ForwardShadowBot:
                 {"trade_mode": account.trade_mode, "is_demo": account.is_demo, "execution_attempted": False},
                 notify=True,
             )
-            return self._summary(True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed)
+            return self._summary(True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, exit_reason="CONFIG_ERROR", halt_reason="ACCOUNT_REAL_DETECTED_READ_ONLY")
         try:
             while self.max_cycles is None or cycles < self.max_cycles:
                 commands_processed += self.command_center.poll_and_process() if self.telegram_notifier is not None else 0
@@ -162,6 +167,10 @@ class ForwardShadowBot:
                 alerts_emitted += self.alerts.persist(cycle_alerts)
                 if cycle_alerts:
                     self._audit("OPERATIONAL_ALERTS", Severity.WARNING, {"alerts": [alert.to_dict() for alert in cycle_alerts], "execution_attempted": False}, notify=True)
+                    halt_alerts = [alert for alert in cycle_alerts if alert.alert_code == "PAPER_DAILY_DRAWDOWN"]
+                    if halt_alerts:
+                        self.database.set_shadow_paused(True, reason="PAPER_DAILY_DRAWDOWN_HALT", paused_by="forward_shadow")
+                        self._audit("PAPER_SHADOW_HALTED", Severity.CRITICAL, {"halt_reason": "PAPER_DAILY_DRAWDOWN_HALT", "execution_attempted": False}, notify=True)
                 self._maybe_daily_summary()
                 self._audit(
                     "HEARTBEAT",
@@ -190,7 +199,8 @@ class ForwardShadowBot:
             return self._summary(True, cycles, len(self.manager.load_open_trades()), opened, closed, heartbeat_written, alerts_emitted, commands_processed)
         except Exception as exc:
             self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"error": str(exc), "execution_attempted": False}, notify=True)
-            return self._summary(True, cycles, len(self.manager.load_open_trades()), opened, closed, heartbeat_written, alerts_emitted, commands_processed)
+            self.database.update_operational_state({"latest_exit_reason": "CONFIG_ERROR", "halt_reason": "PAPER_STATE_ERROR", "latest_forward_shadow_error": str(exc)})
+            return self._summary(True, cycles, len(self.manager.load_open_trades()), opened, closed, heartbeat_written, alerts_emitted, commands_processed, exit_reason="CONFIG_ERROR", halt_reason="PAPER_STATE_ERROR")
 
     def _summary(
         self,
@@ -202,7 +212,15 @@ class ForwardShadowBot:
         heartbeat_written: bool,
         alerts_emitted: int,
         telegram_commands_processed: int,
+        exit_reason: str = "",
+        halt_reason: str = "",
     ) -> ForwardShadowSummary:
+        state = self.database.get_operational_state()
+        alerts = self.database.fetch_all("alerts")
+        critical_payloads = [_safe_json(row["payload_json"]) for row in alerts[-5:]]
+        critical = tuple(str(payload.get("alert_code", "")) for payload in critical_payloads if str(payload.get("severity", "")).upper() == "CRITICAL")
+        computed_halt = halt_reason or str(state.get("halt_reason") or state.get("paused_reason") or "")
+        computed_exit = exit_reason or str(state.get("latest_exit_reason") or ("SHADOW_MANUALLY_PAUSED" if self.database.get_shadow_paused() else ""))
         return ForwardShadowSummary(
             mode="forward-shadow",
             mt5_connected=mt5_connected,
@@ -219,6 +237,11 @@ class ForwardShadowBot:
             stable_gate_confirmed=self.stable_gate_confirmed,
             order_send_called=False,
             order_check_called=False,
+            exit_reason=computed_exit,
+            halt_reason=computed_halt,
+            paper_shadow_paused=self.database.get_shadow_paused(),
+            critical_alerts_recent=critical,
+            next_recommended_command=_next_recommended_command(computed_halt or computed_exit),
         )
 
     def _connect(self) -> bool:
@@ -688,3 +711,20 @@ class ForwardShadowBot:
 def forward_summary_to_json(summary: ForwardShadowSummary) -> str:
     payload = asdict(summary) if is_dataclass(summary) else vars(summary)
     return json.dumps(payload, ensure_ascii=True, sort_keys=True)
+
+
+def _safe_json(payload: str) -> dict[str, Any]:
+    try:
+        return json.loads(payload)
+    except Exception:
+        return {}
+
+
+def _next_recommended_command(reason: str) -> str:
+    if reason in {"PAPER_DAILY_DRAWDOWN_HALT", "PAPER_STATE_ERROR", "OPEN_TRADES_REVIEW_REQUIRED"}:
+        return "py -m agi_style_forex_bot_mt5.cli --mode paper-state-report --sqlite data\\sqlite\\forward-shadow-stable.sqlite3 --log-dir data\\logs\\forward-shadow-stable --output-dir data\\reports\\paper_state"
+    if reason == "SHADOW_MANUALLY_PAUSED":
+        return "py -m agi_style_forex_bot_mt5.cli --mode resume-shadow --sqlite data\\sqlite\\forward-shadow-stable.sqlite3 --reason \"manual resume after review\""
+    if reason == "ALL_SYMBOLS_REJECTED":
+        return "py -m agi_style_forex_bot_mt5.cli --mode mt5-diagnose --symbols EURUSD,GBPUSD,USDJPY --sqlite data\\sqlite\\mt5-diagnose.sqlite3"
+    return ""

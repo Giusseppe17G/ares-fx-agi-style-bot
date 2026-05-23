@@ -83,6 +83,32 @@ Phase 30 also adds the narrower `--mode live-feature-contract` audit. Use it whe
 
 If live features are healthy and candidates are blocked by regime or ensemble score, use the Phase 31 research-only replay tools. They read JSONL/CSV/SQLite evidence and write `data\reports\forward_research`, but they do not alter the running BALANCED_STABLE process or create paper trades.
 
+## Paper Drawdown Halt
+
+`PAPER_DAILY_DRAWDOWN` is a critical paper/shadow alert. It means the SQLite paper account has breached the configured paper drawdown threshold. The bot must not open new paper trades until reviewed.
+
+Useful safe commands:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-state-report --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --output-dir data\reports\paper_state
+py -m agi_style_forex_bot_mt5.cli --mode paper-open-trades --sqlite data\sqlite\forward-shadow-stable.sqlite3 --output-dir data\reports\paper_state
+py -m agi_style_forex_bot_mt5.cli --mode pause-shadow --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reason "PAPER_DAILY_DRAWDOWN review"
+```
+
+To close simulated paper trades only, first run dry-run:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-close-all --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reason "manual paper reset after evidence parsing repair" --output-dir data\reports\paper_state
+```
+
+Then, if you intentionally want SQLite paper-only closure:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-close-all --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reason "manual paper reset after evidence parsing repair" --confirm-paper-only true --output-dir data\reports\paper_state
+```
+
+`paper-close-all` never touches MT5 positions, never calls `order_send`, and never calls `order_check`.
+
 Forward-shadow also emits diagnostic events per evaluated candidate:
 
 - `FORWARD_CANDIDATE_EVALUATED`

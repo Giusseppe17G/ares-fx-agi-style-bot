@@ -228,3 +228,28 @@ py -m agi_style_forex_bot_mt5.cli --mode forward-blocker-sensitivity --diagnosti
 ```
 
 These modes only read evidence and write reports. They do not modify the active forward-shadow terminal, paper trade SQLite state, risk limits, thresholds, or execution settings.
+
+# Paper State Repair
+
+If `PAPER_DAILY_DRAWDOWN`, `PARTIAL_INVALID_TIMESTAMPS`, open paper trades, or a zero-cycle forward-shadow exit appears, inspect the paper state first:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-state-report --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --output-dir data\reports\paper_state
+py -m agi_style_forex_bot_mt5.cli --mode paper-open-trades --sqlite data\sqlite\forward-shadow-stable.sqlite3 --output-dir data\reports\paper_state
+```
+
+Pause or resume shadow entries safely:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode pause-shadow --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reason "PAPER_DAILY_DRAWDOWN review"
+py -m agi_style_forex_bot_mt5.cli --mode resume-shadow --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reason "manual resume after review"
+```
+
+Paper-only close has a dry-run default:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-close-all --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reason "manual paper reset after evidence parsing repair" --output-dir data\reports\paper_state
+py -m agi_style_forex_bot_mt5.cli --mode paper-close-all --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reason "manual paper reset after evidence parsing repair" --confirm-paper-only true --output-dir data\reports\paper_state
+```
+
+These commands only modify local SQLite paper/shadow state. They never modify MT5 positions.

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
 
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
+from agi_style_forex_bot_mt5.utils.safe_datetime import safe_parse_datetime
 
 
 def collect_forward_evidence(
@@ -23,7 +24,8 @@ def collect_forward_evidence(
     trades = [_row_payload(row) for row in database.fetch_paper_trades()]
     jsonl_events = _read_jsonl_events(Path(log_dir))
     all_events = [*events, *jsonl_events]
-    timestamps = [parsed for parsed in (_parse_time(item.get("timestamp_utc")) for item in [*heartbeats, *all_events] if item.get("timestamp_utc")) if parsed is not None]
+    parse_diag = _parse_timestamps([*heartbeats, *all_events])
+    timestamps = parse_diag["timestamps"]
     start = min(timestamps) if timestamps else None
     end = max(timestamps) if timestamps else None
     stable_gate = _load_json(Path(reports_root) / "stable_gate" / "stable_gate_summary.json")
@@ -51,6 +53,10 @@ def collect_forward_evidence(
         "execution_attempted": bool(execution_attempted),
         "order_send_called": any("order_send" in json.dumps(item).lower() and "not called" not in json.dumps(item).lower() for item in all_events),
         "order_check_called": any("order_check" in json.dumps(item).lower() and "not called" not in json.dumps(item).lower() for item in all_events),
+        "evidence_parse_status": parse_diag["evidence_parse_status"],
+        "invalid_timestamp_count": parse_diag["invalid_timestamp_count"],
+        "invalid_timestamp_fields": parse_diag["invalid_timestamp_fields"],
+        "invalid_timestamp_examples": parse_diag["invalid_timestamp_examples"],
     }
 
 
@@ -105,10 +111,29 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def _parse_time(value: Any) -> datetime | None:
-    try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(timezone.utc)
-    except (TypeError, ValueError):
-        return None
+    return safe_parse_datetime(value, field_name="timestamp_utc", source="forward_evidence").value
+
+
+def _parse_timestamps(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
+    parsed: list[datetime] = []
+    invalid: list[dict[str, Any]] = []
+    fields: dict[str, int] = {}
+    for index, row in enumerate(rows):
+        if not row.get("timestamp_utc"):
+            continue
+        result = safe_parse_datetime(row.get("timestamp_utc"), field_name="timestamp_utc", source=str(row.get("event_type", "forward_evidence")))
+        if result.value is not None:
+            parsed.append(result.value)
+        else:
+            fields[result.field_name or "timestamp_utc"] = fields.get(result.field_name or "timestamp_utc", 0) + 1
+            invalid.append({"row": index, "field": result.field_name, "source": result.source, "raw_value": str(result.raw_value), "warning": result.warning})
+    return {
+        "timestamps": parsed,
+        "evidence_parse_status": "OK" if not invalid else "PARTIAL_INVALID_TIMESTAMPS",
+        "invalid_timestamp_count": len(invalid),
+        "invalid_timestamp_fields": fields,
+        "invalid_timestamp_examples": invalid[:5],
+    }
 
 
 def _hours(start: datetime | None, end: datetime | None) -> float:

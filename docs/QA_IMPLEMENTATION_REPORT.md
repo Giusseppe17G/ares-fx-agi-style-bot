@@ -197,6 +197,28 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 32B Forward Evidence And Paper State Repair
+
+Status: PASS. Verification: targeted operational tests passed; full suite must remain green before handoff.
+
+Integrated in Phase 32B:
+
+- Added safe datetime parsing utilities that tolerate redacted/corrupt timestamps.
+- Forward evidence now reports partial timestamp failures instead of crashing.
+- Paper metrics now count invalid duration timestamps and return duration parse status.
+- Added CLI modes `paper-open-trades`, `paper-state-report`, `paper-close-all`, `pause-shadow`, and `resume-shadow`.
+- `paper-close-all` is dry-run by default and requires `--confirm-paper-only true` to close SQLite paper trades.
+- Forward-shadow summaries now include `exit_reason`, `halt_reason`, `paper_shadow_paused`, critical alerts and a recommended next command.
+- The redactor preserves valid ISO timestamps.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 29 Forward Signal Scarcity Diagnostics
 
 Status: PASS pending full-suite verification for this phase.

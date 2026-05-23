@@ -16,6 +16,10 @@ def decide_operational_acceptance(
 
     if bool(evidence.get("execution_attempted")) or bool(evidence.get("order_send_called")) or bool(evidence.get("order_check_called")):
         return _decision("PAUSE_FORWARD_SHADOW", "Execution path was attempted or broker order function appeared in evidence.")
+    if str(metrics.get("paper_drawdown_status", "")) == "PAPER_DAILY_DRAWDOWN":
+        return _decision("PAUSE_FORWARD_SHADOW", "Paper daily drawdown halt is active.")
+    if int(evidence.get("invalid_timestamp_count", 0) or 0) > 0:
+        return _decision("NEEDS_TELEMETRY_FIX", "Forward evidence contains invalid or redacted timestamps.")
     if not bool(evidence.get("stable_gate_confirmed")):
         return _decision("PAUSE_FORWARD_SHADOW", "Stable gate is missing.")
     if int(evidence.get("heartbeat_count", 0) or 0) == 0:

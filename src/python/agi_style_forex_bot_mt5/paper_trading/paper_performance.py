@@ -6,6 +6,8 @@ from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
+from agi_style_forex_bot_mt5.utils.safe_datetime import safe_parse_datetime
+
 from .paper_trade import PaperTrade
 
 
@@ -23,7 +25,10 @@ def paper_metrics(trades: Iterable[PaperTrade | Mapping[str, Any]]) -> dict[str,
             "max_drawdown_shadow": 0.0,
             "daily_drawdown_shadow": 0.0,
             "max_consecutive_losses": 0,
-            "average_duration": 0.0,
+            "average_duration": None,
+            "duration_parse_status": "NO_VALID_DURATIONS",
+            "invalid_timestamp_count": 0,
+            "invalid_timestamp_examples": [],
             "average_mae": 0.0,
             "average_mfe": 0.0,
         }
@@ -35,6 +40,7 @@ def paper_metrics(trades: Iterable[PaperTrade | Mapping[str, Any]]) -> dict[str,
     gross_loss = abs(float(losses.sum())) if len(losses) else 0.0
     profit_factor = float(wins.sum()) / gross_loss if gross_loss > 0 else (float("inf") if len(wins) else 0.0)
     r_values = closed["r_multiple"].astype(float) if "r_multiple" in closed else pd.Series(dtype=float)
+    duration = _duration_details(closed)
     return {
         "paper_total_trades": len(frame),
         "open_trades": int((frame["status"] == "OPEN").sum()),
@@ -46,7 +52,10 @@ def paper_metrics(trades: Iterable[PaperTrade | Mapping[str, Any]]) -> dict[str,
         "max_drawdown_shadow": _drawdown(profits),
         "daily_drawdown_shadow": _drawdown(profits),
         "max_consecutive_losses": _max_loss_run(profits),
-        "average_duration": _duration(closed),
+        "average_duration": duration["average_duration"],
+        "duration_parse_status": duration["duration_parse_status"],
+        "invalid_timestamp_count": duration["invalid_timestamp_count"],
+        "invalid_timestamp_examples": duration["invalid_timestamp_examples"],
         "average_mae": float(closed["mae"].astype(float).mean()) if len(closed) else 0.0,
         "average_mfe": float(closed["mfe"].astype(float).mean()) if len(closed) else 0.0,
     }
@@ -93,8 +102,32 @@ def _max_loss_run(profits: pd.Series) -> int:
 
 
 def _duration(closed: pd.DataFrame) -> float:
+    details = _duration_details(closed)
+    return float(details["average_duration"] or 0.0)
+
+
+def _duration_details(closed: pd.DataFrame) -> dict[str, Any]:
     if closed.empty or "exit_time_utc" not in closed:
-        return 0.0
-    start = pd.to_datetime(closed["entry_time_utc"], utc=True)
-    end = pd.to_datetime(closed["exit_time_utc"], utc=True)
-    return float((end - start).dt.total_seconds().mean())
+        return {"average_duration": None, "duration_parse_status": "NO_VALID_DURATIONS", "invalid_timestamp_count": 0, "invalid_timestamp_examples": []}
+    durations: list[float] = []
+    invalid: list[dict[str, Any]] = []
+    for index, row in closed.iterrows():
+        start = safe_parse_datetime(row.get("entry_time_utc"), field_name="entry_time_utc", source="paper_metrics")
+        end = safe_parse_datetime(row.get("exit_time_utc"), field_name="exit_time_utc", source="paper_metrics")
+        if start.value is None or end.value is None:
+            invalid.append(
+                {
+                    "row": int(index) if isinstance(index, int) else str(index),
+                    "entry_time_utc": str(row.get("entry_time_utc")),
+                    "exit_time_utc": str(row.get("exit_time_utc")),
+                    "entry_warning": start.warning,
+                    "exit_warning": end.warning,
+                }
+            )
+            continue
+        durations.append((end.value - start.value).total_seconds())
+    if not durations:
+        status = "NO_VALID_DURATIONS" if invalid else "OK"
+        return {"average_duration": None, "duration_parse_status": status, "invalid_timestamp_count": len(invalid), "invalid_timestamp_examples": invalid[:5]}
+    status = "PARTIAL_INVALID_TIMESTAMPS" if invalid else "OK"
+    return {"average_duration": float(sum(durations) / len(durations)), "duration_parse_status": status, "invalid_timestamp_count": len(invalid), "invalid_timestamp_examples": invalid[:5]}

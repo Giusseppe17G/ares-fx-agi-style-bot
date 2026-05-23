@@ -35,7 +35,17 @@ from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot,
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .ml import build_ml_dataset, build_ml_report, train_ml_filter
 from .observability import DailySummary, build_health_status, build_status
-from .paper_trading import ForwardShadowBot, build_stable_health, forward_summary_to_json, write_stable_shadow_daily_report
+from .paper_trading import (
+    ForwardShadowBot,
+    build_paper_open_trades_report,
+    build_paper_state_report,
+    build_stable_health,
+    close_all_paper_trades,
+    forward_summary_to_json,
+    pause_shadow,
+    resume_shadow,
+    write_stable_shadow_daily_report,
+)
 from .persistence import (
     check_db_health,
     compact_jsonl_logs,
@@ -142,6 +152,11 @@ def main(argv: list[str] | None = None) -> int:
             "forward-signal-diagnose",
             "forward-candidate-replay",
             "forward-blocker-sensitivity",
+            "paper-open-trades",
+            "paper-state-report",
+            "paper-close-all",
+            "pause-shadow",
+            "resume-shadow",
             "stable-health",
             "stable-daily-summary",
             "status",
@@ -260,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Enable optional Telegram notifications using TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.",
     )
+    parser.add_argument("--reason", default="", help="Operational reason for paper/shadow state commands.")
+    parser.add_argument("--confirm-paper-only", default="false", help="Set true to execute paper-only close commands.")
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
@@ -275,6 +292,11 @@ def main(argv: list[str] | None = None) -> int:
         "forward-acceptance",
         "forward-signal-diagnose",
         "forward-candidate-replay",
+        "paper-open-trades",
+        "paper-state-report",
+        "paper-close-all",
+        "pause-shadow",
+        "resume-shadow",
         "broker-quality",
         "readiness-report",
         "build-ml-dataset",
@@ -539,6 +561,43 @@ def main(argv: list[str] | None = None) -> int:
                 output_dir=output_dir,
             )
             print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "paper-open-trades":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_state")
+            print(_json_dumps(build_paper_open_trades_report(database=database, output_dir=output_dir)))
+            return 0
+
+        if args.mode == "paper-state-report":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_state")
+            print(_json_dumps(build_paper_state_report(database=database, log_dir=args.log_dir, output_dir=output_dir)))
+            return 0
+
+        if args.mode == "paper-close-all":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_state")
+            print(
+                _json_dumps(
+                    close_all_paper_trades(
+                        database=database,
+                        reason=args.reason or "manual paper close",
+                        output_dir=output_dir,
+                        confirm_paper_only=str(args.confirm_paper_only).lower() == "true",
+                    )
+                )
+            )
+            return 0
+
+        if args.mode == "pause-shadow":
+            assert database is not None
+            print(_json_dumps(pause_shadow(database=database, reason=args.reason or "manual pause")))
+            return 0
+
+        if args.mode == "resume-shadow":
+            assert database is not None
+            print(_json_dumps(resume_shadow(database=database, reason=args.reason or "manual resume")))
             return 0
 
         if args.mode == "walk-forward-failure-analysis":
