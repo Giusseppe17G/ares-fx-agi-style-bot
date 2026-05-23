@@ -34,6 +34,26 @@ The audit checks stable shadow scripts, `PYTHONPATH` usage, `.gitignore` protect
 
 Never commit `.rdp`, `.pem`, `.key`, MT5 credentials, Telegram tokens, broker account passwords, AWS credentials, SQLite runtime databases, logs, or reports with sensitive account details.
 
+## EC2 Deployment Pack
+
+Generate the operator handoff pack before copying the project to EC2:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode ec2-deployment-pack --reports-root data\reports --output-dir data\reports\ec2_deployment_pack
+```
+
+The pack creates:
+
+- `EC2_OPERATOR_HANDOFF.md`
+- `EC2_DEPLOYMENT_CHECKLIST.md`
+- `EC2_COMMANDS.ps1`
+- `EC2_ROLLBACK_PLAN.md`
+- `EC2_SECURITY_GUARDRAILS.md`
+- `ec2_deployment_summary.json`
+- `report.html`
+
+Use it as the EC2 paper/shadow handoff. `EC2_DEPLOYMENT_PACK_READY` means the documentation and commands are ready for a paper/shadow dry run only. It does not approve demo/live execution.
+
 ## 1. Connect By RDP
 
 1. Open the AWS EC2 console.

@@ -18,6 +18,16 @@ py -m agi_style_forex_bot_mt5.cli --mode market-open-checklist --sqlite data\sql
 
 Use that checklist to run diagnostics first, then resume only paper/shadow if `mt5-diagnose` and `live-feature-contract` pass. `DEMO_ONLY=True` and `LIVE_TRADING_APPROVED=False` remain mandatory.
 
+## EC2 Paper-Shadow Handoff
+
+Generate the EC2 deployment pack before moving BALANCED_STABLE to an EC2 Windows host:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode ec2-deployment-pack --reports-root data\reports --output-dir data\reports\ec2_deployment_pack
+```
+
+The pack explains what BALANCED_STABLE is, how to run paper/shadow only, how to collect evidence, how to pause safely, and how to roll back. It does not enable demo/live execution. `paper-close-all` and pause/resume commands remain SQLite paper-state operations only.
+
 `BALANCED_STABLE` forward-shadow is prolonged paper observation after the stable gate returns `PAPER_SHADOW_READY`.
 
 It does not enable demo or live execution. It only creates and manages paper trades in SQLite/JSONL.

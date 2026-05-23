@@ -35,7 +35,7 @@ from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot,
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .ml import build_ml_dataset, build_ml_report, train_ml_filter
 from .observability import DailySummary, build_health_status, build_status
-from .operational_readiness import run_ec2_readiness_audit, run_market_open_checklist, run_weekend_readiness
+from .operational_readiness import run_ec2_deployment_pack, run_ec2_readiness_audit, run_market_open_checklist, run_weekend_readiness
 from .paper_trading import (
     ForwardShadowBot,
     build_paper_open_trades_report,
@@ -209,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
             "weekend-readiness",
             "market-open-checklist",
             "ec2-readiness-audit",
+            "ec2-deployment-pack",
         ],
         default="shadow",
     )
@@ -434,6 +435,12 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.mode == "ec2-readiness-audit":
             summary = run_ec2_readiness_audit(reports_root=args.reports_root, output_dir=args.output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "ec2-deployment-pack":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/ec2_deployment_pack")
+            summary = run_ec2_deployment_pack(reports_root=args.reports_root, output_dir=output_dir)
             print(_json_dumps(summary))
             return 0
 

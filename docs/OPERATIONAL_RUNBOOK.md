@@ -77,6 +77,27 @@ py -m agi_style_forex_bot_mt5.cli --mode market-open-checklist --sqlite data\sql
 
 Run the generated `commands.ps1` steps manually in order: `mt5-diagnose`, `live-feature-contract`, `resume-shadow`, paper-only `forward-shadow`, then `forward-signal-diagnose` after 30-60 minutes and `forward-evidence` after 2-4 hours. Do not enable demo/live execution.
 
+## EC2 Operator Handoff
+
+Before an EC2 migration or dry run, generate the deployment pack:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\ec2_operator_handoff.ps1
+```
+
+The pack under `data\reports\ec2_deployment_pack` contains the install checklist, exact commands, rollback plan, and guardrails. Operators should use `EC2_COMMANDS.ps1` as a command reference, not as permission to run during the weekend. The market-open commands must wait until MT5 has fresh data.
+
+Safe EC2 helper scripts:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\ec2_market_open_runbook.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\ec2_collect_evidence.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\ec2_backup_and_health.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\ec2_safe_stop_shadow.ps1
+```
+
+All of them remain paper/shadow only and keep `execution_attempted=false`.
+
 ## Check Status
 
 ```powershell

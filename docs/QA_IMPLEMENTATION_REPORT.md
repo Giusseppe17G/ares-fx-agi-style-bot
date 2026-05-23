@@ -9,6 +9,15 @@ Added offline readiness tooling for closed-market operation:
 
 Safety result remains unchanged: no `order_send`, no `order_check`, `execution_attempted=false`, `DEMO_ONLY=True`, and `LIVE_TRADING_APPROVED=False`.
 
+
+## FASE 34 - EC2 Paper-Shadow Deployment Pack & Operator Handoff
+
+Added `ec2-deployment-pack` to generate the Windows EC2 paper-shadow handoff package under `data/reports/ec2_deployment_pack`.
+
+Artifacts include operator handoff, deployment checklist, exact PowerShell commands, rollback plan, security guardrails, JSON summary and HTML report. Added EC2 helper scripts for handoff generation, market-open paper runbook, safe stop, evidence collection, backup and health checks.
+
+Safety remains unchanged: paper/shadow only, no demo/live execution, `DEMO_ONLY=True`, `LIVE_TRADING_APPROVED=False`, `execution_attempted=false`, and no `order_send`/`order_check` calls.
+
 ## Scope
 
 Role: QA / Integration Engineer.

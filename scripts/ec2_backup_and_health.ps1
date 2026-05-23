@@ -1,0 +1,19 @@
+param(
+    [string]$SqlitePath = "data\sqlite\forward-shadow-stable.sqlite3",
+    [string]$LogDir = "data\logs\forward-shadow-stable",
+    [string]$ReportsRoot = "data\reports",
+    [string]$BackupDir = "data\backups"
+)
+
+$ErrorActionPreference = "Stop"
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+Set-Location $repoRoot
+
+$venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path $venvPython)) { $venvPython = "py" }
+
+$env:PYTHONPATH = "src/python"
+& $venvPython -m agi_style_forex_bot_mt5.cli --mode backup --sqlite $SqlitePath --log-dir $LogDir --backup-dir $BackupDir
+& $venvPython -m agi_style_forex_bot_mt5.cli --mode db-health --sqlite $SqlitePath --report-dir "$ReportsRoot\db_health"
+& $venvPython -m agi_style_forex_bot_mt5.cli --mode audit-replay --sqlite $SqlitePath --report-dir "$ReportsRoot\audit_replay"
+exit $LASTEXITCODE
