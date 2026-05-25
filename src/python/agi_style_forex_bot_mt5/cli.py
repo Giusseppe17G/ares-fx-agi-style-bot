@@ -48,6 +48,9 @@ from .paper_trading import (
     resume_shadow,
     write_stable_shadow_daily_report,
 )
+from .paper_trading.paper_pnl_engine import extract_paper_risk_multiplier
+from .paper_daily_risk_state import run_paper_daily_risk_audit, run_paper_daily_risk_clear, validate_micro_daily_risk
+from .paper_pnl_audit import run_paper_pnl_audit, run_paper_pnl_scaling_check, run_paper_risk_post_fix_gate, run_paper_risk_recommendation
 from .paper_risk_calibration import build_paper_risk_profile, run_paper_risk_audit, run_paper_risk_status
 from .paper_risk_review import run_paper_risk_clearance, run_paper_risk_clearance_check, run_paper_risk_review, validate_micro_resume_clearance
 from .persistence import (
@@ -170,6 +173,12 @@ def main(argv: list[str] | None = None) -> int:
             "paper-risk-review",
             "paper-risk-clearance",
             "paper-risk-clearance-check",
+            "paper-daily-risk-audit",
+            "paper-daily-risk-clear",
+            "paper-pnl-audit",
+            "paper-pnl-scaling-check",
+            "paper-risk-post-fix-gate",
+            "paper-risk-recommendation",
             "paper-close-all",
             "pause-shadow",
             "resume-shadow",
@@ -260,8 +269,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stability-dir", type=Path, default=Path("data/reports/stability_repair"), help="Stability repair report directory.")
     parser.add_argument("--risk-audit-dir", type=Path, default=Path("data/reports/paper_risk"), help="Paper risk audit report directory.")
     parser.add_argument("--paper-risk-dir", type=Path, default=Path("data/reports/paper_risk"), help="Paper risk report directory.")
+    parser.add_argument("--daily-risk-dir", type=Path, default=Path("data/reports/paper_daily_risk"), help="Daily paper risk report directory.")
+    parser.add_argument("--pnl-audit-dir", type=Path, default=Path("data/reports/paper_pnl_audit"), help="Paper PnL audit report directory.")
     parser.add_argument("--clearance-ledger", type=Path, default=None, help="Paper risk clearance ledger for paper-risk-status.")
     parser.add_argument("--paper-risk-clearance", type=Path, default=None, help="Paper risk clearance ledger required by BALANCED_STABLE_MICRO forward-shadow.")
+    parser.add_argument("--daily-risk-ledger", type=Path, default=None, help="Daily paper risk ledger for BALANCED_STABLE_MICRO stale halt clearance.")
     parser.add_argument("--trades", type=Path, default=None, help="Trades CSV for monte-carlo.")
     parser.add_argument("--dataset", type=Path, default=None, help="ML dataset CSV for train-ml-filter.")
     parser.add_argument("--model-dir", type=Path, default=Path("data/models/ml_filter"), help="ML model registry directory.")
@@ -333,6 +345,10 @@ def main(argv: list[str] | None = None) -> int:
             "paper-risk-status",
             "paper-risk-review",
             "paper-risk-clearance",
+            "paper-daily-risk-audit",
+            "paper-daily-risk-clear",
+            "paper-pnl-audit",
+            "paper-pnl-scaling-check",
         "paper-close-all",
         "pause-shadow",
         "resume-shadow",
@@ -724,6 +740,7 @@ def main(argv: list[str] | None = None) -> int:
                         database=database,
                         profile_config=args.profile_config,
                         clearance_ledger=args.clearance_ledger,
+                        daily_risk_ledger=args.daily_risk_ledger,
                         profile_name="" if args.profile == "BALANCED" else args.profile,
                         log_dir=args.log_dir,
                         reports_root=args.reports_root,
@@ -732,6 +749,78 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 )
             )
+            return 0
+
+        if args.mode == "paper-daily-risk-audit":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_daily_risk")
+            print(
+                _json_dumps(
+                    run_paper_daily_risk_audit(
+                        database=database,
+                        log_dir=args.log_dir,
+                        reports_root=args.reports_root,
+                        paper_risk_dir=args.paper_risk_dir,
+                        clearance_ledger=args.clearance_ledger,
+                        daily_risk_ledger=args.daily_risk_ledger,
+                        profile_config=args.profile_config,
+                        output_dir=output_dir,
+                    )
+                )
+            )
+            return 0
+
+        if args.mode == "paper-daily-risk-clear":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_daily_risk")
+            print(
+                _json_dumps(
+                    run_paper_daily_risk_clear(
+                        database=database,
+                        reason=args.reason,
+                        log_dir=args.log_dir,
+                        reports_root=args.reports_root,
+                        paper_risk_dir=args.paper_risk_dir,
+                        clearance_ledger=args.clearance_ledger,
+                        profile_config=args.profile_config,
+                        output_dir=output_dir,
+                    )
+                )
+            )
+            return 0
+
+        if args.mode == "paper-pnl-audit":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_pnl_audit")
+            print(
+                _json_dumps(
+                    run_paper_pnl_audit(
+                        database=database,
+                        log_dir=args.log_dir,
+                        reports_root=args.reports_root,
+                        paper_risk_dir=args.paper_risk_dir,
+                        daily_risk_dir=args.daily_risk_dir,
+                        profile_config=args.profile_config,
+                        output_dir=output_dir,
+                    )
+                )
+            )
+            return 0
+
+        if args.mode == "paper-pnl-scaling-check":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_pnl_audit")
+            print(_json_dumps(run_paper_pnl_scaling_check(database=database, log_dir=args.log_dir, profile_config=args.profile_config, output_dir=output_dir)))
+            return 0
+
+        if args.mode == "paper-risk-post-fix-gate":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_pnl_audit")
+            print(_json_dumps(run_paper_risk_post_fix_gate(reports_root=args.reports_root, output_dir=output_dir)))
+            return 0
+
+        if args.mode == "paper-risk-recommendation":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_pnl_audit")
+            print(_json_dumps(run_paper_risk_recommendation(reports_root=args.reports_root, pnl_audit_dir=args.pnl_audit_dir, output_dir=output_dir)))
             return 0
 
         if args.mode == "paper-risk-review":
@@ -1020,6 +1109,9 @@ def main(argv: list[str] | None = None) -> int:
                     print(_json_dumps(_stable_forward_block("STABLE_PROFILE_CONFIG_REQUIRED", f"{config.signal_profile} requires --profile-config", args.stable_gate, signal_profile=config.signal_profile)))
                     return 0
                 if config.signal_profile == "BALANCED_STABLE_MICRO":
+                    if extract_paper_risk_multiplier(config.profile_config) is None:
+                        print(_json_dumps(_stable_forward_block("PAPER_PNL_SCALING_CONFIG_MISSING", "BALANCED_STABLE_MICRO requires PAPER_RISK_MULTIPLIER in --profile-config", args.stable_gate, signal_profile=config.signal_profile)))
+                        return 0
                     clearance = validate_micro_resume_clearance(
                         database=database,
                         clearance_ledger=args.paper_risk_clearance,
@@ -1032,7 +1124,19 @@ def main(argv: list[str] | None = None) -> int:
                     if not clearance.get("accepted"):
                         print(_json_dumps(_stable_forward_block(str(clearance.get("paper_risk_clearance_status") or "PAPER_RISK_CLEARANCE_REQUIRED"), str(clearance.get("reason") or "BALANCED_STABLE_MICRO requires valid paper risk clearance"), args.stable_gate, clearance, signal_profile=config.signal_profile)))
                         return 0
-                    config = replace(config, paper_risk_clearance=str(args.paper_risk_clearance))
+                    daily_risk = validate_micro_daily_risk(
+                        database=database,
+                        clearance_ledger=args.paper_risk_clearance,
+                        daily_risk_ledger=args.daily_risk_ledger,
+                        profile_config=config.profile_config,
+                        log_dir=args.log_dir,
+                        reports_root=args.reports_root,
+                        paper_risk_dir=args.paper_risk_dir,
+                    )
+                    if not daily_risk.get("accepted"):
+                        print(_json_dumps(_stable_forward_block(str(daily_risk.get("paper_daily_risk_status") or "PAPER_DAILY_RISK_LEDGER_REQUIRED"), str(daily_risk.get("reason") or "BALANCED_STABLE_MICRO requires valid daily paper risk ledger"), args.stable_gate, daily_risk, signal_profile=config.signal_profile)))
+                        return 0
+                    config = replace(config, paper_risk_clearance=str(args.paper_risk_clearance), paper_daily_risk_ledger=str(args.daily_risk_ledger or ""))
                 stable_gate = _stable_gate_status(args.stable_gate)
                 if not stable_gate["exists"]:
                     print(_json_dumps(_stable_forward_block("STABLE_GATE_REQUIRED", f"{config.signal_profile} requires stable_gate_summary.json with PAPER_SHADOW_READY", args.stable_gate, signal_profile=config.signal_profile)))
@@ -1078,7 +1182,18 @@ def main(argv: list[str] | None = None) -> int:
                     event_type="PAPER_RISK_CLEARANCE_ACCEPTED",
                     message="BALANCED_STABLE_MICRO paper risk clearance accepted",
                     correlation_id="forward-shadow-stable:paper-risk-clearance",
-                    payload={"paper_risk_clearance": str(args.paper_risk_clearance), "signal_profile_used": config.signal_profile, "paper_risk_profile": "BALANCED_STABLE_MICRO", "execution_attempted": False},
+                    payload={"paper_risk_clearance": str(args.paper_risk_clearance), "daily_risk_ledger": str(args.daily_risk_ledger), "signal_profile_used": config.signal_profile, "paper_risk_profile": "BALANCED_STABLE_MICRO", "execution_attempted": False},
+                )
+                database.insert_event(event)
+                event = Event.create(
+                    run_id="forward-shadow-stable",
+                    environment=Environment.DEMO,
+                    severity=Severity.INFO,
+                    module="cli",
+                    event_type="PAPER_DAILY_RISK_LEDGER_ACCEPTED",
+                    message="BALANCED_STABLE_MICRO daily paper risk ledger accepted",
+                    correlation_id="forward-shadow-stable:paper-daily-risk",
+                    payload={"daily_risk_ledger": str(args.daily_risk_ledger), "signal_profile_used": config.signal_profile, "execution_attempted": False},
                 )
                 database.insert_event(event)
             print(forward_summary_to_json(bot.run()))

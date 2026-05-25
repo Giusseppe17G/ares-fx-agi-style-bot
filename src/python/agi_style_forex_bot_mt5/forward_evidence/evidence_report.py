@@ -46,6 +46,8 @@ def run_forward_evidence(
     diagnostics = _load_json(Path(reports_root) / "forward_diagnostics" / "signal_scarcity_summary.json")
     forward_research = _load_json(Path(reports_root) / "forward_research" / "candidate_replay_summary.json")
     blocker_sensitivity = _load_json(Path(reports_root) / "forward_research" / "blocker_sensitivity.json")
+    paper_pnl_audit = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_pnl_audit_summary.json")
+    paper_risk_recommendation = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_risk_recommendation.json")
     execution_evidence = run_execution_evidence_audit(
         sqlite_path=database.path,
         log_dir=log_dir,
@@ -62,6 +64,7 @@ def run_forward_evidence(
         database=database,
         profile_config=_paper_risk_profile_config(Path(reports_root)),
         clearance_ledger=_paper_risk_clearance_ledger(Path(reports_root)),
+        daily_risk_ledger=_paper_daily_risk_ledger(Path(reports_root)),
         log_dir=log_dir,
         reports_root=reports_root,
         paper_risk_dir=Path(reports_root) / "paper_risk",
@@ -105,6 +108,15 @@ def run_forward_evidence(
         "paper_risk_clearance_id": paper_risk.get("paper_risk_clearance_id", ""),
         "cleared_for_profile": paper_risk.get("cleared_for_profile", ""),
         "clearance_stale": paper_risk.get("clearance_stale", False),
+        "paper_daily_risk_status": paper_risk.get("paper_daily_risk_status", ""),
+        "active_today_halt_count": paper_risk.get("active_today_halt_count", 0),
+        "stale_halt_count": paper_risk.get("stale_halt_count", 0),
+        "daily_risk_ledger_status": paper_risk.get("daily_risk_ledger_status", ""),
+        "can_resume_micro_shadow": paper_risk.get("can_resume_micro_shadow", False),
+        "paper_pnl_audit_status": paper_pnl_audit.get("paper_pnl_audit_status", paper_risk.get("paper_pnl_audit_status", "")),
+        "micro_risk_application_status": paper_pnl_audit.get("micro_risk_application_status", ""),
+        "drawdown_root_cause": paper_pnl_audit.get("root_cause", ""),
+        "paper_risk_recommendation": paper_risk_recommendation.get("recommendation", paper_pnl_audit.get("recommended_action", "")),
         "evidence_parse_status": evidence.get("evidence_parse_status", "OK"),
         "invalid_timestamp_count": evidence.get("invalid_timestamp_count", 0),
         "invalid_timestamp_fields": evidence.get("invalid_timestamp_fields", {}),
@@ -208,6 +220,11 @@ def _paper_risk_profile_config(reports_root: Path) -> Path | None:
 
 def _paper_risk_clearance_ledger(reports_root: Path) -> Path | None:
     candidate = reports_root / "paper_risk_review" / "paper_risk_clearance_ledger.json"
+    return candidate if candidate.exists() else None
+
+
+def _paper_daily_risk_ledger(reports_root: Path) -> Path | None:
+    candidate = reports_root / "paper_daily_risk" / "paper_daily_risk_ledger.json"
     return candidate if candidate.exists() else None
 
 

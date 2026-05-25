@@ -76,6 +76,12 @@ def run_paper_risk_clearance(
     }
     if review.get("classification") != "PAPER_RISK_REVIEW_READY_FOR_CLEARANCE":
         return _clearance_denied(mapping.get(str(review.get("classification")), "PAPER_RISK_CLEARANCE_DENIED_REVIEW_REQUIRED"), str(review.get("reason", "")), review)
+    post_fix = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_risk_post_fix_gate.json")
+    scaling = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_pnl_scaling_check.json")
+    if scaling and scaling.get("paper_pnl_scaling_status") not in {"PAPER_PNL_SCALING_FIXED", "PAPER_PNL_SCALING_PARTIAL_LEGACY_EVENTS"}:
+        return _clearance_denied("PAPER_RISK_CLEARANCE_DENIED_PNL_SCALING", "Paper PnL scaling check must pass before new clearance.", {"paper_pnl_scaling": scaling})
+    if post_fix and post_fix.get("decision") != "READY_FOR_NEW_MICRO_CLEARANCE":
+        return _clearance_denied("PAPER_RISK_CLEARANCE_DENIED_POST_FIX_GATE", "paper-risk-post-fix-gate must be READY_FOR_NEW_MICRO_CLEARANCE.", {"post_fix_gate": post_fix})
     entry = append_clearance(output_dir=output_dir, reason=reason, latest_halt_utc=str(review.get("latest_halt_utc", "")))
     summary = {
         "mode": "paper-risk-clearance",
@@ -195,3 +201,13 @@ def _write_csv(path: Path, rows: list[Mapping[str, Any]]) -> None:
 
 def _html(summary: Mapping[str, Any]) -> str:
     return f"<html><body><h1>Paper Risk Manual Review</h1><pre>{html.escape(json.dumps(summary, indent=2, sort_keys=True))}</pre></body></html>"
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}

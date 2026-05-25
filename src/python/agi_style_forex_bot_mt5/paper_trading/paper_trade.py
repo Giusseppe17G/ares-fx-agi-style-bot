@@ -34,6 +34,13 @@ class PaperTrade:
     exit_price: float | None = None
     exit_reason: str | None = None
     profit: float = 0.0
+    raw_pnl: float = 0.0
+    scaled_paper_pnl: float = 0.0
+    paper_risk_multiplier: float = 1.0
+    risk_multiplier: float = 1.0
+    pnl_formula_version: str = ""
+    multiplier_applied: bool = False
+    pnl_scaling_status: str = ""
     r_multiple: float = 0.0
     mae: float = 0.0
     mfe: float = 0.0

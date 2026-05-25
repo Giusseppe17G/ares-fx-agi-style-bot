@@ -10,6 +10,7 @@ import pandas as pd
 
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 from agi_style_forex_bot_mt5.paper_risk_review.profile_matching import effective_requested_profile, read_profile_config_profile
+from agi_style_forex_bot_mt5.paper_daily_risk_state import validate_micro_daily_risk
 
 from .paper_acceptance_guard import paper_risk_acceptance_clear
 from .paper_drawdown_analyzer import analyze_paper_drawdown
@@ -60,6 +61,7 @@ def run_paper_risk_status(
     database: TelemetryDatabase,
     profile_config: str | Path | None = None,
     clearance_ledger: str | Path | None = None,
+    daily_risk_ledger: str | Path | None = None,
     profile_name: str = "",
     log_dir: str | Path = "data/logs/forward-shadow-stable",
     reports_root: str | Path = "data/reports",
@@ -82,16 +84,34 @@ def run_paper_risk_status(
         paper_risk_dir=paper_risk_dir,
     )
     if status.get("blocking_reason") == "PAPER_DRAWDOWN_HALT_BLOCK" and clearance.get("accepted"):
-        status.update(
-            {
-                "paper_risk_status": "PAPER_RISK_CLEAR_FOR_MICRO_SHADOW",
-                "can_open_new_paper_trade": True,
-                "blocking_reason": "",
-                "manual_review_required": False,
-                "cleared_profile": clearance.get("cleared_profile", "BALANCED_STABLE_MICRO"),
-                "paper_risk_clearance_status": clearance.get("paper_risk_clearance_status", "PAPER_RISK_CLEARANCE_ACCEPTED"),
-            }
+        daily_risk = _daily_risk_status(
+            database=database,
+            clearance_ledger=clearance_ledger,
+            daily_risk_ledger=daily_risk_ledger,
+            profile_config=profile_config,
+            log_dir=log_dir,
+            reports_root=reports_root,
+            paper_risk_dir=paper_risk_dir,
         )
+        if daily_risk.get("accepted"):
+            status.update(
+                {
+                    "paper_risk_status": "PAPER_RISK_CLEAR_FOR_MICRO_SHADOW",
+                    "daily_drawdown_status": "CLEARED_STALE_HALT",
+                    "can_open_new_paper_trade": True,
+                    "blocking_reason": "",
+                    "manual_review_required": False,
+                    "cleared_profile": clearance.get("cleared_profile", "BALANCED_STABLE_MICRO"),
+                    "paper_risk_clearance_status": clearance.get("paper_risk_clearance_status", "PAPER_RISK_CLEARANCE_ACCEPTED"),
+                }
+            )
+        else:
+            status["paper_daily_risk_status"] = daily_risk.get("paper_daily_risk_status", "")
+            status["daily_risk_ledger_status"] = daily_risk.get("daily_risk_ledger_status", "")
+            status["paper_daily_risk_blocking_reason"] = daily_risk.get("blocking_reason", "")
+    else:
+        daily_risk = {}
+    pnl_audit = _paper_pnl_audit_status(Path(reports_root))
     summary = {
         "mode": "paper-risk-status",
         **profile_info,
@@ -100,6 +120,15 @@ def run_paper_risk_status(
         "paper_risk_clearance_id": clearance.get("paper_risk_clearance_id", ""),
         "cleared_for_profile": clearance.get("cleared_for_profile", ""),
         "clearance_stale": clearance.get("paper_risk_clearance_status") == "PAPER_RISK_CLEARANCE_STALE",
+        "paper_daily_risk_status": daily_risk.get("paper_daily_risk_status", status.get("paper_daily_risk_status", "")),
+        "daily_risk_ledger_status": daily_risk.get("daily_risk_ledger_status", status.get("daily_risk_ledger_status", "")),
+        "active_today_halt_count": daily_risk.get("active_today_halt_count", 0),
+        "stale_halt_count": daily_risk.get("stale_halt_count", 0),
+        "can_resume_micro_shadow": daily_risk.get("can_resume_micro_shadow", False),
+        "paper_pnl_audit_status": pnl_audit.get("paper_pnl_audit_status", ""),
+        "root_cause": pnl_audit.get("root_cause", ""),
+        "paper_pnl_recommended_action": pnl_audit.get("recommended_action", ""),
+        "block_new_clearance": _blocks_new_clearance(pnl_audit),
         "paper_risk_acceptance_clear": paper_risk_acceptance_clear(status),
         "recommended_action": _recommended_action(status),
         "execution_attempted": False,
@@ -140,6 +169,30 @@ def _clearance_status(
         return {"accepted": False, "paper_risk_clearance_status": "PAPER_RISK_CLEARANCE_ERROR", "reason": str(exc)}
 
 
+def _daily_risk_status(
+    *,
+    database: TelemetryDatabase,
+    clearance_ledger: str | Path | None,
+    daily_risk_ledger: str | Path | None,
+    profile_config: str | Path | None,
+    log_dir: str | Path,
+    reports_root: str | Path,
+    paper_risk_dir: str | Path,
+) -> dict[str, Any]:
+    try:
+        return validate_micro_daily_risk(
+            database=database,
+            clearance_ledger=clearance_ledger,
+            daily_risk_ledger=daily_risk_ledger,
+            profile_config=profile_config,
+            log_dir=log_dir,
+            reports_root=reports_root,
+            paper_risk_dir=paper_risk_dir,
+        )
+    except Exception as exc:
+        return {"accepted": False, "paper_daily_risk_status": "PAPER_DAILY_RISK_ERROR", "blocking_reason": str(exc)}
+
+
 def _effective_status_profile(profile_name: str, profile_config: str | Path | None) -> dict[str, Any]:
     explicit = str(profile_name or "").strip()
     config_profile = read_profile_config_profile(profile_config)
@@ -177,6 +230,27 @@ def _recommended_action(status: Mapping[str, Any]) -> str:
     if reason in {"PAPER_COOLDOWN_BLOCK", "PAPER_DRAWDOWN_HALT_BLOCK"}:
         return "Keep paper shadow paused until cooldown/manual review completes."
     return "Paper risk gate is clear for paper-only observation."
+
+
+def _paper_pnl_audit_status(reports_root: Path) -> dict[str, Any]:
+    path = reports_root / "paper_pnl_audit" / "paper_pnl_audit_summary.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _blocks_new_clearance(pnl_audit: Mapping[str, Any]) -> bool:
+    status = str(pnl_audit.get("paper_pnl_audit_status", "")).upper()
+    return status in {
+        "PAPER_PNL_SCALING_BUG",
+        "MICRO_RISK_NOT_APPLIED",
+        "VALID_MICRO_DRAWDOWN_HALT",
+        "PAPER_PNL_AUDIT_INCONCLUSIVE",
+    }
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:

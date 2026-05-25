@@ -405,5 +405,39 @@ The check reports the requested profile, canonical requested profile, cleared pr
 Forward-shadow micro now requires the ledger:
 
 ```powershell
-py -m agi_style_forex_bot_mt5.cli --mode forward-shadow --symbols EURUSD,GBPUSD,USDJPY --signal-profile BALANCED_STABLE_MICRO --profile-config data\reports\paper_risk\balanced_stable_micro.ini --stable-gate data\reports\stable_gate\stable_gate_summary.json --paper-risk-clearance data\reports\paper_risk_review\paper_risk_clearance_ledger.json --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --cycle-seconds 30
+py -m agi_style_forex_bot_mt5.cli --mode forward-shadow --symbols EURUSD,GBPUSD,USDJPY --signal-profile BALANCED_STABLE_MICRO --profile-config data\reports\paper_risk\balanced_stable_micro.ini --stable-gate data\reports\stable_gate\stable_gate_summary.json --paper-risk-clearance data\reports\paper_risk_review\paper_risk_clearance_ledger.json --daily-risk-ledger data\reports\paper_daily_risk\paper_daily_risk_ledger.json --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --cycle-seconds 30
 ```
+
+## Phase 40 Daily Paper Risk State
+
+If `paper-risk-clearance-check` is clean but `paper-risk-status` still shows `PAPER_DRAWDOWN_HALT_BLOCK`, audit daily risk state:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-daily-risk-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --paper-risk-dir data\reports\paper_risk --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --profile-config data\reports\paper_risk\balanced_stable_micro.ini --output-dir data\reports\paper_daily_risk
+```
+
+If the audit reports only stale halts before clearance, create a daily risk ledger:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-daily-risk-clear --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --paper-risk-dir data\reports\paper_risk --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --profile-config data\reports\paper_risk\balanced_stable_micro.ini --output-dir data\reports\paper_daily_risk --reason "Clear stale paper drawdown halt after manual review and micro clearance"
+```
+
+This ledger does not delete or rewrite evidence. It only records that halts before the latest micro clearance were reviewed for `BALANCED_STABLE_MICRO`. A halt after the ledger or after the micro clearance still blocks.
+
+## Paper PnL Root-Cause Audit
+
+When `paper-risk-status` reports `PAPER_DRAWDOWN_HALT_BLOCK` after a valid micro clearance, first run `scripts\paper_pnl_audit.ps1`, then `scripts\paper_risk_recommendation.ps1`. Do not delete logs, reset PnL, or issue another clearance until the recommendation is reviewed.
+
+Recommended actions:
+- `FIX_PAPER_PNL_SCALING`: repair sign/point/pip/contract scaling before any new clearance.
+- `REDUCE_MICRO_RISK_FURTHER`: the micro profile still produced a valid halt; keep blocked or create a stricter research-only profile.
+- `READY_FOR_NEW_MICRO_CLEARANCE`: only applicable when the root cause is a reviewed daily-window/history leak.
+- `KEEP_BLOCKED`: evidence is inconclusive.
+
+All commands are offline/read-only except report generation and keep `execution_attempted=false`.
+
+## Paper PnL Scaling Check
+
+After the FASE 41 fix, use `scripts\paper_pnl_scaling_check.ps1` to confirm `PAPER_RISK_MULTIPLIER=0.1` is present and the current engine is ready. Use `scripts\paper_risk_post_fix_gate.ps1` before any new micro clearance. A clearance is not acceptable when the scaling status is `PAPER_PNL_SCALING_NOT_FIXED` or `PAPER_PNL_SCALING_CONFIG_MISSING`.
+
+`raw_pnl` is audit-only. `scaled_paper_pnl` is the basis for paper drawdown and paper risk blocks. This does not authorize demo/live trading.

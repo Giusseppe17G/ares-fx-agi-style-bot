@@ -98,6 +98,7 @@ class BotConfig:
     paper_risk_multiplier: float = 1.0
     risk_profile_used: str = ""
     paper_risk_clearance: str = ""
+    paper_daily_risk_ledger: str = ""
 
     def validate_safety(self) -> None:
         """Raise ValueError when config weakens mandatory safety defaults."""
@@ -205,6 +206,7 @@ def load_config(path: str | Path | None = None) -> BotConfig:
         paper_risk_multiplier=float(values.get("PAPER_RISK_MULTIPLIER", 1.0)),
         risk_profile_used=str(values.get("RISK_PROFILE_USED", "")),
         paper_risk_clearance=str(values.get("PAPER_RISK_CLEARANCE", "")),
+        paper_daily_risk_ledger=str(values.get("PAPER_DAILY_RISK_LEDGER", "")),
     )
     cfg.validate_safety()
     return cfg

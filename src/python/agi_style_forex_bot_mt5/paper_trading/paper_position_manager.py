@@ -10,6 +10,7 @@ from agi_style_forex_bot_mt5.contracts import MarketSnapshot, TradeSignal, RiskD
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 
 from .paper_fill_model import PaperFillModel
+from .paper_pnl_engine import calculate_scaled_paper_pnl
 from .paper_trade import PaperTrade
 
 
@@ -25,6 +26,7 @@ class PaperPositionManager:
         trailing_start_r: float = 0.8,
         trailing_distance_r: float = 0.5,
         time_stop_seconds: int | None = None,
+        profile_config: str | None = None,
     ) -> None:
         self.database = database
         self.fill_model = fill_model or PaperFillModel()
@@ -32,6 +34,7 @@ class PaperPositionManager:
         self.trailing_start_r = trailing_start_r
         self.trailing_distance_r = trailing_distance_r
         self.time_stop_seconds = time_stop_seconds
+        self.profile_config = profile_config
 
     def load_open_trades(self) -> tuple[PaperTrade, ...]:
         trades = []
@@ -146,7 +149,13 @@ class PaperPositionManager:
         if not exit_result.accepted or exit_result.fill_price is None:
             raise ValueError(f"paper exit fill rejected: {exit_result.reject_reason or exit_result.reject_code}")
         exit_price = exit_result.fill_price
-        profit = self._profit(trade, exit_price, snapshot)
+        raw_profit = self._profit(trade, exit_price, snapshot)
+        pnl = calculate_scaled_paper_pnl(
+            {**trade.to_dict(), "exit_price": exit_price, "tick_size": snapshot.tick_size, "tick_value": snapshot.tick_value},
+            profile_config=self.profile_config,
+            symbol_contract={"tick_size": snapshot.tick_size, "tick_value": snapshot.tick_value, "point": snapshot.point},
+        )
+        profit = float(pnl["scaled_paper_pnl"])
         planned_risk = max(trade.risk_amount, abs(trade.entry_price - trade.sl_price) / snapshot.point * trade.lot)
         r_multiple = profit / planned_risk if planned_risk > 0 else 0.0
         closed = trade.replace(
@@ -155,11 +164,26 @@ class PaperPositionManager:
             exit_price=round(exit_price, snapshot.digits),
             exit_reason=reason,
             profit=profit,
+            raw_pnl=raw_profit,
+            scaled_paper_pnl=profit,
+            paper_risk_multiplier=float(pnl["paper_risk_multiplier"]),
+            risk_multiplier=float(pnl["risk_multiplier"]),
+            pnl_formula_version=str(pnl["pnl_formula_version"]),
+            multiplier_applied=bool(pnl["multiplier_applied"]),
+            pnl_scaling_status=str(pnl["pnl_scaling_status"]),
             r_multiple=r_multiple,
             spread_at_exit=snapshot.spread_points,
             metadata={
                 **dict(trade.metadata),
                 "exit_fill": exit_result.to_dict(),
+                "raw_pnl": raw_profit,
+                "scaled_paper_pnl": profit,
+                "paper_risk_multiplier": float(pnl["paper_risk_multiplier"]),
+                "risk_multiplier": float(pnl["risk_multiplier"]),
+                "pnl_formula_version": str(pnl["pnl_formula_version"]),
+                "multiplier_applied": bool(pnl["multiplier_applied"]),
+                "pnl_scaling_status": str(pnl["pnl_scaling_status"]),
+                "pnl_warnings": list(pnl.get("warnings", [])),
                 "fill_quality": _worst_quality(str(trade.metadata.get("fill_quality", "GOOD")), exit_result.fill_quality),
             },
         )

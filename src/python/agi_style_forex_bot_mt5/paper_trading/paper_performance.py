@@ -9,6 +9,7 @@ import pandas as pd
 from agi_style_forex_bot_mt5.utils.safe_datetime import safe_parse_datetime
 
 from .paper_trade import PaperTrade
+from .paper_pnl_engine import pnl_basis, pnl_value
 
 
 def paper_metrics(trades: Iterable[PaperTrade | Mapping[str, Any]]) -> dict[str, Any]:
@@ -24,6 +25,11 @@ def paper_metrics(trades: Iterable[PaperTrade | Mapping[str, Any]]) -> dict[str,
             "average_r": 0.0,
             "max_drawdown_shadow": 0.0,
             "daily_drawdown_shadow": 0.0,
+            "raw_drawdown_shadow": 0.0,
+            "scaled_drawdown_shadow": 0.0,
+            "drawdown_basis": "SCALED_PAPER_PNL",
+            "legacy_unscaled_trade_count": 0,
+            "scaled_trade_count": 0,
             "max_consecutive_losses": 0,
             "average_duration": None,
             "duration_parse_status": "NO_VALID_DURATIONS",
@@ -34,7 +40,7 @@ def paper_metrics(trades: Iterable[PaperTrade | Mapping[str, Any]]) -> dict[str,
         }
     frame = pd.DataFrame(rows)
     closed = frame[frame["status"] == "CLOSED"].copy()
-    profits = closed["profit"].astype(float) if not closed.empty else pd.Series(dtype=float)
+    profits = closed.apply(lambda row: pnl_value(row.to_dict()), axis=1).astype(float) if not closed.empty else pd.Series(dtype=float)
     wins = profits[profits > 0]
     losses = profits[profits < 0]
     gross_loss = abs(float(losses.sum())) if len(losses) else 0.0
@@ -51,13 +57,18 @@ def paper_metrics(trades: Iterable[PaperTrade | Mapping[str, Any]]) -> dict[str,
         "average_r": float(r_values.mean()) if len(r_values) else 0.0,
         "max_drawdown_shadow": _drawdown(profits),
         "daily_drawdown_shadow": _drawdown(profits),
+        "raw_drawdown_shadow": _drawdown(closed["raw_pnl"].astype(float)) if "raw_pnl" in closed and len(closed) else _drawdown(profits),
+        "scaled_drawdown_shadow": _drawdown(profits),
+        "drawdown_basis": "SCALED_PAPER_PNL",
+        "legacy_unscaled_trade_count": sum(1 for row in rows if pnl_basis(row) == "LEGACY_UNSCALED_PNL"),
+        "scaled_trade_count": sum(1 for row in rows if pnl_basis(row) == "SCALED_PAPER_PNL"),
         "max_consecutive_losses": _max_loss_run(profits),
         "average_duration": duration["average_duration"],
         "duration_parse_status": duration["duration_parse_status"],
         "invalid_timestamp_count": duration["invalid_timestamp_count"],
         "invalid_timestamp_examples": duration["invalid_timestamp_examples"],
-        "average_mae": float(closed["mae"].astype(float).mean()) if len(closed) else 0.0,
-        "average_mfe": float(closed["mfe"].astype(float).mean()) if len(closed) else 0.0,
+        "average_mae": float(closed["mae"].astype(float).mean()) if len(closed) and "mae" in closed else 0.0,
+        "average_mfe": float(closed["mfe"].astype(float).mean()) if len(closed) and "mfe" in closed else 0.0,
     }
 
 
@@ -74,7 +85,7 @@ def group_metrics(trades: Iterable[PaperTrade | Mapping[str, Any]], field: str) 
             {
                 field: value,
                 "trades": len(group),
-                "profit": float(group["profit"].astype(float).sum()),
+                "profit": float(sum(pnl_value(row) for row in group.to_dict(orient="records"))),
                 "expectancy_r": float(group["r_multiple"].astype(float).mean()) if "r_multiple" in group else 0.0,
             }
         )
@@ -85,7 +96,7 @@ def _drawdown(profits: pd.Series) -> float:
     if len(profits) == 0:
         return 0.0
     equity = profits.cumsum()
-    running = equity.cummax()
+    running = equity.cummax().clip(lower=0.0)
     return float((equity - running).min())
 
 

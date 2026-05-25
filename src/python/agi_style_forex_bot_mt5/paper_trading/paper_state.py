@@ -14,6 +14,7 @@ from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 from agi_style_forex_bot_mt5.utils.safe_datetime import safe_parse_datetime
 
 from .paper_performance import paper_metrics
+from .paper_pnl_engine import pnl_value
 
 
 def build_paper_open_trades_report(*, database: TelemetryDatabase, output_dir: str | Path) -> dict[str, Any]:
@@ -47,6 +48,11 @@ def build_paper_state_report(*, database: TelemetryDatabase, log_dir: str | Path
         "paper_trades_open": int(metrics.get("open_trades", 0) or 0),
         "paper_trades_closed_today": _closed_today(trades),
         "paper_drawdown": metrics.get("daily_drawdown_shadow", 0.0),
+        "raw_drawdown": metrics.get("raw_drawdown_shadow", metrics.get("daily_drawdown_shadow", 0.0)),
+        "scaled_drawdown": metrics.get("scaled_drawdown_shadow", metrics.get("daily_drawdown_shadow", 0.0)),
+        "drawdown_basis": metrics.get("drawdown_basis", "SCALED_PAPER_PNL"),
+        "legacy_unscaled_trade_count": metrics.get("legacy_unscaled_trade_count", 0),
+        "scaled_trade_count": metrics.get("scaled_trade_count", 0),
         "daily_drawdown_limit": -3.0,
         "paper_shadow_paused": bool(state.get("shadow_paused", False)),
         "halt_reason": halt_reason,
@@ -127,7 +133,10 @@ def _open_trade_row(trade: Mapping[str, Any]) -> dict[str, Any]:
         "opened_at": trade.get("entry_time_utc"),
         "entry_price": trade.get("entry_price"),
         "current_price": trade.get("exit_price") or trade.get("entry_price"),
-        "unrealized_pnl": trade.get("profit", 0.0),
+        "unrealized_pnl": pnl_value(trade),
+        "raw_pnl": trade.get("raw_pnl", trade.get("profit", 0.0)),
+        "scaled_paper_pnl": pnl_value(trade),
+        "pnl_scaling_status": trade.get("pnl_scaling_status", "LEGACY_UNSCALED_PNL"),
         "age_seconds": age,
         "stop_loss": trade.get("sl_price"),
         "take_profit": trade.get("tp_price"),

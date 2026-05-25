@@ -197,6 +197,27 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 40 Paper Daily Risk State Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully.
+
+Integrated in Phase 40:
+
+- Added `paper_daily_risk_state` package with operational day helpers, halt classification, daily risk ledger, micro daily drawdown guard and reports.
+- Added CLI modes `paper-daily-risk-audit` and `paper-daily-risk-clear`.
+- Added `--daily-risk-ledger` to `paper-risk-status` and `forward-shadow`.
+- `BALANCED_STABLE_MICRO` now needs both manual paper risk clearance and daily risk ledger when stale drawdown halts exist.
+- Halts before clearance can be reviewed without deleting evidence; halts after clearance remain blocking.
+- Forward evidence, operator dashboard and daily report expose daily paper risk state.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 39C Paper Risk Clearance Matching Update
 
 Status: PASS. Verification: `py -m pytest -q` completed successfully.
@@ -1395,3 +1416,10 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## FASE 40B QA Notes
+
+Added `paper-pnl-audit` and `paper-risk-recommendation` to inspect new BALANCED_STABLE_MICRO drawdown halts. The flow recalculates paper PnL approximations, audits symbol contract assumptions, checks risk/micro multipliers, and classifies drawdown trigger causes without calling MT5 order functions.
+
+## FASE 41 QA Notes
+
+Implemented `paper_pnl_engine` and connected it to paper trade close, paper performance metrics, paper state, paper risk, daily risk and forward evidence. Added `paper-pnl-scaling-check` and `paper-risk-post-fix-gate`; both are offline/report-only and keep execution disabled.

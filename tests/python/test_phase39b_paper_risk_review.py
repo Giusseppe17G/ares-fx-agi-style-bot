@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from agi_style_forex_bot_mt5 import cli
+from agi_style_forex_bot_mt5.paper_daily_risk_state import run_paper_daily_risk_clear
 from agi_style_forex_bot_mt5.paper_risk_calibration import run_paper_risk_status
 from agi_style_forex_bot_mt5.paper_risk_review import normalize_profile_name, run_paper_risk_clearance, run_paper_risk_clearance_check, run_paper_risk_review, validate_micro_resume_clearance
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
@@ -160,8 +161,21 @@ def test_paper_risk_status_allows_micro_only_with_valid_clearance(tmp_path: Path
     db, reports, paper_risk, _ = _ready_context(tmp_path)
     try:
         granted = run_paper_risk_clearance(database=db, reason="reviewed", reports_root=reports, paper_risk_dir=paper_risk, output_dir=tmp_path / "review")
-        status = run_paper_risk_status(database=db, profile_config=paper_risk / "balanced_stable_micro.ini", clearance_ledger=granted["ledger_path"], reports_root=reports, paper_risk_dir=paper_risk, output_dir=tmp_path / "risk")
+        blocked = run_paper_risk_status(database=db, profile_config=paper_risk / "balanced_stable_micro.ini", clearance_ledger=granted["ledger_path"], reports_root=reports, paper_risk_dir=paper_risk, output_dir=tmp_path / "risk_blocked")
+        assert blocked["paper_risk_status"] == "PAPER_RISK_BLOCKED"
+        assert blocked["paper_daily_risk_status"] == "PAPER_DAILY_RISK_LEDGER_REQUIRED"
+        daily = run_paper_daily_risk_clear(
+            database=db,
+            reason="Clear stale halt after review",
+            reports_root=reports,
+            paper_risk_dir=paper_risk,
+            clearance_ledger=granted["ledger_path"],
+            profile_config=paper_risk / "balanced_stable_micro.ini",
+            output_dir=tmp_path / "daily",
+        )
+        status = run_paper_risk_status(database=db, profile_config=paper_risk / "balanced_stable_micro.ini", clearance_ledger=granted["ledger_path"], daily_risk_ledger=daily["ledger_path"], reports_root=reports, paper_risk_dir=paper_risk, output_dir=tmp_path / "risk")
         assert status["paper_risk_status"] == "PAPER_RISK_CLEAR_FOR_MICRO_SHADOW"
+        assert status["daily_drawdown_status"] == "CLEARED_STALE_HALT"
         assert status["can_open_new_paper_trade"] is True
         normal = run_paper_risk_status(database=db, profile_config=paper_risk / "balanced_stable_micro.ini", clearance_ledger=granted["ledger_path"], profile_name="BALANCED_STABLE", reports_root=reports, paper_risk_dir=paper_risk, output_dir=tmp_path / "risk2")
         assert normal["can_open_new_paper_trade"] is False
@@ -228,6 +242,15 @@ def test_paper_risk_status_infers_micro_from_config_when_cli_profile_default(tmp
     db, reports, paper_risk, _ = _ready_context(tmp_path)
     try:
         granted = run_paper_risk_clearance(database=db, reason="reviewed", reports_root=reports, paper_risk_dir=paper_risk, output_dir=tmp_path / "review")
+        daily = run_paper_daily_risk_clear(
+            database=db,
+            reason="Clear stale halt after review",
+            reports_root=reports,
+            paper_risk_dir=paper_risk,
+            clearance_ledger=granted["ledger_path"],
+            profile_config=paper_risk / "balanced_stable_micro.ini",
+            output_dir=tmp_path / "daily",
+        )
         assert (
             cli.main(
                 [
@@ -239,6 +262,8 @@ def test_paper_risk_status_infers_micro_from_config_when_cli_profile_default(tmp
                     str(paper_risk / "balanced_stable_micro.ini"),
                     "--clearance-ledger",
                     str(granted["ledger_path"]),
+                    "--daily-risk-ledger",
+                    str(daily["ledger_path"]),
                     "--reports-root",
                     str(reports),
                     "--paper-risk-dir",
@@ -292,6 +317,15 @@ def test_forward_shadow_micro_fails_without_or_stale_clearance(tmp_path: Path, c
 def test_forward_shadow_micro_accepts_valid_clearance_without_live_run(tmp_path: Path, capsys, monkeypatch) -> None:
     db, reports, paper_risk, _ = _ready_context(tmp_path)
     granted = run_paper_risk_clearance(database=db, reason="reviewed", reports_root=reports, paper_risk_dir=paper_risk, output_dir=tmp_path / "review")
+    daily = run_paper_daily_risk_clear(
+        database=db,
+        reason="Clear stale halt after review",
+        reports_root=reports,
+        paper_risk_dir=paper_risk,
+        clearance_ledger=granted["ledger_path"],
+        profile_config=paper_risk / "balanced_stable_micro.ini",
+        output_dir=tmp_path / "daily",
+    )
     db.close()
 
     class FakeForwardShadowBot:
@@ -328,6 +362,8 @@ def test_forward_shadow_micro_accepts_valid_clearance_without_live_run(tmp_path:
                 str(reports / "stable_gate" / "stable_gate_summary.json"),
                 "--paper-risk-clearance",
                 str(granted["ledger_path"]),
+                "--daily-risk-ledger",
+                str(daily["ledger_path"]),
                 "--paper-risk-dir",
                 str(paper_risk),
                 "--reports-root",

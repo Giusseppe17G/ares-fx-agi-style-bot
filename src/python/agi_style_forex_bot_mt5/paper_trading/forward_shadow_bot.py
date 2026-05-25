@@ -17,6 +17,7 @@ from agi_style_forex_bot_mt5.ml import MLFilter
 from agi_style_forex_bot_mt5.ml.prediction_audit import audit_ml_prediction
 from agi_style_forex_bot_mt5.observability import AlertRuleEngine, DailySummary, HeartbeatWriter, MetricsCollector
 from agi_style_forex_bot_mt5.paper_risk_calibration import evaluate_paper_trade_limits
+from agi_style_forex_bot_mt5.paper_daily_risk_state import validate_micro_daily_risk
 from agi_style_forex_bot_mt5.paper_risk_review import validate_micro_resume_clearance
 from agi_style_forex_bot_mt5.portfolio import DynamicRiskAllocator, PortfolioGuard, SignalRanker
 from agi_style_forex_bot_mt5.persistence import RecoveryManager
@@ -26,6 +27,7 @@ from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabas
 from agi_style_forex_bot_mt5.telegram_command_center import TelegramCommandCenter
 
 from .paper_fill_model import PaperFillModel
+from .paper_pnl_engine import extract_paper_risk_multiplier
 from .paper_position_manager import PaperPositionManager
 from .paper_report import write_forward_shadow_report
 
@@ -86,7 +88,7 @@ class ForwardShadowBot:
         self.stable_gate_decision = stable_gate_decision
         self.run_id = f"forward_{uuid4().hex}"
         self.connector: MT5Connector | None = None
-        self.manager = PaperPositionManager(database=database, fill_model=PaperFillModel(max_spread_points=self.config.max_spread_points_default))
+        self.manager = PaperPositionManager(database=database, fill_model=PaperFillModel(max_spread_points=self.config.max_spread_points_default), profile_config=self.config.profile_config or None)
         self.heartbeat = HeartbeatWriter(database)
         self.alerts = AlertRuleEngine(database)
         self.metrics = MetricsCollector(database)
@@ -129,6 +131,12 @@ class ForwardShadowBot:
                 notify=True,
             )
             return self._summary(True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, exit_reason="CONFIG_ERROR", halt_reason="ACCOUNT_REAL_DETECTED_READ_ONLY")
+        if self.config.signal_profile == "BALANCED_STABLE_MICRO":
+            multiplier = extract_paper_risk_multiplier(self.config.profile_config or None)
+            if multiplier is None:
+                self._audit("PAPER_PNL_SCALING_CONFIG_MISSING", Severity.CRITICAL, {"signal_profile_used": self.config.signal_profile, "profile_config": self.config.profile_config, "execution_attempted": False}, notify=True)
+                return self._summary(True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, exit_reason="PAPER_PNL_SCALING_CONFIG_MISSING", halt_reason="PAPER_PNL_SCALING_CONFIG_MISSING")
+            self._audit("PAPER_PNL_SCALING_ACTIVE", Severity.INFO, {"paper_risk_multiplier": multiplier, "pnl_formula_version": "paper_pnl_scaled_v1", "execution_attempted": False}, notify=True)
         try:
             while self.max_cycles is None or cycles < self.max_cycles:
                 commands_processed += self.command_center.poll_and_process() if self.telegram_notifier is not None else 0
@@ -141,9 +149,12 @@ class ForwardShadowBot:
                         closed += 1
                         self._audit("PAPER_TRADE_CLOSED", Severity.INFO, updated.to_dict(), symbol=updated.symbol, notify=True)
                 shadow_paused = self.database.get_shadow_paused()
-                if shadow_paused:
+                stale_pause_cleared = self._stale_shadow_pause_cleared() if shadow_paused else False
+                if shadow_paused and not stale_pause_cleared:
                     self._audit("SHADOW_PAUSED", Severity.INFO, {"reason": self.database.get_operational_state().get("paused_reason", ""), "execution_attempted": False})
                 else:
+                    if shadow_paused and stale_pause_cleared:
+                        self._audit("PAPER_DAILY_RISK_LEDGER_ACCEPTED", Severity.INFO, {"reason": "stale drawdown halt reviewed for micro paper/shadow", "execution_attempted": False})
                     opened += self._scan_new_paper_trades(account)
                 after_open = len(self.manager.load_open_trades())
                 cycles += 1
@@ -156,7 +167,7 @@ class ForwardShadowBot:
                         "open_paper_trades": after_open,
                         "closed_paper_trades_today": closed,
                         "last_error": "",
-                        "shadow_paused": shadow_paused,
+                        "shadow_paused": shadow_paused and not stale_pause_cleared,
                         "signal_profile_used": self.config.signal_profile,
                         "stable_gate_confirmed": self.stable_gate_confirmed,
                         "stable_gate_decision": self.stable_gate_decision,
@@ -601,10 +612,17 @@ class ForwardShadowBot:
                 profile=self.config.signal_profile,
                 profile_config=self.config.profile_config or None,
             )
-            if clearance.get("accepted"):
+            daily = validate_micro_daily_risk(
+                database=self.database,
+                clearance_ledger=getattr(self.config, "paper_risk_clearance", ""),
+                daily_risk_ledger=getattr(self.config, "paper_daily_risk_ledger", ""),
+                profile_config=self.config.profile_config or None,
+            )
+            if clearance.get("accepted") and daily.get("accepted"):
                 status.update(
                     {
                         "paper_risk_status": "PAPER_RISK_CLEAR_FOR_MICRO_SHADOW",
+                        "daily_drawdown_status": "CLEARED_STALE_HALT",
                         "can_open_new_paper_trade": True,
                         "blocking_reason": "",
                         "manual_review_required": False,
@@ -612,9 +630,27 @@ class ForwardShadowBot:
                         "paper_risk_clearance_status": clearance.get("paper_risk_clearance_status"),
                         "paper_risk_clearance_id": clearance.get("paper_risk_clearance_id"),
                         "paper_risk_profile": "BALANCED_STABLE_MICRO",
+                        "paper_daily_risk_status": daily.get("paper_daily_risk_status"),
+                        "daily_risk_ledger_status": daily.get("daily_risk_ledger_status"),
                     }
                 )
+            else:
+                status["paper_daily_risk_status"] = daily.get("paper_daily_risk_status", "")
+                status["daily_risk_ledger_status"] = daily.get("daily_risk_ledger_status", "")
         return status
+
+    def _stale_shadow_pause_cleared(self) -> bool:
+        if self.config.signal_profile != "BALANCED_STABLE_MICRO":
+            return False
+        if not getattr(self.config, "paper_daily_risk_ledger", ""):
+            return False
+        daily = validate_micro_daily_risk(
+            database=self.database,
+            clearance_ledger=getattr(self.config, "paper_risk_clearance", ""),
+            daily_risk_ledger=getattr(self.config, "paper_daily_risk_ledger", ""),
+            profile_config=self.config.profile_config or None,
+        )
+        return bool(daily.get("accepted"))
 
     def _forward_candidate_payload(self, symbol: str, strategy_signal: Any, features: Mapping[str, Any]) -> dict[str, Any]:
         effective = effective_profile_config(self.config.signal_profile, source="forward-shadow", profile_config=self.config.profile_config or None)

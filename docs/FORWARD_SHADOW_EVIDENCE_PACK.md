@@ -154,3 +154,24 @@ Forward evidence and operator reports include manual clearance fields when prese
 - `clearance_stale`
 
 The clearance ledger lives at `data\reports\paper_risk_review\paper_risk_clearance_ledger.json`. It is valid only if it was created after the latest paper drawdown halt and only for `BALANCED_STABLE_MICRO` paper/shadow. A stale or missing ledger must block micro forward-shadow before MT5 runtime begins.
+
+## Daily Paper Risk Evidence
+
+Phase 40 adds daily paper risk fields to forward evidence:
+
+- `paper_daily_risk_status`
+- `active_today_halt_count`
+- `stale_halt_count`
+- `daily_risk_ledger_status`
+- `can_resume_micro_shadow`
+
+Historical `PAPER_DAILY_DRAWDOWN_HALT` evidence remains visible. It stops blocking `BALANCED_STABLE_MICRO` only when the profile clearance ledger and daily paper risk ledger are both valid and no newer halt exists.
+
+## Paper PnL Audit Evidence
+
+The evidence pack now surfaces `paper_pnl_audit_status`, `micro_risk_application_status`, `drawdown_root_cause`, and `paper_risk_recommendation` when `data
+eports\paper_pnl_audit\paper_pnl_audit_summary.json` exists. Historical evidence is preserved; the audit writes derived reports only.
+
+## Scaled Paper PnL Evidence
+
+Forward evidence and paper state reports now include scaled drawdown context where available: `raw_drawdown`, `scaled_drawdown`, `drawdown_basis`, `legacy_unscaled_trade_count`, and `scaled_trade_count`. Acceptance should treat current micro risk using `scaled_paper_pnl`, while historical legacy rows remain quarantinable evidence rather than active risk state.

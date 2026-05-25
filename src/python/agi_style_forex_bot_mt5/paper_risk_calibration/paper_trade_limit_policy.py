@@ -127,11 +127,13 @@ def _blocked(result: dict[str, Any], reason: str) -> dict[str, Any]:
 
 
 def _latest_closed_loss(trades: list[Mapping[str, Any]]) -> datetime | None:
+    from agi_style_forex_bot_mt5.paper_trading.paper_pnl_engine import pnl_value
+
     latest: datetime | None = None
     for trade in trades:
         if str(trade.get("status", "")).upper() != "CLOSED":
             continue
-        if float(trade.get("profit") or trade.get("r_multiple") or 0.0) >= 0:
+        if pnl_value(trade) >= 0:
             continue
         parsed = safe_parse_datetime(trade.get("exit_time_utc") or trade.get("closed_at_utc"), field_name="exit_time_utc", source="paper_risk")
         if parsed.value is not None and (latest is None or parsed.value > latest):

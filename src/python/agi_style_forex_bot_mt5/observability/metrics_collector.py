@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from agi_style_forex_bot_mt5.persistence import validate_event_integrity
+from agi_style_forex_bot_mt5.paper_trading.paper_pnl_engine import pnl_value
 from agi_style_forex_bot_mt5.portfolio import build_portfolio_state
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 
@@ -121,14 +122,14 @@ def _paper_metrics(trades: list[dict[str, Any]]) -> dict[str, float | int]:
     closed = [trade for trade in trades if trade.get("status") == "CLOSED"]
     wins = [trade for trade in closed if float(trade.get("r_multiple") or 0.0) > 0]
     losses = [trade for trade in closed if float(trade.get("r_multiple") or 0.0) < 0]
-    gross_profit = sum(float(trade.get("profit") or 0.0) for trade in closed if float(trade.get("profit") or 0.0) > 0)
-    gross_loss = abs(sum(float(trade.get("profit") or 0.0) for trade in closed if float(trade.get("profit") or 0.0) < 0))
+    gross_profit = sum(pnl_value(trade) for trade in closed if pnl_value(trade) > 0)
+    gross_loss = abs(sum(pnl_value(trade) for trade in closed if pnl_value(trade) < 0))
     r_values = [float(trade.get("r_multiple") or 0.0) for trade in closed]
     equity = 0.0
     peak = 0.0
     max_dd = 0.0
     for trade in closed:
-        equity += float(trade.get("profit") or 0.0)
+        equity += pnl_value(trade)
         peak = max(peak, equity)
         max_dd = min(max_dd, equity - peak)
     return {

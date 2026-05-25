@@ -18,6 +18,8 @@ def analyze_paper_drawdown(
 ) -> dict[str, Any]:
     """Compute paper risk history without altering SQLite or logs."""
 
+    from agi_style_forex_bot_mt5.paper_trading.paper_pnl_engine import pnl_basis, pnl_value
+
     trades = [_payload(row) for row in database.fetch_paper_trades()]
     metrics = _paper_metrics(trades)
     alerts = [_payload(row) for row in database.fetch_all("alerts")]
@@ -31,14 +33,14 @@ def analyze_paper_drawdown(
     ]
     closed = [trade for trade in trades if str(trade.get("status", "")).upper() == "CLOSED"]
     open_trades = [trade for trade in trades if str(trade.get("status", "")).upper() == "OPEN"]
-    losses = [trade for trade in closed if float(trade.get("profit") or 0.0) < 0]
+    losses = [trade for trade in closed if pnl_value(trade) < 0]
     by_symbol: defaultdict[str, float] = defaultdict(float)
     by_strategy: defaultdict[str, float] = defaultdict(float)
     for trade in losses:
-        by_symbol[str(trade.get("symbol") or "UNKNOWN").upper()] += float(trade.get("profit") or 0.0)
-        by_strategy[str(trade.get("strategy_name") or "UNKNOWN")] += float(trade.get("profit") or 0.0)
-    worst_pnl = min((float(trade.get("profit") or 0.0) for trade in closed), default=0.0)
-    average_pnl = sum(float(trade.get("profit") or 0.0) for trade in closed) / len(closed) if closed else 0.0
+        by_symbol[str(trade.get("symbol") or "UNKNOWN").upper()] += pnl_value(trade)
+        by_strategy[str(trade.get("strategy_name") or "UNKNOWN")] += pnl_value(trade)
+    worst_pnl = min((pnl_value(trade) for trade in closed), default=0.0)
+    average_pnl = sum(pnl_value(trade) for trade in closed) / len(closed) if closed else 0.0
     daily_limit = float(paper_state.get("daily_drawdown_limit", -3.0) or -3.0)
     one_trade_can_breach = bool(drawdown_events and worst_pnl <= daily_limit)
     classification = _classification(trades, drawdown_events, one_trade_can_breach)
@@ -56,6 +58,9 @@ def analyze_paper_drawdown(
         "average_paper_pnl": average_pnl,
         "worst_paper_pnl": worst_pnl,
         "risk_per_trade_approximation": max((abs(float(trade.get("r_multiple") or 0.0)) for trade in closed), default=0.0),
+        "legacy_unscaled_trade_count": sum(1 for trade in trades if pnl_basis(trade) == "LEGACY_UNSCALED_PNL"),
+        "scaled_trade_count": sum(1 for trade in trades if pnl_basis(trade) == "SCALED_PAPER_PNL"),
+        "drawdown_basis": "SCALED_PAPER_PNL",
         "one_trade_can_breach_daily_drawdown": one_trade_can_breach,
         "paper_daily_halt_frequency": len(drawdown_events),
         "recommended_safer_profile": "BALANCED_STABLE_MICRO" if classification != "PAPER_RISK_OK" else "",
@@ -80,13 +85,15 @@ def _classification(trades: list[Mapping[str, Any]], drawdown_events: list[Mappi
 
 
 def _paper_metrics(trades: list[Mapping[str, Any]]) -> dict[str, float]:
+    from agi_style_forex_bot_mt5.paper_trading.paper_pnl_engine import pnl_value
+
     equity = 0.0
     peak = 0.0
     max_drawdown = 0.0
     for trade in trades:
         if str(trade.get("status", "")).upper() != "CLOSED":
             continue
-        equity += float(trade.get("profit") or 0.0)
+        equity += pnl_value(trade)
         peak = max(peak, equity)
         max_drawdown = min(max_drawdown, equity - peak)
     return {"max_drawdown_shadow": max_drawdown}

@@ -209,6 +209,20 @@ py -m agi_style_forex_bot_mt5.cli --mode paper-risk-clearance-check --profile BA
 
 The matcher normalizes `BALANCED_STABLE_MICRO`, `balanced_stable_micro`, and `Balanced Stable Micro` to the same canonical profile. If an older `balanced_stable_micro.ini` lacks an explicit profile key, the profile can be inferred from the config path and the report will include `PROFILE_INFERRED_FROM_CONFIG_PATH`. This clearance still applies only to `BALANCED_STABLE_MICRO`; `BALANCED_STABLE` remains blocked after a paper drawdown halt.
 
+## Daily Paper Risk State
+
+Phase 40 separates an active paper drawdown halt from a historical halt that was already reviewed. The original SQLite alerts, JSONL logs and reports are not deleted or rewritten. Instead, `paper-daily-risk-clear` creates `data\reports\paper_daily_risk\paper_daily_risk_ledger.json` after verifying zero open paper trades, valid micro clearance, no halt after that clearance, clean execution evidence and clear/quarantined telemetry.
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-daily-risk-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --paper-risk-dir data\reports\paper_risk --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --profile-config data\reports\paper_risk\balanced_stable_micro.ini --output-dir data\reports\paper_daily_risk
+
+py -m agi_style_forex_bot_mt5.cli --mode paper-daily-risk-clear --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --paper-risk-dir data\reports\paper_risk --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --profile-config data\reports\paper_risk\balanced_stable_micro.ini --output-dir data\reports\paper_daily_risk --reason "Clear stale paper drawdown halt after manual review and micro clearance"
+
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-status --sqlite data\sqlite\forward-shadow-stable.sqlite3 --profile-config data\reports\paper_risk\balanced_stable_micro.ini --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --daily-risk-ledger data\reports\paper_daily_risk\paper_daily_risk_ledger.json --reports-root data\reports --paper-risk-dir data\reports\paper_risk --output-dir data\reports\paper_risk
+```
+
+The expected clear state is `PAPER_RISK_CLEAR_FOR_MICRO_SHADOW` with `daily_drawdown_status=CLEARED_STALE_HALT`. If a new halt appears after the daily ledger, micro fails closed again.
+
 Forward-shadow also emits diagnostic events per evaluated candidate:
 
 - `FORWARD_CANDIDATE_EVALUATED`
@@ -217,3 +231,36 @@ Forward-shadow also emits diagnostic events per evaluated candidate:
 - `FORWARD_NO_SIGNAL_DIAGNOSTIC`
 
 These events are read-only and do not create paper trades unless the existing full shadow gates pass.
+
+## FASE 40B: Paper PnL Audit Before New Clearance
+
+If BALANCED_STABLE_MICRO creates a new `PAPER_DAILY_DRAWDOWN_HALT` after manual clearance, do not clear the halt again blindly. Run the offline PnL audit first:
+
+```powershell
+$env:PYTHONPATH="src/python"
+py -m agi_style_forex_bot_mt5.cli --mode paper-pnl-audit --sqlite data\sqliteorward-shadow-stable.sqlite3 --log-dir data\logsorward-shadow-stable --reports-root data
+eports --paper-risk-dir data
+eports\paper_risk --daily-risk-dir data
+eports\paper_daily_risk --profile-config data
+eports\paper_riskalanced_stable_micro.ini --output-dir data
+eports\paper_pnl_audit
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-recommendation --reports-root data
+eports --pnl-audit-dir data
+eports\paper_pnl_audit --output-dir data
+eports\paper_pnl_audit
+```
+
+The audit distinguishes formula/scale bugs (`PAPER_PNL_SCALING_BUG`, `MICRO_RISK_NOT_APPLIED`) from real micro losses (`VALID_MICRO_DRAWDOWN_HALT`) and daily-window leaks (`DRAWDOWN_HISTORY_LEAK`). A scaling bug or valid new micro drawdown keeps new clearance blocked.
+
+## FASE 41: Scaled Paper PnL
+
+BALANCED_STABLE_MICRO now uses a central paper PnL engine. New paper closes preserve `raw_pnl` for audit, write `scaled_paper_pnl`, and use the scaled value for paper drawdown, risk status, forward evidence and acceptance. The active drawdown basis is `SCALED_PAPER_PNL`.
+
+Before issuing a new micro clearance after a drawdown halt, run:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-pnl-scaling-check --sqlite data\sqliteorward-shadow-stable.sqlite3 --log-dir data\logsorward-shadow-stable --profile-config dataeports\paper_riskalanced_stable_micro.ini --output-dir dataeports\paper_pnl_audit
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-post-fix-gate --reports-root dataeports --output-dir dataeports\paper_pnl_audit
+```
+
+Legacy trades without `scaled_paper_pnl` are classified as `LEGACY_UNSCALED_PNL` and remain in evidence. They must not be mixed into the active micro drawdown window after ledger/clearance review.

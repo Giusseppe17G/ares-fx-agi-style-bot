@@ -34,6 +34,9 @@ def run_operator_dashboard(
     execution_evidence = _load_json(reports / "execution_evidence" / "execution_evidence_summary.json")
     telemetry_repair = _load_json(reports / "telemetry_repair" / "telemetry_timestamp_summary.json")
     paper_risk = _load_json(reports / "paper_risk" / "paper_risk_status.json") or _load_json(reports / "paper_risk" / "paper_risk_summary.json")
+    paper_pnl_audit = _load_json(reports / "paper_pnl_audit" / "paper_pnl_audit_summary.json")
+    paper_risk_recommendation = _load_json(reports / "paper_pnl_audit" / "paper_risk_recommendation.json")
+    daily_risk = _load_json(reports / "paper_daily_risk" / "paper_daily_risk_summary.json") or _load_json(reports / "paper_daily_risk" / "paper_daily_risk_clear_summary.json")
     clearance = _load_json(reports / "paper_risk_review" / "paper_risk_clearance_summary.json")
     diagnostics = _load_json(reports / "forward_diagnostics" / "signal_scarcity_summary.json")
     stable_gate = _load_json(reports / "stable_gate" / "stable_gate_summary.json")
@@ -75,6 +78,15 @@ def run_operator_dashboard(
         "paper_risk_clearance_id": clearance.get("clearance_id", evidence.get("paper_risk_clearance_id", "")),
         "cleared_for_profile": clearance.get("cleared_for_profile", evidence.get("cleared_for_profile", "")),
         "clearance_stale": bool(evidence.get("clearance_stale", False)),
+        "paper_daily_risk_status": daily_risk.get("paper_daily_risk_status", evidence.get("paper_daily_risk_status", "")),
+        "active_today_halt_count": daily_risk.get("active_today_halt_count", evidence.get("active_today_halt_count", 0)),
+        "stale_halt_count": daily_risk.get("stale_halt_count", evidence.get("stale_halt_count", 0)),
+        "daily_risk_ledger_status": daily_risk.get("daily_risk_ledger_status", evidence.get("daily_risk_ledger_status", "")),
+        "can_resume_micro_shadow": daily_risk.get("can_resume_micro_shadow", evidence.get("can_resume_micro_shadow", False)),
+        "paper_pnl_audit_status": paper_pnl_audit.get("paper_pnl_audit_status", evidence.get("paper_pnl_audit_status", "")),
+        "micro_risk_application_status": paper_pnl_audit.get("micro_risk_application_status", evidence.get("micro_risk_application_status", "")),
+        "drawdown_root_cause": paper_pnl_audit.get("root_cause", evidence.get("drawdown_root_cause", "")),
+        "paper_risk_recommendation": paper_risk_recommendation.get("recommendation", evidence.get("paper_risk_recommendation", "")),
         "critical_alerts_recent": _critical_alerts(health),
         "recommended_next_action": next_action,
         "log_dir": str(log_dir),
@@ -110,6 +122,9 @@ def run_daily_operator_report(
     evidence = _load_json(reports / "forward_evidence" / "evidence_summary.json")
     telemetry_repair = _load_json(reports / "telemetry_repair" / "telemetry_timestamp_summary.json")
     paper_risk = _load_json(reports / "paper_risk" / "paper_risk_status.json") or _load_json(reports / "paper_risk" / "paper_risk_summary.json")
+    paper_pnl_audit = _load_json(reports / "paper_pnl_audit" / "paper_pnl_audit_summary.json")
+    paper_risk_recommendation = _load_json(reports / "paper_pnl_audit" / "paper_risk_recommendation.json")
+    daily_risk = _load_json(reports / "paper_daily_risk" / "paper_daily_risk_summary.json") or _load_json(reports / "paper_daily_risk" / "paper_daily_risk_clear_summary.json")
     clearance = _load_json(reports / "paper_risk_review" / "paper_risk_clearance_summary.json")
     health = database.get_latest_health()
     top_blockers = diagnostics.get("top_blockers", [])
@@ -141,6 +156,15 @@ def run_daily_operator_report(
         "paper_risk_clearance_id": clearance.get("clearance_id", evidence.get("paper_risk_clearance_id", "")),
         "cleared_for_profile": clearance.get("cleared_for_profile", evidence.get("cleared_for_profile", "")),
         "clearance_stale": bool(evidence.get("clearance_stale", False)),
+        "paper_daily_risk_status": daily_risk.get("paper_daily_risk_status", evidence.get("paper_daily_risk_status", "")),
+        "active_today_halt_count": daily_risk.get("active_today_halt_count", evidence.get("active_today_halt_count", 0)),
+        "stale_halt_count": daily_risk.get("stale_halt_count", evidence.get("stale_halt_count", 0)),
+        "daily_risk_ledger_status": daily_risk.get("daily_risk_ledger_status", evidence.get("daily_risk_ledger_status", "")),
+        "can_resume_micro_shadow": daily_risk.get("can_resume_micro_shadow", evidence.get("can_resume_micro_shadow", False)),
+        "paper_pnl_audit_status": paper_pnl_audit.get("paper_pnl_audit_status", evidence.get("paper_pnl_audit_status", "")),
+        "micro_risk_application_status": paper_pnl_audit.get("micro_risk_application_status", evidence.get("micro_risk_application_status", "")),
+        "drawdown_root_cause": paper_pnl_audit.get("root_cause", evidence.get("drawdown_root_cause", "")),
+        "paper_risk_recommendation": paper_risk_recommendation.get("recommendation", evidence.get("paper_risk_recommendation", "")),
         "critical_alerts_recent": critical_alerts,
         "recommended_action": _daily_action(classification, state, paper),
         "commands_to_run_next": commands,
@@ -182,6 +206,8 @@ def _source_status(reports: Path) -> dict[str, dict[str, Any]]:
         "stable_gate": reports / "stable_gate" / "stable_gate_summary.json",
         "execution_evidence": reports / "execution_evidence" / "execution_evidence_summary.json",
         "telemetry_repair": reports / "telemetry_repair" / "telemetry_timestamp_summary.json",
+        "paper_daily_risk": reports / "paper_daily_risk" / "paper_daily_risk_summary.json",
+        "paper_pnl_audit": reports / "paper_pnl_audit" / "paper_pnl_audit_summary.json",
         "security_guardrails": reports / "ec2_deployment_pack" / "EC2_SECURITY_GUARDRAILS.md",
     }
     result: dict[str, dict[str, Any]] = {}
@@ -211,7 +237,7 @@ def _dashboard_checks(
 ) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
     for name, source in sources.items():
-        severity = "WARNING" if name in {"forward_evidence", "forward_diagnostics", "paper_state", "paper_risk"} else "FAIL"
+        severity = "PASS" if name in {"paper_daily_risk", "paper_pnl_audit"} else ("WARNING" if name in {"forward_evidence", "forward_diagnostics", "paper_state", "paper_risk"} else "FAIL")
         checks.append(
             {
                 "check_name": f"source_{name}",
@@ -346,6 +372,11 @@ def _dashboard_html(
             "paper_risk_clearance_id": summary.get("paper_risk_clearance_id"),
             "cleared_for_profile": summary.get("cleared_for_profile"),
             "clearance_stale": summary.get("clearance_stale"),
+            "paper_daily_risk_status": summary.get("paper_daily_risk_status"),
+            "active_today_halt_count": summary.get("active_today_halt_count"),
+            "stale_halt_count": summary.get("stale_halt_count"),
+            "daily_risk_ledger_status": summary.get("daily_risk_ledger_status"),
+            "can_resume_micro_shadow": summary.get("can_resume_micro_shadow"),
         },
         "Diagnostics": diagnostics or {"status": "MISSING"},
         "EC2 Readiness": {"ec2_readiness_status": summary.get("ec2_readiness_status"), "ec2_deployment_pack_status": summary.get("ec2_deployment_pack_status")},

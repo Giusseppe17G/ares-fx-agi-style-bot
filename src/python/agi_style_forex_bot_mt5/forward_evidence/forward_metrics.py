@@ -37,6 +37,11 @@ def calculate_forward_metrics(*, database: TelemetryDatabase, hours_observed: fl
         "classification": "FORWARD_SAMPLE_TOO_SMALL" if closed < 10 else "FORWARD_SAMPLE_USABLE",
         "paper_state_status": _paper_state_status(rows, metrics),
         "paper_drawdown_status": "PAPER_DAILY_DRAWDOWN" if float(metrics.get("daily_drawdown_shadow", 0.0) or 0.0) <= -3.0 else "OK",
+        "raw_drawdown": metrics.get("raw_drawdown_shadow", metrics.get("daily_drawdown_shadow", 0.0)),
+        "scaled_drawdown": metrics.get("scaled_drawdown_shadow", metrics.get("daily_drawdown_shadow", 0.0)),
+        "drawdown_basis": metrics.get("drawdown_basis", "SCALED_PAPER_PNL"),
+        "legacy_unscaled_trade_count": metrics.get("legacy_unscaled_trade_count", 0),
+        "scaled_trade_count": metrics.get("scaled_trade_count", 0),
         "duration_parse_status": metrics.get("duration_parse_status", "OK"),
         "invalid_timestamp_count": metrics.get("invalid_timestamp_count", 0),
         "invalid_timestamp_examples": metrics.get("invalid_timestamp_examples", []),
@@ -68,4 +73,4 @@ def _drawdown(values: pd.Series) -> float:
     if len(values) == 0:
         return 0.0
     equity = values.cumsum()
-    return float((equity - equity.cummax()).min())
+    return float((equity - equity.cummax().clip(lower=0.0)).min())
