@@ -19,6 +19,14 @@ Then run the operational gate:
 py -m agi_style_forex_bot_mt5.cli --mode forward-acceptance --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\forward_evidence
 ```
 
+If acceptance pauses because it detected possible execution evidence, run the execution evidence audit:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode execution-evidence-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\execution_evidence
+```
+
+`order_send_called=false`, `order_check_called=false`, and `execution_attempted=false` are safe boolean fields and do not count as execution attempts. Text like `order_send was not called`, documentation snippets, and command references are classified as false positives. Only true boolean fields, or ambiguous evidence that cannot be classified, block acceptance.
+
 Windows helpers:
 
 ```powershell
@@ -37,6 +45,14 @@ The pack writes:
 - `paper_trade_audit.json`
 - `operational_acceptance.json`
 - `report.html`
+
+The execution audit also writes:
+
+- `data\reports\execution_evidence\execution_evidence_summary.json`
+- `data\reports\execution_evidence\findings.csv`
+- `data\reports\execution_evidence\false_positive_mentions.csv`
+- `data\reports\execution_evidence\blocking_findings.csv`
+- `data\reports\execution_evidence\report.html`
 
 ## Decisions
 

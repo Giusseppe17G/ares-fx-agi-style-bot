@@ -19,6 +19,7 @@ def _prepare_reports(root: Path) -> None:
         "forward_evidence",
         "forward_diagnostics",
         "stable_gate",
+        "execution_evidence",
     ):
         (root / name).mkdir(parents=True, exist_ok=True)
     (root / "weekend_readiness" / "weekend_readiness_summary.json").write_text(json.dumps({"weekend_readiness_status": "WEEKEND_SAFE"}), encoding="utf-8")
@@ -31,6 +32,7 @@ def _prepare_reports(root: Path) -> None:
     (root / "forward_evidence" / "evidence_summary.json").write_text(json.dumps({"operational_acceptance": "NEEDS_MORE_FORWARD_DATA", "signals_detected": 0}), encoding="utf-8")
     (root / "forward_diagnostics" / "signal_scarcity_summary.json").write_text(json.dumps({"classification": "FORWARD_PIPELINE_OK_WAIT_FOR_SETUP", "top_blockers": [{"blocking_reason": "NO_SETUP_DETECTED", "count": 1}]}), encoding="utf-8")
     (root / "stable_gate" / "stable_gate_summary.json").write_text(json.dumps({"stable_gate_decision": "PAPER_SHADOW_READY"}), encoding="utf-8")
+    (root / "execution_evidence" / "execution_evidence_summary.json").write_text(json.dumps({"execution_evidence_status": "EXECUTION_EVIDENCE_FALSE_POSITIVE_ONLY"}), encoding="utf-8")
 
 
 def _clean_db(path: Path) -> TelemetryDatabase:

@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 import pandas as pd
 
+from agi_style_forex_bot_mt5.execution_evidence import run_execution_evidence_audit
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 
 from .drift_summary import summarize_forward_drift
@@ -43,9 +44,14 @@ def run_forward_evidence(
     diagnostics = _load_json(Path(reports_root) / "forward_diagnostics" / "signal_scarcity_summary.json")
     forward_research = _load_json(Path(reports_root) / "forward_research" / "candidate_replay_summary.json")
     blocker_sensitivity = _load_json(Path(reports_root) / "forward_research" / "blocker_sensitivity.json")
-    acceptance = decide_operational_acceptance(evidence=evidence, metrics=metrics, drift=drift, paper_audit=audit)
-    paths = _write_reports(output, evidence, metrics, drift, rejections, rejection_frame, audit, acceptance)
-    return {
+    execution_evidence = run_execution_evidence_audit(
+        sqlite_path=database.path,
+        log_dir=log_dir,
+        reports_root=reports_root,
+        output_dir=Path(reports_root) / "execution_evidence",
+    )
+    acceptance = decide_operational_acceptance(evidence=evidence, metrics=metrics, drift=drift, paper_audit=audit, execution_evidence=execution_evidence)
+    summary = {
         **evidence,
         "forward_metrics_classification": metrics.get("classification"),
         "drift_classification": drift.get("classification"),
@@ -54,6 +60,10 @@ def run_forward_evidence(
         "paper_state_status": metrics.get("paper_state_status"),
         "paper_drawdown_status": metrics.get("paper_drawdown_status"),
         "operational_halt_reason": acceptance.get("reason") if str(acceptance.get("decision", "")).startswith("PAUSE") else "",
+        "execution_evidence_status": execution_evidence.get("execution_evidence_status"),
+        "execution_false_positive_count": execution_evidence.get("execution_false_positive_count", 0),
+        "execution_blocking_findings_count": execution_evidence.get("blocking_findings_count", 0),
+        "execution_evidence_report_path": execution_evidence.get("execution_evidence_report_path", ""),
         "evidence_parse_status": evidence.get("evidence_parse_status", "OK"),
         "invalid_timestamp_count": evidence.get("invalid_timestamp_count", 0),
         "invalid_timestamp_fields": evidence.get("invalid_timestamp_fields", {}),
@@ -68,11 +78,12 @@ def run_forward_evidence(
         "top_research_blockers": forward_research.get("top_research_blockers", []),
         "research_variants_available": bool(blocker_sensitivity.get("variants_evaluated")),
         "recommended_research_action": _recommended_research_action(forward_research, blocker_sensitivity),
-        "reports_created": paths,
         "execution_attempted": False,
         "order_send_called": False,
         "order_check_called": False,
     }
+    paths = _write_reports(output, summary, metrics, drift, rejections, rejection_frame, audit, acceptance)
+    return {**summary, "reports_created": paths}
 
 
 def run_forward_acceptance(

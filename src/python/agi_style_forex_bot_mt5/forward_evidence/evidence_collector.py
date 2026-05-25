@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 from agi_style_forex_bot_mt5.utils.safe_datetime import safe_parse_datetime
+from agi_style_forex_bot_mt5.execution_evidence.order_call_scanner import scan_order_call_evidence, summarize_findings
 
 
 def collect_forward_evidence(
@@ -31,6 +32,22 @@ def collect_forward_evidence(
     stable_gate = _load_json(Path(reports_root) / "stable_gate" / "stable_gate_summary.json")
     symbols_seen = sorted({str(item.get("symbol")) for item in all_events if item.get("symbol")})
     execution_attempted = any(bool(_payload_dict(item).get("execution_attempted", False)) for item in all_events)
+    execution_findings = scan_order_call_evidence(
+        [
+            {
+                "source_type": "forward_evidence_collect",
+                "source": "events",
+                "row": str(index),
+                "payload": item,
+                "timestamp_utc": item.get("timestamp_utc"),
+                "event_type": item.get("event_type"),
+                "mode": item.get("mode"),
+                "raw_message": item.get("message", ""),
+            }
+            for index, item in enumerate(all_events)
+        ]
+    )
+    execution_summary = summarize_findings(execution_findings)
     event_types = [str(item.get("event_type", "")) for item in all_events]
     paper_opened = sum(1 for item in event_types if item == "PAPER_TRADE_OPENED")
     paper_closed = sum(1 for item in event_types if item == "PAPER_TRADE_CLOSED")
@@ -51,8 +68,8 @@ def collect_forward_evidence(
         "stable_gate_confirmed": stable_gate.get("stable_gate_decision") == "PAPER_SHADOW_READY",
         "paper_shadow_ready": stable_gate.get("paper_shadow_ready") is True,
         "execution_attempted": bool(execution_attempted),
-        "order_send_called": any("order_send" in json.dumps(item).lower() and "not called" not in json.dumps(item).lower() for item in all_events),
-        "order_check_called": any("order_check" in json.dumps(item).lower() and "not called" not in json.dumps(item).lower() for item in all_events),
+        "order_send_called": bool(execution_summary.get("real_order_send_detected", False)),
+        "order_check_called": bool(execution_summary.get("real_order_check_detected", False)),
         "evidence_parse_status": parse_diag["evidence_parse_status"],
         "invalid_timestamp_count": parse_diag["invalid_timestamp_count"],
         "invalid_timestamp_fields": parse_diag["invalid_timestamp_fields"],

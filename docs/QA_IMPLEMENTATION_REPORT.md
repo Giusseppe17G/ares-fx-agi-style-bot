@@ -32,6 +32,15 @@ Added `operator-dashboard` and `daily-operator-report` to consolidate readiness,
 
 Added read-only Telegram commands `/dashboard`, `/daily_report`, and `/next_action`. They do not start forward-shadow and never call MT5 order APIs. Safety remains `execution_attempted=false`, `DEMO_ONLY=True`, `LIVE_TRADING_APPROVED=False`, and no `order_send`/`order_check`.
 
+
+## FASE 37 - Execution Evidence False Positive Audit & Acceptance Gate Repair
+
+Added `execution-evidence-audit` with source loading from JSONL, forward evidence reports and SQLite. The scanner now distinguishes true execution booleans from safe false fields, text-only mentions, documentation/command references and unknown evidence requiring review.
+
+Forward evidence now uses the execution evidence audit and `forward-acceptance` no longer pauses solely because a JSON key like `order_send_called=false` appears in evidence. It still pauses on `order_send_called=true`, `order_check_called=true`, `execution_attempted=true`, or ambiguous findings. No logs or SQLite evidence are deleted.
+
+Safety remains unchanged: no demo/live execution, `execution_attempted=false`, `DEMO_ONLY=True`, `LIVE_TRADING_APPROVED=False`, and no `order_send`/`order_check` calls.
+
 ## Scope
 
 Role: QA / Integration Engineer.

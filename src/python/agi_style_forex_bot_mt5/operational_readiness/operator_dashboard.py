@@ -31,6 +31,7 @@ def run_operator_dashboard(
     sources = _source_status(reports)
     safety = _safety(config)
     evidence = _load_json(reports / "forward_evidence" / "evidence_summary.json")
+    execution_evidence = _load_json(reports / "execution_evidence" / "execution_evidence_summary.json")
     diagnostics = _load_json(reports / "forward_diagnostics" / "signal_scarcity_summary.json")
     stable_gate = _load_json(reports / "stable_gate" / "stable_gate_summary.json")
     health = database.get_latest_health()
@@ -54,6 +55,10 @@ def run_operator_dashboard(
         "forward_evidence_status": evidence.get("operational_acceptance") or evidence.get("classification") or _status_for_source(sources, "forward_evidence"),
         "forward_diagnostics_status": diagnostics.get("classification") or _status_for_source(sources, "forward_diagnostics"),
         "stable_gate_decision": stable_gate.get("stable_gate_decision") or stable_gate.get("classification") or _status_for_source(sources, "stable_gate"),
+        "execution_evidence_status": execution_evidence.get("execution_evidence_status") or _status_for_source(sources, "execution_evidence"),
+        "execution_guard_clear": str(execution_evidence.get("execution_evidence_status", "")) in {"EXECUTION_EVIDENCE_CLEAR", "EXECUTION_EVIDENCE_FALSE_POSITIVE_ONLY"},
+        "execution_guard_reason": execution_evidence.get("recommended_action", ""),
+        "execution_guard_blocking_source": _blocking_source(execution_evidence),
         "critical_alerts_recent": _critical_alerts(health),
         "recommended_next_action": next_action,
         "log_dir": str(log_dir),
@@ -144,6 +149,7 @@ def _source_status(reports: Path) -> dict[str, dict[str, Any]]:
         "forward_evidence": reports / "forward_evidence" / "evidence_summary.json",
         "forward_diagnostics": reports / "forward_diagnostics" / "signal_scarcity_summary.json",
         "stable_gate": reports / "stable_gate" / "stable_gate_summary.json",
+        "execution_evidence": reports / "execution_evidence" / "execution_evidence_summary.json",
         "security_guardrails": reports / "ec2_deployment_pack" / "EC2_SECURITY_GUARDRAILS.md",
     }
     result: dict[str, dict[str, Any]] = {}
@@ -285,6 +291,12 @@ def _dashboard_html(
         "Safety Guardrails": safety,
         "Paper State": {"paper_shadow_paused": summary.get("paper_shadow_paused"), "paper_trades_open": summary.get("paper_trades_open")},
         "Forward Evidence": evidence or {"status": "MISSING"},
+        "Execution Evidence": {
+            "execution_evidence_status": summary.get("execution_evidence_status"),
+            "execution_guard_clear": summary.get("execution_guard_clear"),
+            "execution_guard_reason": summary.get("execution_guard_reason"),
+            "execution_guard_blocking_source": summary.get("execution_guard_blocking_source"),
+        },
         "Diagnostics": diagnostics or {"status": "MISSING"},
         "EC2 Readiness": {"ec2_readiness_status": summary.get("ec2_readiness_status"), "ec2_deployment_pack_status": summary.get("ec2_deployment_pack_status")},
         "Market Open Plan": {"dry_run_market_open_status": summary.get("dry_run_market_open_status")},
@@ -324,6 +336,15 @@ def _critical_alerts(health: Mapping[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(alerts, list):
         return []
     return [dict(alert) for alert in alerts if isinstance(alert, Mapping) and str(alert.get("severity", "")).upper() == "CRITICAL"]
+
+
+def _blocking_source(execution_evidence: Mapping[str, Any]) -> str:
+    findings = execution_evidence.get("blocking_findings", [])
+    if isinstance(findings, list) and findings:
+        first = findings[0]
+        if isinstance(first, Mapping):
+            return f"{first.get('source', '')}:{first.get('field_path', '')}"
+    return ""
 
 
 def _status_for_source(sources: Mapping[str, Mapping[str, Any]], name: str) -> str:

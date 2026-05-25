@@ -48,6 +48,14 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\forward_acceptance_stable
 
 If acceptance returns `PAUSE_FORWARD_SHADOW`, stop the stable watchdog and inspect drift, paper trade audit and telemetry before restarting.
 
+If the pause reason says an execution path appeared in evidence, run:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\execution_evidence_audit.ps1
+```
+
+`order_send_called=false`, `order_check_called=false`, and `execution_attempted=false` are safe false fields. They should not block acceptance. A true field or ambiguous source remains a pause condition until reviewed. Do not delete historical evidence; keep it and classify it.
+
 ## Weekend Closed-Market Procedure
 
 Do not run live `forward-shadow` while the Forex market is closed. Use the offline readiness checks instead:

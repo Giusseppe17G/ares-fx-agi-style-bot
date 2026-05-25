@@ -27,6 +27,7 @@ from .data_pipeline import audit_historical_data, audit_timestamps, build_broker
 from .edge_filtering import run_edge_filtering, run_filtered_profile_builder
 from .edge_evaluation import run_edge_evaluation, run_strategy_selection, run_symbol_selection
 from .execution_simulation import compare_paper_vs_backtest, run_simulation_calibration
+from .execution_evidence import run_execution_evidence_audit
 from .forward_evidence import run_forward_acceptance, run_forward_evidence
 from .forward_diagnostics import run_forward_signal_diagnose
 from .forward_research import run_forward_blocker_sensitivity, run_forward_candidate_replay
@@ -153,6 +154,7 @@ def main(argv: list[str] | None = None) -> int:
             "forward-signal-diagnose",
             "forward-candidate-replay",
             "forward-blocker-sensitivity",
+            "execution-evidence-audit",
             "paper-open-trades",
             "paper-state-report",
             "paper-close-all",
@@ -301,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
         "forward-acceptance",
         "forward-signal-diagnose",
         "forward-candidate-replay",
+        "execution-evidence-audit",
         "paper-open-trades",
         "paper-state-report",
         "paper-close-all",
@@ -621,6 +624,12 @@ def main(argv: list[str] | None = None) -> int:
                 profile_config=args.profile_config,
                 output_dir=output_dir,
             )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "execution-evidence-audit":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/execution_evidence")
+            summary = run_execution_evidence_audit(sqlite_path=args.sqlite, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=output_dir)
             print(_json_dumps(summary))
             return 0
 

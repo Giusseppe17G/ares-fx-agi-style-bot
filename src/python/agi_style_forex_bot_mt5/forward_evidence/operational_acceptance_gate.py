@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from agi_style_forex_bot_mt5.execution_evidence.acceptance_gate_patch import execution_guard_decision
+
 
 def decide_operational_acceptance(
     *,
@@ -11,11 +13,18 @@ def decide_operational_acceptance(
     metrics: Mapping[str, Any],
     drift: Mapping[str, Any],
     paper_audit: Mapping[str, Any],
+    execution_evidence: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return a conservative operational decision for paper/shadow continuation."""
 
-    if bool(evidence.get("execution_attempted")) or bool(evidence.get("order_send_called")) or bool(evidence.get("order_check_called")):
-        return _decision("PAUSE_FORWARD_SHADOW", "Execution path was attempted or broker order function appeared in evidence.")
+    if execution_evidence:
+        blocked, reason = execution_guard_decision(execution_evidence)
+        if blocked:
+            return _decision("PAUSE_FORWARD_SHADOW", reason)
+    else:
+        # Legacy fallback: only true booleans block. Safe false fields and text mentions do not.
+        if evidence.get("execution_attempted") is True or evidence.get("order_send_called") is True or evidence.get("order_check_called") is True:
+            return _decision("PAUSE_FORWARD_SHADOW", "Execution path was attempted or broker order function appeared in evidence.")
     if str(metrics.get("paper_drawdown_status", "")) == "PAPER_DAILY_DRAWDOWN":
         return _decision("PAUSE_FORWARD_SHADOW", "Paper daily drawdown halt is active.")
     if int(evidence.get("invalid_timestamp_count", 0) or 0) > 0:
