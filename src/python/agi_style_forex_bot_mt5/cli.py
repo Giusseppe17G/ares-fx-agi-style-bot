@@ -64,7 +64,7 @@ from .research import run_research
 from .robustness_validation import run_robustness_fast, run_stable_robustness_gate
 from .stability_repair import run_build_stable_profile, run_stability_repair, run_walk_forward_failure_analysis
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
-from .telemetry_repair import run_quarantine_telemetry_issues, run_telemetry_status, run_telemetry_timestamp_audit
+from .telemetry_repair import run_quarantine_telemetry_issues, run_telemetry_acceptance_policy, run_telemetry_status, run_telemetry_timestamp_audit
 from .validation_pipeline import PipelineConfig, run_full_validation
 
 
@@ -159,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
             "telemetry-timestamp-audit",
             "quarantine-telemetry-issues",
             "telemetry-status",
+            "telemetry-acceptance-policy",
             "paper-open-trades",
             "paper-state-report",
             "paper-close-all",
@@ -313,6 +314,7 @@ def main(argv: list[str] | None = None) -> int:
         "telemetry-timestamp-audit",
         "quarantine-telemetry-issues",
         "telemetry-status",
+        "telemetry-acceptance-policy",
         "paper-open-trades",
         "paper-state-report",
         "paper-close-all",
@@ -512,6 +514,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "telemetry-status":
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/telemetry_repair")
             summary = run_telemetry_status(sqlite_path=args.sqlite, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "telemetry-acceptance-policy":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/telemetry_repair")
+            summary = run_telemetry_acceptance_policy(sqlite_path=args.sqlite, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=output_dir)
             print(_json_dumps(summary))
             return 0
 

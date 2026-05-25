@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from .telemetry_quarantine_ledger import raw_value_hash
 from agi_style_forex_bot_mt5.utils.safe_datetime import detect_redacted_datetime, safe_parse_datetime
 
 
@@ -49,6 +50,7 @@ def summarize_classified_issues(issues: list[Mapping[str, Any]], ledger: Mapping
     active = [item for item in issues if item.get("classification") == "ACTIVE_TELEMETRY_INVALID"]
     unknown = [item for item in issues if item.get("classification") == "UNKNOWN_TELEMETRY_REVIEW_REQUIRED"]
     quarantined = [item for item in issues if item.get("classification") == "QUARANTINED_HISTORICAL"]
+    reviewed = [item for item in quarantined if str(item.get("ledger_status")) == "REVIEWED"]
     historical = [
         item
         for item in issues
@@ -56,6 +58,11 @@ def summarize_classified_issues(issues: list[Mapping[str, Any]], ledger: Mapping
         and item.get("classification") != "ACTIVE_TELEMETRY_INVALID"
     ]
     unquarantined_historical = [item for item in historical if str(item.get("ledger_status")) not in {"QUARANTINED", "REVIEWED"}]
+    historical_total = [*historical, *quarantined]
+    historical_invalid_count = len(historical_total)
+    quarantined_count = len([item for item in quarantined if str(item.get("ledger_status")) == "QUARANTINED"])
+    reviewed_count = len(reviewed)
+    unreviewed_count = len(unquarantined_historical)
     if active:
         status = "TELEMETRY_ACTIVE_BLOCKING"
     elif unknown:
@@ -63,25 +70,63 @@ def summarize_classified_issues(issues: list[Mapping[str, Any]], ledger: Mapping
     elif unquarantined_historical:
         status = "TELEMETRY_HISTORICAL_ISSUES_ONLY"
     elif quarantined:
-        status = "TELEMETRY_HISTORICAL_ISSUES_ONLY"
+        status = "TELEMETRY_HISTORICAL_QUARANTINED"
     else:
         status = "TELEMETRY_CLEAN"
+    policy_reason = _policy_reason(
+        status=status,
+        active_count=len(active),
+        unknown_count=len(unknown),
+        historical_invalid_count=historical_invalid_count,
+        quarantined_count=quarantined_count,
+        reviewed_count=reviewed_count,
+        unreviewed_count=unreviewed_count,
+    )
     return {
         "telemetry_status": status,
         "invalid_timestamp_count": len(issues),
         "active_blocking_count": len(active),
-        "historical_invalid_count": len(historical),
-        "quarantined_count": len(quarantined),
-        "unquarantined_historical_count": len(unquarantined_historical),
-        "telemetry_acceptance_clear": not active and not unknown and not unquarantined_historical,
+        "unknown_requires_review": len(unknown),
+        "historical_invalid_count": historical_invalid_count,
+        "quarantined_count": quarantined_count,
+        "reviewed_count": reviewed_count,
+        "historical_reviewed_count": reviewed_count,
+        "historical_quarantined_count": quarantined_count,
+        "historical_unreviewed_count": unreviewed_count,
+        "unquarantined_historical_count": unreviewed_count,
+        "telemetry_acceptance_clear": not active and not unknown and unreviewed_count == 0,
+        "telemetry_policy_reason": policy_reason,
         "active_blocking_issues": active,
-        "historical_issues": historical,
+        "historical_issues": historical_total,
         "quarantined_issues": quarantined,
         "unknown_issues": unknown,
         "execution_attempted": False,
         "order_send_called": False,
         "order_check_called": False,
     }
+
+
+def _policy_reason(
+    *,
+    status: str,
+    active_count: int,
+    unknown_count: int,
+    historical_invalid_count: int,
+    quarantined_count: int,
+    reviewed_count: int,
+    unreviewed_count: int,
+) -> str:
+    if active_count > 0:
+        return "Active invalid timestamps affect the current evidence window."
+    if unknown_count > 0:
+        return "Unknown timestamp issues require manual review."
+    if unreviewed_count > 0:
+        return "Historical invalid timestamps remain unreviewed."
+    if historical_invalid_count > 0 and quarantined_count + reviewed_count >= historical_invalid_count:
+        return "All historical invalid timestamps are quarantined or reviewed."
+    if status == "TELEMETRY_CLEAN":
+        return "No timestamp issues detected."
+    return "Telemetry timestamp policy evaluated."
 
 
 def _is_active(issue: Mapping[str, Any], context: Mapping[str, Any]) -> bool:
@@ -104,8 +149,11 @@ def _ledger_entry(issue: Mapping[str, Any], ledger: Mapping[str, Any]) -> dict[s
     if not isinstance(issues, list):
         return {}
     issue_id = issue.get("issue_id")
+    issue_hash = raw_value_hash(issue.get("raw_value", ""))
     for item in issues:
-        if isinstance(item, Mapping) and item.get("issue_id") == issue_id:
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("issue_id") == issue_id or item.get("raw_value_hash") == issue_hash:
             return dict(item)
     return {}
 

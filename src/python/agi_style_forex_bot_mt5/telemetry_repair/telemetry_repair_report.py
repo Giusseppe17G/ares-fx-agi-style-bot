@@ -91,10 +91,40 @@ def run_telemetry_status(
         "mode": "telemetry-status",
         "telemetry_status": summary.get("telemetry_status"),
         "active_blocking_count": summary.get("active_blocking_count", 0),
+        "historical_invalid_count": summary.get("historical_invalid_count", 0),
         "historical_quarantined_count": summary.get("quarantined_count", 0),
+        "historical_reviewed_count": summary.get("reviewed_count", 0),
+        "historical_unreviewed_count": summary.get("historical_unreviewed_count", summary.get("unquarantined_historical_count", 0)),
         "telemetry_acceptance_clear": summary.get("telemetry_acceptance_clear", False),
+        "telemetry_policy_reason": summary.get("telemetry_policy_reason", ""),
         "latest_clean_window_start_utc": summary.get("latest_clean_window_start_utc", ""),
         "recommended_action": summary.get("recommended_action", ""),
+        "execution_attempted": False,
+        "order_send_called": False,
+        "order_check_called": False,
+    }
+
+
+def run_telemetry_acceptance_policy(
+    *,
+    sqlite_path: str | Path | None = None,
+    log_dir: str | Path = "data/logs/forward-shadow-stable",
+    reports_root: str | Path = "data/reports",
+    output_dir: str | Path = "data/reports/telemetry_repair",
+) -> dict[str, Any]:
+    """Return the compact telemetry policy decision used by forward acceptance."""
+
+    summary = run_telemetry_timestamp_audit(sqlite_path=sqlite_path, log_dir=log_dir, reports_root=reports_root, output_dir=output_dir)
+    return {
+        "mode": "telemetry-acceptance-policy",
+        "telemetry_status": summary.get("telemetry_status"),
+        "telemetry_acceptance_clear": summary.get("telemetry_acceptance_clear", False),
+        "telemetry_policy_reason": summary.get("telemetry_policy_reason", ""),
+        "active_blocking_count": summary.get("active_blocking_count", 0),
+        "historical_invalid_count": summary.get("historical_invalid_count", 0),
+        "quarantined_count": summary.get("quarantined_count", 0),
+        "reviewed_count": summary.get("reviewed_count", 0),
+        "unreviewed_count": summary.get("historical_unreviewed_count", summary.get("unquarantined_historical_count", 0)),
         "execution_attempted": False,
         "order_send_called": False,
         "order_check_called": False,

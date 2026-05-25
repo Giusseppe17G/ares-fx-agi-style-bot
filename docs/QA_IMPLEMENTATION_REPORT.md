@@ -217,6 +217,26 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 38B Telemetry Acceptance Policy Repair
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully.
+
+Integrated in Phase 38B:
+
+- `TELEMETRY_HISTORICAL_QUARANTINED` now represents historical timestamp issues where all rows are `QUARANTINED` or `REVIEWED`.
+- Acceptance policy now clears telemetry when `active_blocking_count=0`, `unknown_requires_review=0`, and quarantined/reviewed historical count covers all historical issues.
+- Added CLI mode `telemetry-acceptance-policy`.
+- `forward-evidence` now reports historical quarantined and unreviewed counts separately.
+- Report-derived invalid timestamp examples are no longer treated as new source evidence containers.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 30 Live Feature Pipeline Repair
 
 Status: PASS. Verification: `py -m pytest -q` completed successfully after adding live feature contract coverage.

@@ -102,9 +102,16 @@ Interpretation:
 
 - `TELEMETRY_ACTIVE_BLOCKING`: recent evidence still has invalid timestamps and acceptance must block.
 - `TELEMETRY_HISTORICAL_ISSUES_ONLY`: corrupt timestamps are historical; quarantine/review them before acceptance ignores them.
+- `TELEMETRY_HISTORICAL_QUARANTINED`: all historical corrupt timestamps are `QUARANTINED` or `REVIEWED`; acceptance can move on to operational criteria.
 - `telemetry_acceptance_clear=true`: historical issues are reviewed/quarantined and forward acceptance may decide on drift, drawdown, hours, trades, paper audit and execution guard.
 - `NEEDS_TELEMETRY_FIX`: active timestamp producer must be repaired.
 - `NEEDS_TELEMETRY_REVIEW`: historical issues exist but have not been quarantined/reviewed.
+
+Use the policy view when debugging acceptance:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode telemetry-acceptance-policy --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\telemetry_repair
+```
 
 # Phase 29 Signal Diagnostics Integration
 

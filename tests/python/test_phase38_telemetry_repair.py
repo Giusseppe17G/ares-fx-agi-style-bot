@@ -8,7 +8,7 @@ from agi_style_forex_bot_mt5.forward_evidence.operational_acceptance_gate import
 from agi_style_forex_bot_mt5.operational_readiness import run_operator_dashboard
 from agi_style_forex_bot_mt5.config import BotConfig
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
-from agi_style_forex_bot_mt5.telemetry_repair import run_quarantine_telemetry_issues, run_telemetry_status, run_telemetry_timestamp_audit
+from agi_style_forex_bot_mt5.telemetry_repair import run_quarantine_telemetry_issues, run_telemetry_acceptance_policy, run_telemetry_status, run_telemetry_timestamp_audit
 from agi_style_forex_bot_mt5.telemetry_repair.timestamp_issue_loader import load_timestamp_issues
 from agi_style_forex_bot_mt5.telemetry_repair.timestamp_issue_classifier import classify_timestamp_issue
 
@@ -84,6 +84,24 @@ def test_telemetry_status_distinguishes_quarantined(tmp_path: Path) -> None:
 
     assert status["telemetry_acceptance_clear"] is True
     assert status["historical_quarantined_count"] >= 1
+    assert status["telemetry_status"] == "TELEMETRY_HISTORICAL_QUARANTINED"
+    assert status["historical_unreviewed_count"] == 0
+
+
+def test_historical_quarantined_acceptance_policy_is_clear(tmp_path: Path) -> None:
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    _write_jsonl(log_dir / "events.jsonl", {"event_type": "PAPER_TRADE_MANUAL_CLOSE", "timestamp_utc": "2026-05-25T00:00:00+00:00"})
+    _write_jsonl(log_dir / "events.jsonl", {"event_type": "ML_PREDICTION", "timestamp_utc": "2026-05-18T09:34:43.[REDACTED:9000]+00:00"})
+
+    run_quarantine_telemetry_issues(log_dir=log_dir, reports_root=tmp_path / "reports", output_dir=tmp_path / "out", reason="reviewed")
+    policy = run_telemetry_acceptance_policy(log_dir=log_dir, reports_root=tmp_path / "reports", output_dir=tmp_path / "out")
+
+    assert policy["telemetry_acceptance_clear"] is True
+    assert policy["telemetry_status"] == "TELEMETRY_HISTORICAL_QUARANTINED"
+    assert policy["historical_invalid_count"] >= 1
+    assert policy["quarantined_count"] >= policy["historical_invalid_count"]
+    assert policy["unreviewed_count"] == 0
 
 
 def test_forward_acceptance_does_not_block_quarantined_historical_timestamp() -> None:
@@ -93,7 +111,19 @@ def test_forward_acceptance_does_not_block_quarantined_historical_timestamp() ->
         drift={"classification": "INSUFFICIENT_FORWARD_DATA"},
         paper_audit={"status": "OK"},
         execution_evidence={"execution_evidence_status": "EXECUTION_EVIDENCE_CLEAR"},
-        telemetry_summary={"telemetry_status": "TELEMETRY_HISTORICAL_ISSUES_ONLY", "telemetry_acceptance_clear": True},
+        telemetry_summary={"telemetry_status": "TELEMETRY_HISTORICAL_QUARANTINED", "telemetry_acceptance_clear": True, "historical_invalid_count": 5, "quarantined_count": 5, "unknown_requires_review": 0},
+    )
+    assert acceptance["decision"] == "NEEDS_MORE_FORWARD_DATA"
+
+
+def test_forward_acceptance_advances_with_legacy_status_when_counts_are_clear() -> None:
+    acceptance = decide_operational_acceptance(
+        evidence={"execution_attempted": False, "order_send_called": False, "order_check_called": False, "stable_gate_confirmed": True, "heartbeat_count": 1, "invalid_timestamp_count": 5, "hours_observed": 1},
+        metrics={"paper_drawdown_status": "OK", "closed_trades": 0},
+        drift={"classification": "INSUFFICIENT_FORWARD_DATA"},
+        paper_audit={"status": "OK"},
+        execution_evidence={"execution_evidence_status": "EXECUTION_EVIDENCE_CLEAR"},
+        telemetry_summary={"telemetry_status": "TELEMETRY_HISTORICAL_ISSUES_ONLY", "telemetry_acceptance_clear": True, "historical_invalid_count": 5, "quarantined_count": 5, "unknown_requires_review": 0},
     )
     assert acceptance["decision"] == "NEEDS_MORE_FORWARD_DATA"
 
@@ -108,6 +138,30 @@ def test_forward_acceptance_blocks_active_invalid_timestamp() -> None:
         telemetry_summary={"telemetry_status": "TELEMETRY_ACTIVE_BLOCKING", "telemetry_acceptance_clear": False},
     )
     assert acceptance["decision"] == "NEEDS_TELEMETRY_FIX"
+
+
+def test_unknown_timestamp_issue_blocks_policy() -> None:
+    acceptance = decide_operational_acceptance(
+        evidence={"execution_attempted": False, "order_send_called": False, "order_check_called": False, "stable_gate_confirmed": True, "heartbeat_count": 1, "hours_observed": 1},
+        metrics={"paper_drawdown_status": "OK", "closed_trades": 0},
+        drift={"classification": "INSUFFICIENT_FORWARD_DATA"},
+        paper_audit={"status": "OK"},
+        execution_evidence={"execution_evidence_status": "EXECUTION_EVIDENCE_CLEAR"},
+        telemetry_summary={"telemetry_status": "TELEMETRY_UNKNOWN_REVIEW_REQUIRED", "telemetry_acceptance_clear": False, "unknown_requires_review": 1},
+    )
+    assert acceptance["decision"] == "NEEDS_TELEMETRY_REVIEW"
+
+
+def test_historical_unreviewed_issue_blocks_policy() -> None:
+    acceptance = decide_operational_acceptance(
+        evidence={"execution_attempted": False, "order_send_called": False, "order_check_called": False, "stable_gate_confirmed": True, "heartbeat_count": 1, "hours_observed": 1},
+        metrics={"paper_drawdown_status": "OK", "closed_trades": 0},
+        drift={"classification": "INSUFFICIENT_FORWARD_DATA"},
+        paper_audit={"status": "OK"},
+        execution_evidence={"execution_evidence_status": "EXECUTION_EVIDENCE_CLEAR"},
+        telemetry_summary={"telemetry_status": "TELEMETRY_HISTORICAL_ISSUES_ONLY", "telemetry_acceptance_clear": False, "historical_invalid_count": 5, "quarantined_count": 4, "unknown_requires_review": 0},
+    )
+    assert acceptance["decision"] == "NEEDS_TELEMETRY_REVIEW"
 
 
 def test_telemetry_cli_modes_generate_reports(tmp_path: Path, capsys) -> None:
@@ -131,6 +185,11 @@ def test_telemetry_cli_modes_generate_reports(tmp_path: Path, capsys) -> None:
     assert cli.main(["--mode", "telemetry-status", "--sqlite", str(sqlite), "--log-dir", str(log_dir), "--reports-root", str(tmp_path / "reports"), "--output-dir", str(tmp_path / "out")]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["telemetry_acceptance_clear"] is True
+
+    assert cli.main(["--mode", "telemetry-acceptance-policy", "--sqlite", str(sqlite), "--log-dir", str(log_dir), "--reports-root", str(tmp_path / "reports"), "--output-dir", str(tmp_path / "out")]) == 0
+    policy = json.loads(capsys.readouterr().out)
+    assert policy["telemetry_acceptance_clear"] is True
+    assert policy["order_send_called"] is False
 
 
 def test_dashboard_shows_telemetry_status(tmp_path: Path) -> None:

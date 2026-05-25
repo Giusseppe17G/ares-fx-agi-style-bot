@@ -166,6 +166,8 @@ def _window_context(records: list[Mapping[str, Any]], sqlite_path: str | Path | 
 
 
 def _issue_for_value(*, record: Mapping[str, Any], field_path: str, value: Any, context: Mapping[str, Any]) -> dict[str, Any] | None:
+    if isinstance(value, (Mapping, list)):
+        return None
     if (value is None or str(value).strip() == "") and not _missing_timestamp_is_critical(field_path, record):
         return None
     result = safe_parse_datetime(value, field_name=field_path, source=str(record.get("source")))

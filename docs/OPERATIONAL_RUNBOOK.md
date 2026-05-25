@@ -359,6 +359,7 @@ If the report says `TELEMETRY_ACTIVE_BLOCKING`, do not resume shadow. Repair the
 ```powershell
 py -m agi_style_forex_bot_mt5.cli --mode quarantine-telemetry-issues --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\telemetry_repair --reason "Historical redacted timestamps reviewed after paper reset"
 py -m agi_style_forex_bot_mt5.cli --mode telemetry-status --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\telemetry_repair
+py -m agi_style_forex_bot_mt5.cli --mode telemetry-acceptance-policy --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\telemetry_repair
 ```
 
-`telemetry_quarantine_ledger.json` records the review decision, raw-value hash and source. It is a ledger, not a data rewrite. After `telemetry_acceptance_clear=true`, rerun `forward-acceptance`; any remaining block should come from current operational criteria such as drawdown, drift, hours observed, closed paper trades, paper audit or execution evidence.
+`telemetry_quarantine_ledger.json` records the review decision, raw-value hash and source. It is a ledger, not a data rewrite. After `telemetry_status=TELEMETRY_HISTORICAL_QUARANTINED` and `telemetry_acceptance_clear=true`, rerun `forward-acceptance`; any remaining block should come from current operational criteria such as drawdown, drift, hours observed, closed paper trades, paper audit or execution evidence.
