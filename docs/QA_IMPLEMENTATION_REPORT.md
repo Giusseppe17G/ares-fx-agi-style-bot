@@ -197,6 +197,26 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 38 Telemetry Timestamp Repair
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully.
+
+Integrated in Phase 38:
+
+- Added `telemetry_repair` package for timestamp issue loading, classification, quarantine ledger, evidence-window policy and reports.
+- Added CLI modes `telemetry-timestamp-audit`, `quarantine-telemetry-issues`, and `telemetry-status`.
+- `forward-acceptance` now distinguishes active invalid telemetry from quarantined historical corrupt timestamps.
+- `forward-evidence`, operator dashboard and daily operator report now include telemetry repair status.
+- Historical redacted timestamps are quarantined via `telemetry_quarantine_ledger.json`; logs and SQLite evidence are not edited or deleted.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 30 Live Feature Pipeline Repair
 
 Status: PASS. Verification: `py -m pytest -q` completed successfully after adding live feature contract coverage.

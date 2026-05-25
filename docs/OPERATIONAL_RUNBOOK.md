@@ -345,3 +345,20 @@ py -m agi_style_forex_bot_mt5.cli --mode paper-close-all --sqlite data\sqlite\fo
 ```
 
 These commands only modify local SQLite paper/shadow state. They never modify MT5 positions.
+
+# Telemetry Timestamp Repair
+
+If `forward-acceptance` returns `NEEDS_TELEMETRY_FIX` or `NEEDS_TELEMETRY_REVIEW`, inspect timestamp evidence offline:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode telemetry-timestamp-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\telemetry_repair
+```
+
+If the report says `TELEMETRY_ACTIVE_BLOCKING`, do not resume shadow. Repair the producer that is writing invalid recent timestamps. If the report says `TELEMETRY_HISTORICAL_ISSUES_ONLY`, review the CSV and quarantine the historical evidence without deleting or editing originals:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode quarantine-telemetry-issues --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\telemetry_repair --reason "Historical redacted timestamps reviewed after paper reset"
+py -m agi_style_forex_bot_mt5.cli --mode telemetry-status --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\telemetry_repair
+```
+
+`telemetry_quarantine_ledger.json` records the review decision, raw-value hash and source. It is a ledger, not a data rewrite. After `telemetry_acceptance_clear=true`, rerun `forward-acceptance`; any remaining block should come from current operational criteria such as drawdown, drift, hours observed, closed paper trades, paper audit or execution evidence.

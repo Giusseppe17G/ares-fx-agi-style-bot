@@ -88,6 +88,24 @@ If SQLite or JSONL contains corrupted/redacted timestamps, evidence generation r
 
 `PARTIAL_INVALID_TIMESTAMPS` means telemetry must be repaired or isolated before operational acceptance. It does not justify changing strategy thresholds or resuming shadow entries.
 
+## Telemetry Timestamp Quarantine
+
+Phase 38 adds a ledger-only quarantine for historical corrupt timestamps. It never deletes JSONL, SQLite rows, or original reports.
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode telemetry-timestamp-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\telemetry_repair
+py -m agi_style_forex_bot_mt5.cli --mode quarantine-telemetry-issues --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\telemetry_repair --reason "Historical redacted timestamps reviewed after paper reset"
+py -m agi_style_forex_bot_mt5.cli --mode telemetry-status --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\telemetry_repair
+```
+
+Interpretation:
+
+- `TELEMETRY_ACTIVE_BLOCKING`: recent evidence still has invalid timestamps and acceptance must block.
+- `TELEMETRY_HISTORICAL_ISSUES_ONLY`: corrupt timestamps are historical; quarantine/review them before acceptance ignores them.
+- `telemetry_acceptance_clear=true`: historical issues are reviewed/quarantined and forward acceptance may decide on drift, drawdown, hours, trades, paper audit and execution guard.
+- `NEEDS_TELEMETRY_FIX`: active timestamp producer must be repaired.
+- `NEEDS_TELEMETRY_REVIEW`: historical issues exist but have not been quarantined/reviewed.
+
 # Phase 29 Signal Diagnostics Integration
 
 Forward evidence now includes signal scarcity context when `data/reports/forward_diagnostics/signal_scarcity_summary.json` exists:

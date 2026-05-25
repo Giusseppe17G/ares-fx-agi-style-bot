@@ -10,6 +10,7 @@ import pandas as pd
 
 from agi_style_forex_bot_mt5.execution_evidence import run_execution_evidence_audit
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
+from agi_style_forex_bot_mt5.telemetry_repair import run_telemetry_timestamp_audit
 
 from .drift_summary import summarize_forward_drift
 from .evidence_collector import collect_forward_evidence
@@ -50,7 +51,20 @@ def run_forward_evidence(
         reports_root=reports_root,
         output_dir=Path(reports_root) / "execution_evidence",
     )
-    acceptance = decide_operational_acceptance(evidence=evidence, metrics=metrics, drift=drift, paper_audit=audit, execution_evidence=execution_evidence)
+    telemetry_summary = run_telemetry_timestamp_audit(
+        sqlite_path=database.path,
+        log_dir=log_dir,
+        reports_root=reports_root,
+        output_dir=Path(reports_root) / "telemetry_repair",
+    )
+    acceptance = decide_operational_acceptance(
+        evidence=evidence,
+        metrics=metrics,
+        drift=drift,
+        paper_audit=audit,
+        execution_evidence=execution_evidence,
+        telemetry_summary=telemetry_summary,
+    )
     summary = {
         **evidence,
         "forward_metrics_classification": metrics.get("classification"),
@@ -64,6 +78,12 @@ def run_forward_evidence(
         "execution_false_positive_count": execution_evidence.get("execution_false_positive_count", 0),
         "execution_blocking_findings_count": execution_evidence.get("blocking_findings_count", 0),
         "execution_evidence_report_path": execution_evidence.get("execution_evidence_report_path", ""),
+        "telemetry_status": telemetry_summary.get("telemetry_status"),
+        "active_telemetry_blocking_count": telemetry_summary.get("active_blocking_count", 0),
+        "historical_telemetry_issue_count": telemetry_summary.get("historical_invalid_count", 0),
+        "telemetry_quarantined_count": telemetry_summary.get("quarantined_count", 0),
+        "telemetry_acceptance_clear": telemetry_summary.get("telemetry_acceptance_clear", False),
+        "telemetry_report_path": telemetry_summary.get("telemetry_report_path", ""),
         "evidence_parse_status": evidence.get("evidence_parse_status", "OK"),
         "invalid_timestamp_count": evidence.get("invalid_timestamp_count", 0),
         "invalid_timestamp_fields": evidence.get("invalid_timestamp_fields", {}),

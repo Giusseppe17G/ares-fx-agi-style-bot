@@ -64,6 +64,7 @@ from .research import run_research
 from .robustness_validation import run_robustness_fast, run_stable_robustness_gate
 from .stability_repair import run_build_stable_profile, run_stability_repair, run_walk_forward_failure_analysis
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
+from .telemetry_repair import run_quarantine_telemetry_issues, run_telemetry_status, run_telemetry_timestamp_audit
 from .validation_pipeline import PipelineConfig, run_full_validation
 
 
@@ -155,6 +156,9 @@ def main(argv: list[str] | None = None) -> int:
             "forward-candidate-replay",
             "forward-blocker-sensitivity",
             "execution-evidence-audit",
+            "telemetry-timestamp-audit",
+            "quarantine-telemetry-issues",
+            "telemetry-status",
             "paper-open-trades",
             "paper-state-report",
             "paper-close-all",
@@ -287,6 +291,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Enable optional Telegram notifications using TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.",
     )
     parser.add_argument("--reason", default="", help="Operational reason for paper/shadow state commands.")
+    parser.add_argument("--issue-class", default="", help="Telemetry issue class filter for quarantine.")
+    parser.add_argument("--status", default="QUARANTINED", help="Telemetry quarantine ledger status.")
     parser.add_argument("--confirm-paper-only", default="false", help="Set true to execute paper-only close commands.")
     args = parser.parse_args(argv)
 
@@ -304,6 +310,9 @@ def main(argv: list[str] | None = None) -> int:
         "forward-signal-diagnose",
         "forward-candidate-replay",
         "execution-evidence-audit",
+        "telemetry-timestamp-audit",
+        "quarantine-telemetry-issues",
+        "telemetry-status",
         "paper-open-trades",
         "paper-state-report",
         "paper-close-all",
@@ -477,6 +486,32 @@ def main(argv: list[str] | None = None) -> int:
             assert database is not None
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/daily_operator")
             summary = run_daily_operator_report(database=database, reports_root=args.reports_root, log_dir=args.log_dir, output_dir=output_dir, config=config)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "telemetry-timestamp-audit":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/telemetry_repair")
+            summary = run_telemetry_timestamp_audit(sqlite_path=args.sqlite, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "quarantine-telemetry-issues":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/telemetry_repair")
+            summary = run_quarantine_telemetry_issues(
+                sqlite_path=args.sqlite,
+                log_dir=args.log_dir,
+                reports_root=args.reports_root,
+                output_dir=output_dir,
+                reason=args.reason or "Historical telemetry reviewed",
+                issue_class=args.issue_class,
+                status=args.status,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "telemetry-status":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/telemetry_repair")
+            summary = run_telemetry_status(sqlite_path=args.sqlite, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=output_dir)
             print(_json_dumps(summary))
             return 0
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from agi_style_forex_bot_mt5.execution_evidence.acceptance_gate_patch import execution_guard_decision
+from agi_style_forex_bot_mt5.telemetry_repair.acceptance_telemetry_policy import telemetry_gate_decision
 
 
 def decide_operational_acceptance(
@@ -14,6 +15,7 @@ def decide_operational_acceptance(
     drift: Mapping[str, Any],
     paper_audit: Mapping[str, Any],
     execution_evidence: Mapping[str, Any] | None = None,
+    telemetry_summary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return a conservative operational decision for paper/shadow continuation."""
 
@@ -25,9 +27,12 @@ def decide_operational_acceptance(
         # Legacy fallback: only true booleans block. Safe false fields and text mentions do not.
         if evidence.get("execution_attempted") is True or evidence.get("order_send_called") is True or evidence.get("order_check_called") is True:
             return _decision("PAUSE_FORWARD_SHADOW", "Execution path was attempted or broker order function appeared in evidence.")
+    telemetry_blocked, telemetry_decision, telemetry_reason = telemetry_gate_decision(telemetry_summary)
+    if telemetry_blocked:
+        return _decision(telemetry_decision, telemetry_reason)
     if str(metrics.get("paper_drawdown_status", "")) == "PAPER_DAILY_DRAWDOWN":
         return _decision("PAUSE_FORWARD_SHADOW", "Paper daily drawdown halt is active.")
-    if int(evidence.get("invalid_timestamp_count", 0) or 0) > 0:
+    if telemetry_summary is None and int(evidence.get("invalid_timestamp_count", 0) or 0) > 0:
         return _decision("NEEDS_TELEMETRY_FIX", "Forward evidence contains invalid or redacted timestamps.")
     if not bool(evidence.get("stable_gate_confirmed")):
         return _decision("PAUSE_FORWARD_SHADOW", "Stable gate is missing.")

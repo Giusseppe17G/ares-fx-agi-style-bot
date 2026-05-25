@@ -32,6 +32,7 @@ def run_operator_dashboard(
     safety = _safety(config)
     evidence = _load_json(reports / "forward_evidence" / "evidence_summary.json")
     execution_evidence = _load_json(reports / "execution_evidence" / "execution_evidence_summary.json")
+    telemetry_repair = _load_json(reports / "telemetry_repair" / "telemetry_timestamp_summary.json")
     diagnostics = _load_json(reports / "forward_diagnostics" / "signal_scarcity_summary.json")
     stable_gate = _load_json(reports / "stable_gate" / "stable_gate_summary.json")
     health = database.get_latest_health()
@@ -59,6 +60,11 @@ def run_operator_dashboard(
         "execution_guard_clear": str(execution_evidence.get("execution_evidence_status", "")) in {"EXECUTION_EVIDENCE_CLEAR", "EXECUTION_EVIDENCE_FALSE_POSITIVE_ONLY"},
         "execution_guard_reason": execution_evidence.get("recommended_action", ""),
         "execution_guard_blocking_source": _blocking_source(execution_evidence),
+        "telemetry_status": telemetry_repair.get("telemetry_status") or evidence.get("telemetry_status") or _status_for_source(sources, "telemetry_repair"),
+        "telemetry_acceptance_clear": bool(telemetry_repair.get("telemetry_acceptance_clear", evidence.get("telemetry_acceptance_clear", False))),
+        "active_timestamp_issues": int(telemetry_repair.get("active_blocking_count", evidence.get("active_telemetry_blocking_count", 0)) or 0),
+        "quarantined_historical_timestamp_issues": int(telemetry_repair.get("quarantined_count", evidence.get("telemetry_quarantined_count", 0)) or 0),
+        "telemetry_next_action": telemetry_repair.get("recommended_action", ""),
         "critical_alerts_recent": _critical_alerts(health),
         "recommended_next_action": next_action,
         "log_dir": str(log_dir),
@@ -92,6 +98,7 @@ def run_daily_operator_report(
     paper = _paper_state(database)
     diagnostics = _load_json(reports / "forward_diagnostics" / "signal_scarcity_summary.json")
     evidence = _load_json(reports / "forward_evidence" / "evidence_summary.json")
+    telemetry_repair = _load_json(reports / "telemetry_repair" / "telemetry_timestamp_summary.json")
     health = database.get_latest_health()
     top_blockers = diagnostics.get("top_blockers", [])
     critical_alerts = _critical_alerts(health)
@@ -110,6 +117,10 @@ def run_daily_operator_report(
         "signals_rejected_latest": diagnostics.get("signals_rejected", evidence.get("signals_rejected", 0)),
         "top_blockers_latest": top_blockers,
         "evidence_status": evidence.get("operational_acceptance") or evidence.get("classification") or ("MISSING" if not evidence else "UNKNOWN"),
+        "telemetry_status": telemetry_repair.get("telemetry_status", evidence.get("telemetry_status", "")),
+        "telemetry_acceptance_clear": bool(telemetry_repair.get("telemetry_acceptance_clear", evidence.get("telemetry_acceptance_clear", False))),
+        "active_timestamp_issues": int(telemetry_repair.get("active_blocking_count", evidence.get("active_telemetry_blocking_count", 0)) or 0),
+        "quarantined_historical_timestamp_issues": int(telemetry_repair.get("quarantined_count", evidence.get("telemetry_quarantined_count", 0)) or 0),
         "critical_alerts_recent": critical_alerts,
         "recommended_action": _daily_action(classification, state, paper),
         "commands_to_run_next": commands,
@@ -150,6 +161,7 @@ def _source_status(reports: Path) -> dict[str, dict[str, Any]]:
         "forward_diagnostics": reports / "forward_diagnostics" / "signal_scarcity_summary.json",
         "stable_gate": reports / "stable_gate" / "stable_gate_summary.json",
         "execution_evidence": reports / "execution_evidence" / "execution_evidence_summary.json",
+        "telemetry_repair": reports / "telemetry_repair" / "telemetry_timestamp_summary.json",
         "security_guardrails": reports / "ec2_deployment_pack" / "EC2_SECURITY_GUARDRAILS.md",
     }
     result: dict[str, dict[str, Any]] = {}
@@ -239,6 +251,7 @@ def _next_commands(classification: str) -> list[str]:
         "py -m agi_style_forex_bot_mt5.cli --mode operator-dashboard --sqlite data\\sqlite\\forward-shadow-stable.sqlite3 --reports-root data\\reports --log-dir data\\logs\\forward-shadow-stable --output-dir data\\reports\\operator_dashboard",
         "py -m agi_style_forex_bot_mt5.cli --mode paper-state-report --sqlite data\\sqlite\\forward-shadow-stable.sqlite3 --log-dir data\\logs\\forward-shadow-stable --output-dir data\\reports\\paper_state",
         "py -m agi_style_forex_bot_mt5.cli --mode forward-evidence --sqlite data\\sqlite\\forward-shadow-stable.sqlite3 --log-dir data\\logs\\forward-shadow-stable --reports-root data\\reports --output-dir data\\reports\\forward_evidence",
+        "py -m agi_style_forex_bot_mt5.cli --mode telemetry-status --sqlite data\\sqlite\\forward-shadow-stable.sqlite3 --log-dir data\\logs\\forward-shadow-stable --reports-root data\\reports --output-dir data\\reports\\telemetry_repair",
     ]
     if classification == "DAILY_REPORT_NEEDS_REVIEW":
         commands.append('py -m agi_style_forex_bot_mt5.cli --mode pause-shadow --sqlite data\\sqlite\\forward-shadow-stable.sqlite3 --reason "daily operator review"')
@@ -297,6 +310,13 @@ def _dashboard_html(
             "execution_guard_reason": summary.get("execution_guard_reason"),
             "execution_guard_blocking_source": summary.get("execution_guard_blocking_source"),
         },
+        "Telemetry Repair": {
+            "telemetry_status": summary.get("telemetry_status"),
+            "telemetry_acceptance_clear": summary.get("telemetry_acceptance_clear"),
+            "active_timestamp_issues": summary.get("active_timestamp_issues"),
+            "quarantined_historical_timestamp_issues": summary.get("quarantined_historical_timestamp_issues"),
+            "telemetry_next_action": summary.get("telemetry_next_action"),
+        },
         "Diagnostics": diagnostics or {"status": "MISSING"},
         "EC2 Readiness": {"ec2_readiness_status": summary.get("ec2_readiness_status"), "ec2_deployment_pack_status": summary.get("ec2_deployment_pack_status")},
         "Market Open Plan": {"dry_run_market_open_status": summary.get("dry_run_market_open_status")},
@@ -325,6 +345,8 @@ def _daily_markdown(summary: Mapping[str, Any]) -> str:
 - paper_trades_open: `{summary.get('paper_trades_open')}`
 - paper_trades_closed_today: `{summary.get('paper_trades_closed_today')}`
 - evidence_status: `{summary.get('evidence_status')}`
+- telemetry_status: `{summary.get('telemetry_status')}`
+- telemetry_acceptance_clear: `{summary.get('telemetry_acceptance_clear')}`
 - recommended_action: {summary.get('recommended_action')}
 
 Safety: `execution_attempted=false`, `order_send_called=false`, `order_check_called=false`, `DEMO_ONLY=True`, `LIVE_TRADING_APPROVED=False`.
