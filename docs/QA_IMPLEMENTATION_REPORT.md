@@ -197,6 +197,68 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 
+## Phase 39C Paper Risk Clearance Matching Update
+
+Status: PASS. Verification: `py -m pytest -q` completed successfully.
+
+Integrated in Phase 39C:
+
+- Added canonical paper-risk profile matching for `BALANCED_STABLE_MICRO`.
+- Added fallback inference for `balanced_stable_micro.ini` when the INI lacks an explicit profile key.
+- Added `paper-risk-clearance-check` to report requested profile, cleared profile, stale state and mismatch reason.
+- Repaired `paper-risk-status` so a valid micro clearance with a micro profile config returns `PAPER_RISK_CLEAR_FOR_MICRO_SHADOW`.
+- Preserved fail-closed behavior for `BALANCED_STABLE`, stale clearances and mismatched profiles.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
+## Phase 39B Paper Risk Manual Review Update
+
+Status: PASS for focused phase tests. Verification: `py -m pytest -q tests/python/test_phase39b_paper_risk_review.py tests/python/test_phase39_paper_risk_calibration.py`.
+
+Integrated in Phase 39B:
+
+- Added `paper_risk_review` package with drawdown halt loading, manual review gate, clearance ledger and micro resume guard.
+- Added CLI modes `paper-risk-review` and `paper-risk-clearance`.
+- `paper-risk-status` can consume `--clearance-ledger` and returns `PAPER_RISK_CLEAR_FOR_MICRO_SHADOW` only for valid `BALANCED_STABLE_MICRO` clearance.
+- `forward-shadow --signal-profile BALANCED_STABLE_MICRO` now requires `--paper-risk-clearance` and fails closed when missing, mismatched or stale.
+- Forward evidence, dashboard and daily report expose paper risk clearance status and stale flags.
+- Added Windows scripts for review, clearance and cleared micro forward-shadow.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
+## Phase 39 Paper Risk Calibration Update
+
+Status: PASS for focused phase tests. Verification: `py -m pytest -q tests/python/test_phase39_paper_risk_calibration.py`.
+
+Integrated in Phase 39:
+
+- Added `paper_risk_calibration` package with paper drawdown audit, micro budget, paper trade limit policy, report writer and acceptance helper.
+- Added CLI modes `paper-risk-audit`, `build-paper-risk-profile`, and `paper-risk-status`.
+- Added `BALANCED_STABLE_MICRO` as a paper/shadow-only profile requiring explicit profile config and stable gate.
+- Forward-shadow now checks paper-only limits before opening a paper trade and audits `PAPER_*_BLOCK` reasons.
+- Forward evidence, operator dashboard and daily operator report expose paper risk status and safer-profile recommendations.
+- Added Windows scripts for paper risk audit, micro profile build, paper risk status, and micro forward-shadow launch.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
 ## Phase 38 Telemetry Timestamp Repair
 
 Status: PASS. Verification: `py -m pytest -q` completed successfully.

@@ -159,6 +159,56 @@ py -m agi_style_forex_bot_mt5.cli --mode paper-close-all --sqlite data\sqlite\fo
 
 `paper-close-all` never touches MT5 positions, never calls `order_send`, and never calls `order_check`.
 
+## Paper Risk Calibration And Micro Profile
+
+Repeated `PAPER_DAILY_DRAWDOWN_HALT` is not ignored. It means the paper/shadow observation size or frequency is too aggressive for collecting stable evidence. Run the offline paper risk audit before resuming:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\paper_risk
+
+py -m agi_style_forex_bot_mt5.cli --mode build-paper-risk-profile --base-profile BALANCED_STABLE --risk-audit-dir data\reports\paper_risk --output-dir data\reports\paper_risk
+
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-status --sqlite data\sqlite\forward-shadow-stable.sqlite3 --profile-config data\reports\paper_risk\balanced_stable_micro.ini --output-dir data\reports\paper_risk
+```
+
+`BALANCED_STABLE_MICRO` keeps the stable strategy filters but reduces paper size, limits open paper trades, limits daily paper entries, adds cooldown after paper losses, blocks auto-resume after drawdown halts and requires manual review. It is `PAPER_ONLY=true`, `NOT_FOR_DEMO_LIVE=true`, and requires both stable gate and explicit `--profile-config`.
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode forward-shadow --symbols EURUSD,GBPUSD,USDJPY --signal-profile BALANCED_STABLE_MICRO --profile-config data\reports\paper_risk\balanced_stable_micro.ini --stable-gate data\reports\stable_gate\stable_gate_summary.json --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --cycle-seconds 30
+```
+
+Paper risk blocks are audited as `PAPER_RISK_LIMIT_BLOCK`, `PAPER_MAX_OPEN_TRADES_BLOCK`, `PAPER_DAILY_TRADE_LIMIT_BLOCK`, `PAPER_COOLDOWN_BLOCK` or `PAPER_DRAWDOWN_HALT_BLOCK`. None of these change demo/live settings or call broker order functions.
+
+## Manual Clearance After Paper Drawdown Halt
+
+`PAPER_DAILY_DRAWDOWN_HALT` requires explicit operator review before `BALANCED_STABLE_MICRO` may resume opening new paper entries. The clearance is a ledger; it does not delete logs, reset PnL, rewrite SQLite, or authorize demo/live execution.
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-review --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --paper-risk-dir data\reports\paper_risk --output-dir data\reports\paper_risk_review
+
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-clearance --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --paper-risk-dir data\reports\paper_risk --output-dir data\reports\paper_risk_review --reason "Manual review after PAPER_DAILY_DRAWDOWN_HALT; resume only with BALANCED_STABLE_MICRO"
+
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-status --sqlite data\sqlite\forward-shadow-stable.sqlite3 --profile-config data\reports\paper_risk\balanced_stable_micro.ini --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --output-dir data\reports\paper_risk
+```
+
+After clearance, resume shadow state deliberately, then run the cleared micro script:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode resume-shadow --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reason "manual resume after paper risk clearance"
+
+py -m agi_style_forex_bot_mt5.cli --mode forward-shadow --symbols EURUSD,GBPUSD,USDJPY --signal-profile BALANCED_STABLE_MICRO --profile-config data\reports\paper_risk\balanced_stable_micro.ini --stable-gate data\reports\stable_gate\stable_gate_summary.json --paper-risk-clearance data\reports\paper_risk_review\paper_risk_clearance_ledger.json --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --cycle-seconds 30
+```
+
+If a new halt appears after the clearance, the ledger becomes stale and forward-shadow fails closed with `PAPER_RISK_CLEARANCE_STALE`.
+
+Phase 39C adds an explicit profile matching check for the clearance ledger. Use it before resuming if `paper-risk-status` reports `PAPER_RISK_CLEARANCE_PROFILE_MISMATCH`:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-clearance-check --profile BALANCED_STABLE_MICRO --profile-config data\reports\paper_risk\balanced_stable_micro.ini --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --output-dir data\reports\paper_risk_review
+```
+
+The matcher normalizes `BALANCED_STABLE_MICRO`, `balanced_stable_micro`, and `Balanced Stable Micro` to the same canonical profile. If an older `balanced_stable_micro.ini` lacks an explicit profile key, the profile can be inferred from the config path and the report will include `PROFILE_INFERRED_FROM_CONFIG_PATH`. This clearance still applies only to `BALANCED_STABLE_MICRO`; `BALANCED_STABLE` remains blocked after a paper drawdown halt.
+
 Forward-shadow also emits diagnostic events per evaluated candidate:
 
 - `FORWARD_CANDIDATE_EVALUATED`

@@ -125,3 +125,32 @@ Forward evidence now includes signal scarcity context when `data/reports/forward
 - `recommended_signal_diagnosis_action`
 
 Use this when evidence shows many healthy cycles but zero signals. A lack of trades is not automatically a bug; the diagnostics separate "no setup yet" from data, feature, filter, spread, or threshold problems.
+
+## Paper Risk Evidence
+
+Phase 39 adds paper risk fields to forward evidence when `data\reports\paper_risk` exists:
+
+- `paper_risk_status`
+- `paper_risk_profile`
+- `paper_risk_blocks`
+- `paper_risk_acceptance_clear`
+
+If repeated paper drawdown halts occur, run:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\paper_risk
+py -m agi_style_forex_bot_mt5.cli --mode build-paper-risk-profile --base-profile BALANCED_STABLE --risk-audit-dir data\reports\paper_risk --output-dir data\reports\paper_risk
+```
+
+`BALANCED_STABLE_MICRO` is a safer paper observation profile. It reduces paper risk and frequency, but remains `NOT_FOR_DEMO_LIVE=true` and does not affect broker execution.
+
+## Paper Risk Clearance Evidence
+
+Forward evidence and operator reports include manual clearance fields when present:
+
+- `paper_risk_clearance_status`
+- `paper_risk_clearance_id`
+- `cleared_for_profile`
+- `clearance_stale`
+
+The clearance ledger lives at `data\reports\paper_risk_review\paper_risk_clearance_ledger.json`. It is valid only if it was created after the latest paper drawdown halt and only for `BALANCED_STABLE_MICRO` paper/shadow. A stale or missing ledger must block micro forward-shadow before MT5 runtime begins.

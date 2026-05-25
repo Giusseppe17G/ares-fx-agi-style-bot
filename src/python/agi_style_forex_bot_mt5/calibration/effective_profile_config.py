@@ -34,7 +34,7 @@ def effective_profile_config(profile_name: str, *, source: str = "canonical", pr
     profile = get_signal_profile(profile_name)
     thresholds = thresholds_from_profile(profile)
     filters = _stable_filters(profile.name, profile_config)
-    if profile.name == "BALANCED_STABLE" and filters.get("min_setup_score_stable") is not None:
+    if profile.name in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"} and filters.get("min_setup_score_stable") is not None:
         thresholds["min_setup_score"] = float(filters["min_setup_score_stable"])
     payload = {
         "profile_name": profile.name,
@@ -77,7 +77,7 @@ def _profile_allowed_for_shadow(profile: SignalProfileSettings) -> bool:
 
 
 def _stable_filters(profile_name: str, profile_config: str | Path | None) -> dict[str, Any]:
-    if profile_name != "BALANCED_STABLE":
+    if profile_name not in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"}:
         return {}
     values = _read_simple_ini(Path(profile_config)) if profile_config else {}
     return {
@@ -89,6 +89,14 @@ def _stable_filters(profile_name: str, profile_config: str | Path | None) -> dic
         "min_setup_score_stable": _number(values.get("MIN_SETUP_SCORE_STABLE", "")),
         "profile_type": values.get("PROFILE_TYPE", "RESEARCH_BACKTEST_ONLY"),
         "requires_robustness_rerun": _bool_value(values.get("REQUIRES_ROBUSTNESS_RERUN", "true")),
+        "paper_only": _bool_value(values.get("PAPER_ONLY", "false")),
+        "paper_risk_multiplier": _number(values.get("PAPER_RISK_MULTIPLIER", "")),
+        "max_open_paper_trades": _number(values.get("MAX_OPEN_PAPER_TRADES", "")),
+        "max_paper_trades_per_day": _number(values.get("MAX_PAPER_TRADES_PER_DAY", "")),
+        "cooldown_after_loss_minutes": _number(values.get("COOLDOWN_AFTER_LOSS_MINUTES", "")),
+        "cooldown_after_drawdown_halt_minutes": _number(values.get("COOLDOWN_AFTER_DRAWDOWN_HALT_MINUTES", "")),
+        "block_new_entries_after_daily_halt": _bool_value(values.get("BLOCK_NEW_ENTRIES_AFTER_DAILY_HALT", "false")),
+        "manual_resume_required": _bool_value(values.get("MANUAL_RESUME_REQUIRED", "false")),
     }
 
 

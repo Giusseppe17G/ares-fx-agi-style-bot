@@ -16,6 +16,8 @@ from agi_style_forex_bot_mt5.mt5_data_bot import MT5DataOnlyBot
 from agi_style_forex_bot_mt5.ml import MLFilter
 from agi_style_forex_bot_mt5.ml.prediction_audit import audit_ml_prediction
 from agi_style_forex_bot_mt5.observability import AlertRuleEngine, DailySummary, HeartbeatWriter, MetricsCollector
+from agi_style_forex_bot_mt5.paper_risk_calibration import evaluate_paper_trade_limits
+from agi_style_forex_bot_mt5.paper_risk_review import validate_micro_resume_clearance
 from agi_style_forex_bot_mt5.portfolio import DynamicRiskAllocator, PortfolioGuard, SignalRanker
 from agi_style_forex_bot_mt5.persistence import RecoveryManager
 from agi_style_forex_bot_mt5.risk import RiskRuntimeState
@@ -474,6 +476,26 @@ class ForwardShadowBot:
                     portfolio_decision=portfolio_decision.to_dict(),
                     dynamic_risk=dynamic_decision.to_dict(),
                 )
+                paper_guard = self._paper_risk_guard()
+                self._audit("PAPER_RISK_DECISION", Severity.INFO if paper_guard.get("can_open_new_paper_trade") else Severity.WARNING, paper_guard, symbol=resolution.canonical_symbol)
+                if not paper_guard.get("can_open_new_paper_trade"):
+                    self._audit(
+                        _paper_risk_event_type(str(paper_guard.get("blocking_reason", ""))),
+                        Severity.WARNING,
+                        paper_guard,
+                        symbol=resolution.canonical_symbol,
+                        notify=True,
+                    )
+                    continue
+                paper_multiplier = max(0.0, min(1.0, float(getattr(self.config, "paper_risk_multiplier", 1.0) or 1.0)))
+                if paper_multiplier < 1.0:
+                    risk_decision = self._adjust_risk_decision(
+                        risk_decision,
+                        multiplier=paper_multiplier,
+                        effective_risk_pct=risk_pct * dynamic_decision.risk_multiplier * paper_multiplier,
+                        portfolio_decision=portfolio_decision.to_dict(),
+                        dynamic_risk={**dynamic_decision.to_dict(), "paper_risk_multiplier": paper_multiplier, "risk_profile_used": getattr(self.config, "risk_profile_used", "")},
+                    )
                 before = self.database.count_rows("paper_trades")
                 trade = self.manager.open_trade(
                     signal=trade_signal,
@@ -536,15 +558,17 @@ class ForwardShadowBot:
         }
 
     def _decorate_stable_trade(self, trade: PaperTrade, strategy_signal: Any, features: Mapping[str, Any]) -> PaperTrade:
-        if self.config.signal_profile != "BALANCED_STABLE":
+        if self.config.signal_profile not in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"}:
             return trade
-        effective = effective_profile_config("BALANCED_STABLE", source="forward-shadow", profile_config=self.config.profile_config or None)
+        effective = effective_profile_config(self.config.signal_profile, source="forward-shadow", profile_config=self.config.profile_config or None)
         metadata = {
             **dict(trade.metadata),
-            "profile": "BALANCED_STABLE",
-            "signal_profile_used": "BALANCED_STABLE",
+            "profile": self.config.signal_profile,
+            "signal_profile_used": self.config.signal_profile,
             "stable_profile_hash": effective.profile_hash,
             "stable_filters_applied": bool(effective.filters.get("apply_stability_filters", False)),
+            "risk_profile_used": getattr(self.config, "risk_profile_used", "") or self.config.signal_profile,
+            "paper_risk_multiplier": getattr(self.config, "paper_risk_multiplier", 1.0),
             "stable_gate_decision": self.stable_gate_decision,
             "stable_gate_confirmed": self.stable_gate_confirmed,
             "setup_score": strategy_signal.metadata.get("setup_score", strategy_signal.score),
@@ -557,6 +581,40 @@ class ForwardShadowBot:
         self.database.update_paper_trade(updated.to_dict())
         self.database.insert_paper_trade_event(updated.paper_trade_id, "STABLE_PROFILE_METADATA_ATTACHED", updated.to_dict())
         return updated
+
+    def _paper_risk_guard(self) -> dict[str, Any]:
+        if self.config.signal_profile != "BALANCED_STABLE_MICRO":
+            return {
+                "paper_risk_status": "PAPER_RISK_NOT_APPLIED",
+                "paper_risk_profile": self.config.signal_profile,
+                "can_open_new_paper_trade": True,
+                "blocking_reason": "",
+                "execution_attempted": False,
+                "order_send_called": False,
+                "order_check_called": False,
+            }
+        status = evaluate_paper_trade_limits(database=self.database, profile_config=self.config.profile_config or None)
+        if status.get("blocking_reason") == "PAPER_DRAWDOWN_HALT_BLOCK" and getattr(self.config, "paper_risk_clearance", ""):
+            clearance = validate_micro_resume_clearance(
+                database=self.database,
+                clearance_ledger=getattr(self.config, "paper_risk_clearance", ""),
+                profile=self.config.signal_profile,
+                profile_config=self.config.profile_config or None,
+            )
+            if clearance.get("accepted"):
+                status.update(
+                    {
+                        "paper_risk_status": "PAPER_RISK_CLEAR_FOR_MICRO_SHADOW",
+                        "can_open_new_paper_trade": True,
+                        "blocking_reason": "",
+                        "manual_review_required": False,
+                        "cleared_profile": "BALANCED_STABLE_MICRO",
+                        "paper_risk_clearance_status": clearance.get("paper_risk_clearance_status"),
+                        "paper_risk_clearance_id": clearance.get("paper_risk_clearance_id"),
+                        "paper_risk_profile": "BALANCED_STABLE_MICRO",
+                    }
+                )
+        return status
 
     def _forward_candidate_payload(self, symbol: str, strategy_signal: Any, features: Mapping[str, Any]) -> dict[str, Any]:
         effective = effective_profile_config(self.config.signal_profile, source="forward-shadow", profile_config=self.config.profile_config or None)
@@ -652,7 +710,7 @@ class ForwardShadowBot:
             self._audit("SYMBOL_REJECTED", Severity.WARNING, check.payload, symbol=canonical_symbol)
             return None
         if check.payload.get("timestamp_normalized"):
-            event_type = "STABLE_TICK_TIME_NORMALIZED" if self.config.signal_profile == "BALANCED_STABLE" else "TICK_TIME_NORMALIZED"
+            event_type = "STABLE_TICK_TIME_NORMALIZED" if self.config.signal_profile in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"} else "TICK_TIME_NORMALIZED"
             self._audit(
                 event_type,
                 Severity.INFO,
@@ -728,3 +786,9 @@ def _next_recommended_command(reason: str) -> str:
     if reason == "ALL_SYMBOLS_REJECTED":
         return "py -m agi_style_forex_bot_mt5.cli --mode mt5-diagnose --symbols EURUSD,GBPUSD,USDJPY --sqlite data\\sqlite\\mt5-diagnose.sqlite3"
     return ""
+
+
+def _paper_risk_event_type(reason: str) -> str:
+    if reason in {"PAPER_MAX_OPEN_TRADES_BLOCK", "PAPER_DAILY_TRADE_LIMIT_BLOCK", "PAPER_COOLDOWN_BLOCK", "PAPER_DRAWDOWN_HALT_BLOCK"}:
+        return reason
+    return "PAPER_RISK_LIMIT_BLOCK"

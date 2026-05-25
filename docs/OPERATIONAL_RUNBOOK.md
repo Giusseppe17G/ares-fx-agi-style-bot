@@ -363,3 +363,47 @@ py -m agi_style_forex_bot_mt5.cli --mode telemetry-acceptance-policy --sqlite da
 ```
 
 `telemetry_quarantine_ledger.json` records the review decision, raw-value hash and source. It is a ledger, not a data rewrite. After `telemetry_status=TELEMETRY_HISTORICAL_QUARANTINED` and `telemetry_acceptance_clear=true`, rerun `forward-acceptance`; any remaining block should come from current operational criteria such as drawdown, drift, hours observed, closed paper trades, paper audit or execution evidence.
+
+# Phase 39 Paper Risk Calibration
+
+Do not keep resuming after repeated `PAPER_DAILY_DRAWDOWN_HALT`. First run:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\paper_risk
+py -m agi_style_forex_bot_mt5.cli --mode build-paper-risk-profile --base-profile BALANCED_STABLE --risk-audit-dir data\reports\paper_risk --output-dir data\reports\paper_risk
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-status --sqlite data\sqlite\forward-shadow-stable.sqlite3 --profile-config data\reports\paper_risk\balanced_stable_micro.ini --output-dir data\reports\paper_risk
+```
+
+Use `BALANCED_STABLE_MICRO` only for paper/shadow observation:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode forward-shadow --symbols EURUSD,GBPUSD,USDJPY --signal-profile BALANCED_STABLE_MICRO --profile-config data\reports\paper_risk\balanced_stable_micro.ini --stable-gate data\reports\stable_gate\stable_gate_summary.json --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --cycle-seconds 30
+```
+
+If `paper-risk-status` says `PAPER_RISK_BLOCKED`, do not resume blindly. Inspect the `blocking_reason`: max open trades, daily trade limit, cooldown, or paper drawdown halt. These are paper-only controls and do not authorize demo/live execution.
+
+## Phase 39B Paper Risk Clearance
+
+When the block is `PAPER_DRAWDOWN_HALT_BLOCK`, create a formal manual review before any micro resume:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-review --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --paper-risk-dir data\reports\paper_risk --output-dir data\reports\paper_risk_review
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-clearance --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --paper-risk-dir data\reports\paper_risk --output-dir data\reports\paper_risk_review --reason "Manual review after PAPER_DAILY_DRAWDOWN_HALT; resume only with BALANCED_STABLE_MICRO"
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-status --sqlite data\sqlite\forward-shadow-stable.sqlite3 --profile-config data\reports\paper_risk\balanced_stable_micro.ini --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --output-dir data\reports\paper_risk
+```
+
+Clearance requires zero open paper trades, clean or false-positive-only execution evidence, telemetry acceptance clear, an existing `balanced_stable_micro.ini`, and a `PAPER_SHADOW_READY` stable gate. It clears only `BALANCED_STABLE_MICRO` for paper/shadow. `BALANCED_STABLE` remains blocked by the halt, and demo/live stays prohibited.
+
+If profile matching looks wrong, run the Phase 39C check:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-risk-clearance-check --profile BALANCED_STABLE_MICRO --profile-config data\reports\paper_risk\balanced_stable_micro.ini --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --output-dir data\reports\paper_risk_review
+```
+
+The check reports the requested profile, canonical requested profile, cleared profile, canonical cleared profile, stale status, and mismatch reason. It treats casing and spaces safely, but it never lets a micro clearance unblock the normal `BALANCED_STABLE` profile.
+
+Forward-shadow micro now requires the ledger:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode forward-shadow --symbols EURUSD,GBPUSD,USDJPY --signal-profile BALANCED_STABLE_MICRO --profile-config data\reports\paper_risk\balanced_stable_micro.ini --stable-gate data\reports\stable_gate\stable_gate_summary.json --paper-risk-clearance data\reports\paper_risk_review\paper_risk_clearance_ledger.json --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --cycle-seconds 30
+```

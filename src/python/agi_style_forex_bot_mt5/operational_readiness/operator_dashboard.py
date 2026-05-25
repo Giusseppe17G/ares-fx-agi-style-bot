@@ -33,6 +33,8 @@ def run_operator_dashboard(
     evidence = _load_json(reports / "forward_evidence" / "evidence_summary.json")
     execution_evidence = _load_json(reports / "execution_evidence" / "execution_evidence_summary.json")
     telemetry_repair = _load_json(reports / "telemetry_repair" / "telemetry_timestamp_summary.json")
+    paper_risk = _load_json(reports / "paper_risk" / "paper_risk_status.json") or _load_json(reports / "paper_risk" / "paper_risk_summary.json")
+    clearance = _load_json(reports / "paper_risk_review" / "paper_risk_clearance_summary.json")
     diagnostics = _load_json(reports / "forward_diagnostics" / "signal_scarcity_summary.json")
     stable_gate = _load_json(reports / "stable_gate" / "stable_gate_summary.json")
     health = database.get_latest_health()
@@ -65,6 +67,14 @@ def run_operator_dashboard(
         "active_timestamp_issues": int(telemetry_repair.get("active_blocking_count", evidence.get("active_telemetry_blocking_count", 0)) or 0),
         "quarantined_historical_timestamp_issues": int(telemetry_repair.get("quarantined_count", evidence.get("telemetry_quarantined_count", 0)) or 0),
         "telemetry_next_action": telemetry_repair.get("recommended_action", ""),
+        "paper_risk_status": paper_risk.get("paper_risk_status", evidence.get("paper_risk_status", "")),
+        "can_open_new_paper_trade": bool(paper_risk.get("can_open_new_paper_trade", evidence.get("paper_risk_acceptance_clear", False))),
+        "latest_paper_risk_block": paper_risk.get("blocking_reason", (evidence.get("paper_risk_blocks") or [""])[0] if isinstance(evidence.get("paper_risk_blocks"), list) and evidence.get("paper_risk_blocks") else ""),
+        "recommended_safer_profile": paper_risk.get("recommended_safer_profile", "BALANCED_STABLE_MICRO" if paper_risk.get("paper_risk_status") not in {"", "PAPER_RISK_OK"} else ""),
+        "paper_risk_clearance_status": clearance.get("paper_risk_clearance_status", evidence.get("paper_risk_clearance_status", "")),
+        "paper_risk_clearance_id": clearance.get("clearance_id", evidence.get("paper_risk_clearance_id", "")),
+        "cleared_for_profile": clearance.get("cleared_for_profile", evidence.get("cleared_for_profile", "")),
+        "clearance_stale": bool(evidence.get("clearance_stale", False)),
         "critical_alerts_recent": _critical_alerts(health),
         "recommended_next_action": next_action,
         "log_dir": str(log_dir),
@@ -99,6 +109,8 @@ def run_daily_operator_report(
     diagnostics = _load_json(reports / "forward_diagnostics" / "signal_scarcity_summary.json")
     evidence = _load_json(reports / "forward_evidence" / "evidence_summary.json")
     telemetry_repair = _load_json(reports / "telemetry_repair" / "telemetry_timestamp_summary.json")
+    paper_risk = _load_json(reports / "paper_risk" / "paper_risk_status.json") or _load_json(reports / "paper_risk" / "paper_risk_summary.json")
+    clearance = _load_json(reports / "paper_risk_review" / "paper_risk_clearance_summary.json")
     health = database.get_latest_health()
     top_blockers = diagnostics.get("top_blockers", [])
     critical_alerts = _critical_alerts(health)
@@ -121,6 +133,14 @@ def run_daily_operator_report(
         "telemetry_acceptance_clear": bool(telemetry_repair.get("telemetry_acceptance_clear", evidence.get("telemetry_acceptance_clear", False))),
         "active_timestamp_issues": int(telemetry_repair.get("active_blocking_count", evidence.get("active_telemetry_blocking_count", 0)) or 0),
         "quarantined_historical_timestamp_issues": int(telemetry_repair.get("quarantined_count", evidence.get("telemetry_quarantined_count", 0)) or 0),
+        "paper_risk_status": paper_risk.get("paper_risk_status", evidence.get("paper_risk_status", "")),
+        "can_open_new_paper_trade": bool(paper_risk.get("can_open_new_paper_trade", evidence.get("paper_risk_acceptance_clear", False))),
+        "latest_paper_risk_block": paper_risk.get("blocking_reason", (evidence.get("paper_risk_blocks") or [""])[0] if isinstance(evidence.get("paper_risk_blocks"), list) and evidence.get("paper_risk_blocks") else ""),
+        "recommended_safer_profile": paper_risk.get("recommended_safer_profile", "BALANCED_STABLE_MICRO" if paper_risk.get("paper_risk_status") not in {"", "PAPER_RISK_OK"} else ""),
+        "paper_risk_clearance_status": clearance.get("paper_risk_clearance_status", evidence.get("paper_risk_clearance_status", "")),
+        "paper_risk_clearance_id": clearance.get("clearance_id", evidence.get("paper_risk_clearance_id", "")),
+        "cleared_for_profile": clearance.get("cleared_for_profile", evidence.get("cleared_for_profile", "")),
+        "clearance_stale": bool(evidence.get("clearance_stale", False)),
         "critical_alerts_recent": critical_alerts,
         "recommended_action": _daily_action(classification, state, paper),
         "commands_to_run_next": commands,
@@ -191,7 +211,7 @@ def _dashboard_checks(
 ) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
     for name, source in sources.items():
-        severity = "WARNING" if name in {"forward_evidence", "forward_diagnostics", "paper_state"} else "FAIL"
+        severity = "WARNING" if name in {"forward_evidence", "forward_diagnostics", "paper_state", "paper_risk"} else "FAIL"
         checks.append(
             {
                 "check_name": f"source_{name}",
@@ -316,6 +336,16 @@ def _dashboard_html(
             "active_timestamp_issues": summary.get("active_timestamp_issues"),
             "quarantined_historical_timestamp_issues": summary.get("quarantined_historical_timestamp_issues"),
             "telemetry_next_action": summary.get("telemetry_next_action"),
+        },
+        "Paper Risk": {
+            "paper_risk_status": summary.get("paper_risk_status"),
+            "can_open_new_paper_trade": summary.get("can_open_new_paper_trade"),
+            "latest_paper_risk_block": summary.get("latest_paper_risk_block"),
+            "recommended_safer_profile": summary.get("recommended_safer_profile"),
+            "paper_risk_clearance_status": summary.get("paper_risk_clearance_status"),
+            "paper_risk_clearance_id": summary.get("paper_risk_clearance_id"),
+            "cleared_for_profile": summary.get("cleared_for_profile"),
+            "clearance_stale": summary.get("clearance_stale"),
         },
         "Diagnostics": diagnostics or {"status": "MISSING"},
         "EC2 Readiness": {"ec2_readiness_status": summary.get("ec2_readiness_status"), "ec2_deployment_pack_status": summary.get("ec2_deployment_pack_status")},

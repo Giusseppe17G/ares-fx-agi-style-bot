@@ -9,6 +9,7 @@ from typing import Any, Mapping
 import pandas as pd
 
 from agi_style_forex_bot_mt5.execution_evidence import run_execution_evidence_audit
+from agi_style_forex_bot_mt5.paper_risk_calibration import run_paper_risk_status
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 from agi_style_forex_bot_mt5.telemetry_repair import run_telemetry_timestamp_audit
 
@@ -57,6 +58,15 @@ def run_forward_evidence(
         reports_root=reports_root,
         output_dir=Path(reports_root) / "telemetry_repair",
     )
+    paper_risk = run_paper_risk_status(
+        database=database,
+        profile_config=_paper_risk_profile_config(Path(reports_root)),
+        clearance_ledger=_paper_risk_clearance_ledger(Path(reports_root)),
+        log_dir=log_dir,
+        reports_root=reports_root,
+        paper_risk_dir=Path(reports_root) / "paper_risk",
+        output_dir=Path(reports_root) / "paper_risk",
+    )
     acceptance = decide_operational_acceptance(
         evidence=evidence,
         metrics=metrics,
@@ -87,6 +97,14 @@ def run_forward_evidence(
         "telemetry_acceptance_clear": telemetry_summary.get("telemetry_acceptance_clear", False),
         "telemetry_policy_reason": telemetry_summary.get("telemetry_policy_reason", ""),
         "telemetry_report_path": telemetry_summary.get("telemetry_report_path", ""),
+        "paper_risk_status": paper_risk.get("paper_risk_status", ""),
+        "paper_risk_profile": paper_risk.get("paper_risk_profile", ""),
+        "paper_risk_blocks": [paper_risk.get("blocking_reason")] if paper_risk.get("blocking_reason") else [],
+        "paper_risk_acceptance_clear": paper_risk.get("paper_risk_acceptance_clear", False),
+        "paper_risk_clearance_status": paper_risk.get("paper_risk_clearance_status", ""),
+        "paper_risk_clearance_id": paper_risk.get("paper_risk_clearance_id", ""),
+        "cleared_for_profile": paper_risk.get("cleared_for_profile", ""),
+        "clearance_stale": paper_risk.get("clearance_stale", False),
         "evidence_parse_status": evidence.get("evidence_parse_status", "OK"),
         "invalid_timestamp_count": evidence.get("invalid_timestamp_count", 0),
         "invalid_timestamp_fields": evidence.get("invalid_timestamp_fields", {}),
@@ -181,6 +199,16 @@ def _load_json(path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def _paper_risk_profile_config(reports_root: Path) -> Path | None:
+    candidate = reports_root / "paper_risk" / "balanced_stable_micro.ini"
+    return candidate if candidate.exists() else None
+
+
+def _paper_risk_clearance_ledger(reports_root: Path) -> Path | None:
+    candidate = reports_root / "paper_risk_review" / "paper_risk_clearance_ledger.json"
+    return candidate if candidate.exists() else None
 
 
 def _jsonable(value: Any) -> Any:

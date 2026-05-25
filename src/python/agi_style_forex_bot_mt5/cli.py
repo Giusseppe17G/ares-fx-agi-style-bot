@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from .bot import ShadowDemoBot
@@ -48,6 +48,8 @@ from .paper_trading import (
     resume_shadow,
     write_stable_shadow_daily_report,
 )
+from .paper_risk_calibration import build_paper_risk_profile, run_paper_risk_audit, run_paper_risk_status
+from .paper_risk_review import run_paper_risk_clearance, run_paper_risk_clearance_check, run_paper_risk_review, validate_micro_resume_clearance
 from .persistence import (
     check_db_health,
     compact_jsonl_logs,
@@ -162,6 +164,12 @@ def main(argv: list[str] | None = None) -> int:
             "telemetry-acceptance-policy",
             "paper-open-trades",
             "paper-state-report",
+            "paper-risk-audit",
+            "build-paper-risk-profile",
+            "paper-risk-status",
+            "paper-risk-review",
+            "paper-risk-clearance",
+            "paper-risk-clearance-check",
             "paper-close-all",
             "pause-shadow",
             "resume-shadow",
@@ -250,6 +258,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile-runs-dir", type=Path, default=Path("data/reports/profile_runs"), help="Profile comparison report directory.")
     parser.add_argument("--robustness-dir", type=Path, default=Path("data/reports/robustness"), help="Robustness fast-track report directory.")
     parser.add_argument("--stability-dir", type=Path, default=Path("data/reports/stability_repair"), help="Stability repair report directory.")
+    parser.add_argument("--risk-audit-dir", type=Path, default=Path("data/reports/paper_risk"), help="Paper risk audit report directory.")
+    parser.add_argument("--paper-risk-dir", type=Path, default=Path("data/reports/paper_risk"), help="Paper risk report directory.")
+    parser.add_argument("--clearance-ledger", type=Path, default=None, help="Paper risk clearance ledger for paper-risk-status.")
+    parser.add_argument("--paper-risk-clearance", type=Path, default=None, help="Paper risk clearance ledger required by BALANCED_STABLE_MICRO forward-shadow.")
     parser.add_argument("--trades", type=Path, default=None, help="Trades CSV for monte-carlo.")
     parser.add_argument("--dataset", type=Path, default=None, help="ML dataset CSV for train-ml-filter.")
     parser.add_argument("--model-dir", type=Path, default=Path("data/models/ml_filter"), help="ML model registry directory.")
@@ -282,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile", default="BALANCED", help="Signal profile for apply-signal-profile.")
     parser.add_argument(
         "--signal-profile",
-        choices=["CONSERVATIVE", "BALANCED", "BALANCED_FILTERED", "BALANCED_STABLE", "ACTIVE", "RESEARCH_ONLY"],
+        choices=["CONSERVATIVE", "BALANCED", "BALANCED_FILTERED", "BALANCED_STABLE", "BALANCED_STABLE_MICRO", "ACTIVE", "RESEARCH_ONLY"],
         default="",
         help="Research/backtest signal profile overlay.",
     )
@@ -317,6 +329,10 @@ def main(argv: list[str] | None = None) -> int:
         "telemetry-acceptance-policy",
         "paper-open-trades",
         "paper-state-report",
+        "paper-risk-audit",
+            "paper-risk-status",
+            "paper-risk-review",
+            "paper-risk-clearance",
         "paper-close-all",
         "pause-shadow",
         "resume-shadow",
@@ -688,6 +704,62 @@ def main(argv: list[str] | None = None) -> int:
             print(_json_dumps(build_paper_state_report(database=database, log_dir=args.log_dir, output_dir=output_dir)))
             return 0
 
+        if args.mode == "paper-risk-audit":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_risk")
+            print(_json_dumps(run_paper_risk_audit(database=database, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=output_dir)))
+            return 0
+
+        if args.mode == "build-paper-risk-profile":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_risk")
+            print(_json_dumps(build_paper_risk_profile(base_profile=args.base_profile, risk_audit_dir=args.risk_audit_dir, output_dir=output_dir)))
+            return 0
+
+        if args.mode == "paper-risk-status":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_risk")
+            print(
+                _json_dumps(
+                    run_paper_risk_status(
+                        database=database,
+                        profile_config=args.profile_config,
+                        clearance_ledger=args.clearance_ledger,
+                        profile_name="" if args.profile == "BALANCED" else args.profile,
+                        log_dir=args.log_dir,
+                        reports_root=args.reports_root,
+                        paper_risk_dir=args.paper_risk_dir,
+                        output_dir=output_dir,
+                    )
+                )
+            )
+            return 0
+
+        if args.mode == "paper-risk-review":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_risk_review")
+            print(_json_dumps(run_paper_risk_review(database=database, log_dir=args.log_dir, reports_root=args.reports_root, paper_risk_dir=args.paper_risk_dir, output_dir=output_dir)))
+            return 0
+
+        if args.mode == "paper-risk-clearance":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_risk_review")
+            print(_json_dumps(run_paper_risk_clearance(database=database, reason=args.reason, log_dir=args.log_dir, reports_root=args.reports_root, paper_risk_dir=args.paper_risk_dir, output_dir=output_dir)))
+            return 0
+
+        if args.mode == "paper-risk-clearance-check":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_risk_review")
+            print(
+                _json_dumps(
+                    run_paper_risk_clearance_check(
+                        profile="" if args.profile == "BALANCED" else args.profile,
+                        profile_config=args.profile_config,
+                        clearance_ledger=args.clearance_ledger,
+                        output_dir=output_dir,
+                    )
+                )
+            )
+            return 0
+
         if args.mode == "paper-close-all":
             assert database is not None
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_state")
@@ -943,16 +1015,30 @@ def main(argv: list[str] | None = None) -> int:
                 parser.error("--mode forward-shadow requires --sqlite for paper lifecycle persistence")
             if args.signal_profile:
                 config = bot_config_with_signal_profile(config, args.signal_profile, str(args.profile_config) if args.profile_config else "")
-            if config.signal_profile == "BALANCED_STABLE":
+            if config.signal_profile in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"}:
                 if not config.profile_config:
-                    print(_json_dumps(_stable_forward_block("STABLE_PROFILE_CONFIG_REQUIRED", "BALANCED_STABLE requires --profile-config", args.stable_gate)))
+                    print(_json_dumps(_stable_forward_block("STABLE_PROFILE_CONFIG_REQUIRED", f"{config.signal_profile} requires --profile-config", args.stable_gate, signal_profile=config.signal_profile)))
                     return 0
+                if config.signal_profile == "BALANCED_STABLE_MICRO":
+                    clearance = validate_micro_resume_clearance(
+                        database=database,
+                        clearance_ledger=args.paper_risk_clearance,
+                        profile=config.signal_profile,
+                        profile_config=config.profile_config,
+                        log_dir=args.log_dir,
+                        reports_root=args.reports_root,
+                        paper_risk_dir=args.paper_risk_dir,
+                    )
+                    if not clearance.get("accepted"):
+                        print(_json_dumps(_stable_forward_block(str(clearance.get("paper_risk_clearance_status") or "PAPER_RISK_CLEARANCE_REQUIRED"), str(clearance.get("reason") or "BALANCED_STABLE_MICRO requires valid paper risk clearance"), args.stable_gate, clearance, signal_profile=config.signal_profile)))
+                        return 0
+                    config = replace(config, paper_risk_clearance=str(args.paper_risk_clearance))
                 stable_gate = _stable_gate_status(args.stable_gate)
                 if not stable_gate["exists"]:
-                    print(_json_dumps(_stable_forward_block("STABLE_GATE_REQUIRED", "BALANCED_STABLE requires stable_gate_summary.json with PAPER_SHADOW_READY", args.stable_gate)))
+                    print(_json_dumps(_stable_forward_block("STABLE_GATE_REQUIRED", f"{config.signal_profile} requires stable_gate_summary.json with PAPER_SHADOW_READY", args.stable_gate, signal_profile=config.signal_profile)))
                     return 0
                 if not stable_gate["paper_shadow_ready"]:
-                    print(_json_dumps(_stable_forward_block("STABLE_PROFILE_NOT_READY", "stable gate is not PAPER_SHADOW_READY", args.stable_gate, stable_gate)))
+                    print(_json_dumps(_stable_forward_block("STABLE_PROFILE_NOT_READY", "stable gate is not PAPER_SHADOW_READY", args.stable_gate, stable_gate, signal_profile=config.signal_profile)))
                     return 0
             elif not profile_allowed_for_shadow(config.signal_profile):
                 parser.error(f"SIGNAL_PROFILE={config.signal_profile} is not allowed to create forward-shadow paper trades")
@@ -967,20 +1053,32 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 cycle_seconds=args.cycle_seconds,
                 max_cycles=args.max_cycles,
-                report_dir="data/reports/forward_shadow_stable" if config.signal_profile == "BALANCED_STABLE" else "data/reports/forward_shadow",
-                stable_gate_confirmed=config.signal_profile == "BALANCED_STABLE",
-                stable_gate_decision="PAPER_SHADOW_READY" if config.signal_profile == "BALANCED_STABLE" else "",
+                report_dir="data/reports/forward_shadow_stable" if config.signal_profile in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"} else "data/reports/forward_shadow",
+                stable_gate_confirmed=config.signal_profile in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"},
+                stable_gate_decision="PAPER_SHADOW_READY" if config.signal_profile in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"} else "",
             )
-            if config.signal_profile == "BALANCED_STABLE":
+            if config.signal_profile in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"}:
                 event = Event.create(
                     run_id="forward-shadow-stable",
                     environment=Environment.DEMO,
                     severity=Severity.INFO,
                     module="cli",
                     event_type="STABLE_GATE_CONFIRMED",
-                    message="BALANCED_STABLE stable gate confirmed for paper-shadow",
+                    message=f"{config.signal_profile} stable gate confirmed for paper-shadow",
                     correlation_id="forward-shadow-stable:stable-gate",
-                    payload={"stable_gate": str(args.stable_gate), "execution_attempted": False},
+                    payload={"stable_gate": str(args.stable_gate), "signal_profile_used": config.signal_profile, "execution_attempted": False},
+                )
+                database.insert_event(event)
+            if config.signal_profile == "BALANCED_STABLE_MICRO":
+                event = Event.create(
+                    run_id="forward-shadow-stable",
+                    environment=Environment.DEMO,
+                    severity=Severity.INFO,
+                    module="cli",
+                    event_type="PAPER_RISK_CLEARANCE_ACCEPTED",
+                    message="BALANCED_STABLE_MICRO paper risk clearance accepted",
+                    correlation_id="forward-shadow-stable:paper-risk-clearance",
+                    payload={"paper_risk_clearance": str(args.paper_risk_clearance), "signal_profile_used": config.signal_profile, "paper_risk_profile": "BALANCED_STABLE_MICRO", "execution_attempted": False},
                 )
                 database.insert_event(event)
             print(forward_summary_to_json(bot.run()))
@@ -1201,10 +1299,10 @@ def _stable_gate_status(path: Path) -> dict[str, object]:
     }
 
 
-def _stable_forward_block(classification: str, message: str, stable_gate: Path, gate_status: dict[str, object] | None = None) -> dict[str, object]:
+def _stable_forward_block(classification: str, message: str, stable_gate: Path, gate_status: dict[str, object] | None = None, signal_profile: str = "BALANCED_STABLE") -> dict[str, object]:
     return {
         "mode": "forward-shadow",
-        "signal_profile_used": "BALANCED_STABLE",
+        "signal_profile_used": signal_profile,
         "classification": classification,
         "error_message": message,
         "stable_gate": str(stable_gate),

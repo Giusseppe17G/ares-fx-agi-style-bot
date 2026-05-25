@@ -60,7 +60,7 @@ def bot_config_with_signal_profile(config: BotConfig, profile_name: str, profile
     extra: dict[str, Any] = {}
     if profile_config:
         extra["profile_config"] = profile_config
-    if profile.name == "BALANCED_STABLE" and profile_config:
+    if profile.name in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"} and profile_config:
         stable_values = _read_profile_ini(Path(profile_config))
         extra.update(
             {
@@ -69,6 +69,20 @@ def bot_config_with_signal_profile(config: BotConfig, profile_name: str, profile
                 "requires_robustness_rerun": str(stable_values.get("REQUIRES_ROBUSTNESS_RERUN", "true")).strip().lower() == "true",
             }
         )
+        if profile.name == "BALANCED_STABLE_MICRO":
+            extra.update(
+                {
+                    "paper_only": str(stable_values.get("PAPER_ONLY", "true")).strip().lower() == "true",
+                    "max_open_paper_trades": int(stable_values.get("MAX_OPEN_PAPER_TRADES", 1) or 1),
+                    "max_paper_trades_per_day": int(stable_values.get("MAX_PAPER_TRADES_PER_DAY", 2) or 2),
+                    "cooldown_after_loss_minutes": int(stable_values.get("COOLDOWN_AFTER_LOSS_MINUTES", 120) or 120),
+                    "cooldown_after_drawdown_halt_minutes": int(stable_values.get("COOLDOWN_AFTER_DRAWDOWN_HALT_MINUTES", 1440) or 1440),
+                    "block_new_entries_after_daily_halt": str(stable_values.get("BLOCK_NEW_ENTRIES_AFTER_DAILY_HALT", "true")).strip().lower() == "true",
+                    "manual_resume_required": str(stable_values.get("MANUAL_RESUME_REQUIRED", "true")).strip().lower() == "true",
+                    "paper_risk_multiplier": float(stable_values.get("PAPER_RISK_MULTIPLIER", 0.10) or 0.10),
+                    "risk_profile_used": "BALANCED_STABLE_MICRO",
+                }
+            )
     updated = replace(config, signal_profile=profile.name, **extra)
     updated.validate_safety()
     return updated
@@ -365,6 +379,8 @@ def _profile_recommendation(name: str, profile: SignalProfileSettings) -> str:
         return "use only when edge-filtering produced APPLY_FILTERS=true"
     if profile.name == "BALANCED_STABLE":
         return "research/backtest-only stability repair profile; requires profile-config and robustness rerun"
+    if profile.name == "BALANCED_STABLE_MICRO":
+        return "paper-only safer shadow profile; requires stable gate and explicit profile-config"
     if profile.name == "BALANCED":
         return "baseline calibrated research profile"
     return "conservative baseline"

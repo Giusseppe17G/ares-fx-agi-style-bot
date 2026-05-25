@@ -88,6 +88,16 @@ class BotConfig:
     stability_filters_applied: bool = False
     profile_type: str = ""
     requires_robustness_rerun: bool = False
+    paper_only: bool = False
+    max_open_paper_trades: int = 10
+    max_paper_trades_per_day: int = 50
+    cooldown_after_loss_minutes: int = 0
+    cooldown_after_drawdown_halt_minutes: int = 0
+    block_new_entries_after_daily_halt: bool = False
+    manual_resume_required: bool = False
+    paper_risk_multiplier: float = 1.0
+    risk_profile_used: str = ""
+    paper_risk_clearance: str = ""
 
     def validate_safety(self) -> None:
         """Raise ValueError when config weakens mandatory safety defaults."""
@@ -102,13 +112,24 @@ class BotConfig:
             raise ValueError("max open risk cannot exceed 5%")
         if not self.require_sl or not self.require_tp:
             raise ValueError("SL and TP must be required")
-        if self.signal_profile.upper() not in {"CONSERVATIVE", "BALANCED", "BALANCED_FILTERED", "BALANCED_STABLE", "ACTIVE", "RESEARCH_ONLY"}:
-            raise ValueError("SIGNAL_PROFILE must be CONSERVATIVE, BALANCED, BALANCED_FILTERED, BALANCED_STABLE, ACTIVE, or RESEARCH_ONLY")
+        if self.signal_profile.upper() not in {"CONSERVATIVE", "BALANCED", "BALANCED_FILTERED", "BALANCED_STABLE", "BALANCED_STABLE_MICRO", "ACTIVE", "RESEARCH_ONLY"}:
+            raise ValueError("SIGNAL_PROFILE must be CONSERVATIVE, BALANCED, BALANCED_FILTERED, BALANCED_STABLE, BALANCED_STABLE_MICRO, ACTIVE, or RESEARCH_ONLY")
         if self.signal_profile.upper() == "BALANCED_STABLE":
             if not self.profile_config and not self.stability_filters_applied:
                 raise ValueError("STABLE_PROFILE_CONFIG_REQUIRED")
             if self.profile_type and self.profile_type.upper() != "RESEARCH_BACKTEST_ONLY":
                 raise ValueError("BALANCED_STABLE requires PROFILE_TYPE=RESEARCH_BACKTEST_ONLY")
+        if self.signal_profile.upper() == "BALANCED_STABLE_MICRO":
+            if not self.profile_config:
+                raise ValueError("MICRO_PROFILE_CONFIG_REQUIRED")
+            if self.profile_type.upper() != "PAPER_SHADOW_ONLY":
+                raise ValueError("BALANCED_STABLE_MICRO requires PROFILE_TYPE=PAPER_SHADOW_ONLY")
+            if not self.paper_only:
+                raise ValueError("BALANCED_STABLE_MICRO requires PAPER_ONLY=true")
+            if self.max_open_paper_trades > 3:
+                raise ValueError("BALANCED_STABLE_MICRO max open paper trades cannot exceed 3")
+            if self.paper_risk_multiplier > 0.25:
+                raise ValueError("BALANCED_STABLE_MICRO paper risk multiplier cannot exceed 0.25")
 
 
 def load_config(path: str | Path | None = None) -> BotConfig:
@@ -174,6 +195,16 @@ def load_config(path: str | Path | None = None) -> BotConfig:
         stability_filters_applied=bool(values.get("STABILITY_FILTERS_APPLIED", values.get("APPLY_STABILITY_FILTERS", False))),
         profile_type=str(values.get("PROFILE_TYPE", "")),
         requires_robustness_rerun=bool(values.get("REQUIRES_ROBUSTNESS_RERUN", False)),
+        paper_only=bool(values.get("PAPER_ONLY", False)),
+        max_open_paper_trades=int(values.get("MAX_OPEN_PAPER_TRADES", values.get("MAX_OPEN_TRADES", 10))),
+        max_paper_trades_per_day=int(values.get("MAX_PAPER_TRADES_PER_DAY", 50)),
+        cooldown_after_loss_minutes=int(values.get("COOLDOWN_AFTER_LOSS_MINUTES", 0)),
+        cooldown_after_drawdown_halt_minutes=int(values.get("COOLDOWN_AFTER_DRAWDOWN_HALT_MINUTES", 0)),
+        block_new_entries_after_daily_halt=bool(values.get("BLOCK_NEW_ENTRIES_AFTER_DAILY_HALT", False)),
+        manual_resume_required=bool(values.get("MANUAL_RESUME_REQUIRED", False)),
+        paper_risk_multiplier=float(values.get("PAPER_RISK_MULTIPLIER", 1.0)),
+        risk_profile_used=str(values.get("RISK_PROFILE_USED", "")),
+        paper_risk_clearance=str(values.get("PAPER_RISK_CLEARANCE", "")),
     )
     cfg.validate_safety()
     return cfg
