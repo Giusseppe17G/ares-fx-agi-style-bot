@@ -21,6 +21,7 @@ def validate_micro_resume_clearance(
     log_dir: str | Path = "data/logs/forward-shadow-stable",
     reports_root: str | Path = "data/reports",
     paper_risk_dir: str | Path = "data/reports/paper_risk",
+    daily_risk_ledger: str | Path | None = None,
 ) -> dict[str, Any]:
     """Return whether the ledger clears the latest halt for the requested profile."""
 
@@ -40,6 +41,31 @@ def validate_micro_resume_clearance(
     context = load_drawdown_halt_context(database=database, log_dir=log_dir, reports_root=reports_root, paper_risk_dir=paper_risk_dir)
     latest_halt = str(context.get("latest_halt_utc") or "")
     if clearance_is_stale(clearance, latest_halt):
+        try:
+            from agi_style_forex_bot_mt5.paper_daily_risk_state.legacy_drawdown_quarantine import classify_legacy_drawdown_events
+
+            legacy = classify_legacy_drawdown_events(
+                halt_events=list(context.get("halt_events", [])),
+                clearance_ledger=clearance_ledger,
+                daily_risk_ledger=daily_risk_ledger,
+                pnl_audit_dir=Path(reports_root) / "paper_pnl_audit",
+                profile_clearance=clearance,
+            )
+            if legacy.get("current_engine_multiplier_ready") and legacy.get("legacy_events_count", 0) and not legacy.get("active_scaled_events_count", 0) and not legacy.get("unknown_review_required_count", 0):
+                return {
+                    **_result(True, "PAPER_RISK_CLEARANCE_ACCEPTED", "Manual clearance remains valid; newer halt evidence is legacy/quarantinable.", clearance, latest_halt, requested=requested, cleared_canonical=cleared_canonical),
+                    "paper_risk_clearance_id": clearance.get("clearance_id", ""),
+                    "cleared_for_profile": cleared_canonical,
+                    "cleared_profile": cleared_canonical,
+                    "cleared_for_paper_shadow": True,
+                    "not_for_demo_live": True,
+                    "legacy_drawdown_quarantined": bool(legacy.get("legacy_drawdown_quarantined", False)),
+                    "legacy_drawdown_quarantine_pending": not bool(legacy.get("legacy_drawdown_quarantined", False)),
+                }
+            if legacy.get("active_scaled_events_count", 0) and daily_risk_ledger and Path(daily_risk_ledger).exists():
+                return _result(False, "PAPER_DRAWDOWN_HALT_BLOCK", "A scaled drawdown halt exists after clearance.", clearance, latest_halt, requested=requested, cleared_canonical=cleared_canonical)
+        except Exception:
+            pass
         return _result(False, "PAPER_RISK_CLEARANCE_STALE", "A newer paper drawdown halt exists after the clearance.", clearance, latest_halt, requested=requested, cleared_canonical=cleared_canonical)
     return {
         **_result(True, "PAPER_RISK_CLEARANCE_ACCEPTED", "Manual clearance is valid for BALANCED_STABLE_MICRO paper/shadow only.", clearance, latest_halt, requested=requested, cleared_canonical=cleared_canonical),

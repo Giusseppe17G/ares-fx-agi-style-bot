@@ -13,6 +13,7 @@ def build_status(database: TelemetryDatabase) -> dict[str, Any]:
     metrics = MetricsCollector(database).collect()
     state = database.get_operational_state()
     latest = database.get_latest_health()
+    recovery = _load_json("data/reports/paper_state_recovery/paper_state_recovery_summary.json")
     return {
         "mode": "status",
         "shadow_paused": bool(state.get("shadow_paused", False)),
@@ -20,6 +21,14 @@ def build_status(database: TelemetryDatabase) -> dict[str, Any]:
         "halt_reason": state.get("halt_reason") or state.get("paused_reason") or "",
         "shadow_paused_reason": state.get("paused_reason") or state.get("halt_reason") or "",
         "paper_clean_state": int(metrics.get("paper_trades_open", 0) or 0) == 0 and float(metrics.get("drawdown_paper", 0.0) or 0.0) >= 0,
+        "paper_state_recovery_status": recovery.get("paper_state_recovery_status", ""),
+        "config_error_root_cause": recovery.get("config_error_root_cause", ""),
+        "config_error_recommended_fix": recovery.get("recommended_config_fix", ""),
+        "can_rerun_forward_shadow_after_fix": bool(recovery.get("can_rerun_forward_shadow_after_fix", False)) if recovery else False,
+        "open_paper_trade_audit_status": recovery.get("open_trade_audit_status", ""),
+        "paper_state_clean_for_observation": bool(recovery.get("paper_state_clean_for_observation", False)) if recovery else False,
+        "recovery_required": bool(recovery.get("recovery_required", False)) if recovery else False,
+        "recovery_recommended_action": recovery.get("recovery_recommended_action", ""),
         "weekend_readiness_status": _load_json_value("data/reports/weekend_readiness/weekend_readiness_summary.json", "weekend_readiness_status"),
         "market_open_next_action": _load_json_value("data/reports/weekend_readiness/weekend_readiness_summary.json", "market_open_next_action") or _load_json_value("data/reports/market_open_checklist/market_open_checklist_summary.json", "market_open_next_action"),
         "ec2_readiness_status": _load_json_value("data/reports/ec2_readiness/ec2_readiness_summary.json", "ec2_readiness_status"),
@@ -67,6 +76,19 @@ def _load_json_value(path_value: str, key: str) -> str:
         return str(json.loads(path.read_text(encoding="utf-8")).get(key, ""))
     except Exception:
         return "UNKNOWN"
+
+
+def _load_json(path_value: str) -> dict[str, Any]:
+    path = Path(path_value)
+    if not path.exists():
+        return {}
+    try:
+        import json
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
 
 
 def _next_command(state: dict[str, Any], metrics: dict[str, Any]) -> str:

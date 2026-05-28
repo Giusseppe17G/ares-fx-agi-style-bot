@@ -326,7 +326,7 @@ def _latest_run(runs_root: Path) -> Path | None:
 
 def _read_profile_ini(path: Path) -> dict[str, Any]:
     raw = path.read_text(encoding="utf-8-sig")
-    parser = ConfigParser()
+    parser = ConfigParser(strict=False)
     parser.read_string("[DEFAULT]\n" + raw)
     values: dict[str, Any] = {}
     for key, value in parser["DEFAULT"].items():

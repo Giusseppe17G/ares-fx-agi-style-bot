@@ -441,3 +441,109 @@ All commands are offline/read-only except report generation and keep `execution_
 After the FASE 41 fix, use `scripts\paper_pnl_scaling_check.ps1` to confirm `PAPER_RISK_MULTIPLIER=0.1` is present and the current engine is ready. Use `scripts\paper_risk_post_fix_gate.ps1` before any new micro clearance. A clearance is not acceptable when the scaling status is `PAPER_PNL_SCALING_NOT_FIXED` or `PAPER_PNL_SCALING_CONFIG_MISSING`.
 
 `raw_pnl` is audit-only. `scaled_paper_pnl` is the basis for paper drawdown and paper risk blocks. This does not authorize demo/live trading.
+
+## Phase 42 Legacy Drawdown Quarantine
+
+If `paper-risk-status` still reports `PAPER_DRAWDOWN_HALT_BLOCK` with `root_cause=DRAWDOWN_HISTORY_LEAK` after PnL scaling is fixed, audit legacy drawdown evidence:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-legacy-drawdown-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --paper-risk-dir data\reports\paper_risk --daily-risk-dir data\reports\paper_daily_risk --pnl-audit-dir data\reports\paper_pnl_audit --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --daily-risk-ledger data\reports\paper_daily_risk\paper_daily_risk_ledger.json --profile-config data\reports\paper_risk\balanced_stable_micro.ini --output-dir data\reports\paper_daily_risk
+```
+
+Interpretation:
+
+- `LEGACY_DRAWDOWN_QUARANTINED`: historical or unscaled halts are preserved as evidence but no longer contaminate active micro risk state.
+- `ACTIVE_SCALED_DRAWDOWN_BLOCK`: a real scaled paper halt occurred after the ledger; keep shadow blocked.
+- `LEGACY_DRAWDOWN_REVIEW_REQUIRED`: review the source rows before any resume.
+
+Resume `BALANCED_STABLE_MICRO` only when clearance, daily risk ledger, PnL scaling check and legacy drawdown audit all agree that there is no active scaled halt. This is still paper/shadow only and does not authorize demo/live execution.
+
+## Phase 42B Telemetry Quarantine Alignment
+
+If `forward-acceptance` returns `NEEDS_TELEMETRY_REVIEW` with `active_blocking_count=0`, close the remaining historical timestamp issues through the quarantine ledger:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode quarantine-telemetry-issues --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\telemetry_repair --reason "Historical invalid timestamps reviewed after paper reset"
+py -m agi_style_forex_bot_mt5.cli --mode telemetry-status --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\telemetry_repair
+py -m agi_style_forex_bot_mt5.cli --mode telemetry-acceptance-policy --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\telemetry_repair
+```
+
+Acceptance may advance only when `historical_unreviewed_count=0`, `unknown_requires_review=0`, `active_blocking_count=0`, and `telemetry_acceptance_clear=true`. The ledger is auditable and idempotent; rerunning quarantine does not duplicate reviewed issues.
+
+## Phase 42C Telemetry Drift Prevention
+
+If forward evidence keeps rediscovering historical timestamp examples, run:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode telemetry-drift-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --telemetry-dir data\reports\telemetry_repair --output-dir data\reports\telemetry_repair
+```
+
+Expected healthy result: `telemetry_drift_status=TELEMETRY_DRIFT_CONTAINED`, `active_blocking_count=0`, `historical_unreviewed_count=0`, and `telemetry_acceptance_clear=true`. Derived examples in evidence reports and legacy redacted timestamps remain visible in CSV/HTML reports, but they do not block acceptance unless they are active forward telemetry or unknown review-required evidence.
+
+## Phase 42D Acceptance Drawdown Policy
+
+Forward acceptance now distinguishes raw drawdown flags from active scaled drawdown evidence. If `forward-acceptance` reports `acceptance_drawdown_blocking=false`, the paper drawdown condition is not the reason for blocking. Use:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode acceptance-drawdown-policy-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --paper-risk-dir data\reports\paper_risk --daily-risk-dir data\reports\paper_daily_risk --pnl-audit-dir data\reports\paper_pnl_audit --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --daily-risk-ledger data\reports\paper_daily_risk\paper_daily_risk_ledger.json --profile-config data\reports\paper_risk\balanced_stable_micro.ini --output-dir data\reports\forward_evidence
+```
+
+`LEGACY_DRAWDOWN_NOT_BLOCKING` means the historical halt is still visible but no active scaled drawdown event exists. `ACTIVE_SCALED_DRAWDOWN_BLOCK` means keep shadow paused. This policy is for paper/shadow evidence only and does not enable demo/live execution.
+
+## Phase 42E Paper State Recovery
+
+If status shows `halt_reason=PAPER_STATE_ERROR`, `latest_exit_reason=CONFIG_ERROR`, or `paper_clean_state=false`, do not resume blindly. First run:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-state-recovery-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --paper-risk-dir data\reports\paper_risk --daily-risk-dir data\reports\paper_daily_risk --pnl-audit-dir data\reports\paper_pnl_audit --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --daily-risk-ledger data\reports\paper_daily_risk\paper_daily_risk_ledger.json --profile-config data\reports\paper_risk\balanced_stable_micro.ini --stable-gate data\reports\stable_gate\stable_gate_summary.json --output-dir data\reports\paper_state_recovery
+py -m agi_style_forex_bot_mt5.cli --mode paper-state-recovery-plan --output-dir data\reports\paper_state_recovery
+```
+
+If the plan recommends `CLOSE_STALE_OPEN_PAPER_TRADE_PAPER_ONLY`, close only after review:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-close-stale-open-trade --sqlite data\sqlite\forward-shadow-stable.sqlite3 --output-dir data\reports\paper_state_recovery --confirm-paper-only true --reason "manual paper-only recovery after stale open trade review"
+```
+
+This command only updates paper/shadow SQLite state. It never closes MT5 positions, never calls `order_send`, and never calls `order_check`. Valid open paper trades are not closed automatically.
+
+## Phase 42F Config Error Root Cause
+
+If `paper-state-recovery-audit` reports `unknown_config_error`, run:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode config-error-root-cause-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --paper-risk-dir data\reports\paper_risk --daily-risk-dir data\reports\paper_daily_risk --pnl-audit-dir data\reports\paper_pnl_audit --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --daily-risk-ledger data\reports\paper_daily_risk\paper_daily_risk_ledger.json --profile-config data\reports\paper_risk\balanced_stable_micro.ini --stable-gate data\reports\stable_gate\stable_gate_summary.json --output-dir data\reports\config_error_recovery
+py -m agi_style_forex_bot_mt5.cli --mode config-error-fix-plan --output-dir data\reports\config_error_recovery
+```
+
+The root-cause audit checks input paths, profile schema, stable gate, paper-risk clearance, daily-risk ledger, operational state, recent logs and open paper trade consistency. It classifies one primary cause such as `MISSING_PROFILE_CONFIG`, `PROFILE_MISMATCH`, `INVALID_DAILY_RISK_LEDGER_SCHEMA` or `FORWARD_SHADOW_CONFIG_EXCEPTION`.
+
+When the evidence says an open paper trade has invalid risk distance, keep shadow paused and review paper state. The plan is advisory only; it does not close trades, delete evidence, or touch MT5.
+
+## Phase 42G Invalid Open Paper Trade Recovery
+
+If root-cause evidence shows an open paper trade with `entry_price == sl_price` or another invalid risk distance, audit the open trades:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode invalid-open-paper-trade-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\paper_state_recovery
+```
+
+After manual review, close only the invalid paper trade in SQLite:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-close-invalid-open-trade --sqlite data\sqlite\forward-shadow-stable.sqlite3 --trade-id <TRADE_ID> --confirm-paper-only true --reason "Close invalid paper trade with zero risk distance after audit" --output-dir data\reports\paper_state_recovery
+```
+
+This is not a broker close. It writes `invalid_trade_close_summary.json`, `invalid_trade_close_event.json`, and `invalid_trade_close_ledger.json`, then clears the paper-state CONFIG_ERROR only when no invalid open paper trades remain. Closed historical trades are not modified.
+
+## Phase 43 Offline Research Candidate Ranking
+
+When paper/shadow is blocked by cooldown or another operational gate, use offline ranking instead of resuming:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode research-candidate-ranking --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\research_candidate_ranking
+```
+
+The ranking reads SQLite, logs and reports, then writes only to `data\reports\research_candidate_ranking`. It scores symbols and strategies by signal quality, blockers, regime/session context, and paper performance. It does not alter configs, ledgers, risk state, telemetry state, paper trades, or forward-shadow status.
+
+Use this report to decide what to inspect next in research. It does not replace forward acceptance and does not authorize demo/live execution.

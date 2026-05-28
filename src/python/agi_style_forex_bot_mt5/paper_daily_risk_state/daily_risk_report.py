@@ -45,6 +45,7 @@ def run_paper_daily_risk_audit(
         profile_clearance=dict(state.get("profile_clearance", {})),
         daily_risk_ledger=str(daily_risk_ledger) if daily_risk_ledger else None,
         profile_config=str(profile_config) if profile_config else None,
+        pnl_audit_dir=str(Path(reports_root) / "paper_pnl_audit"),
     )
     guard = validate_micro_daily_risk(
         database=database,
@@ -59,8 +60,10 @@ def run_paper_daily_risk_audit(
         "mode": "paper-daily-risk-audit",
         "paper_daily_risk_status": _audit_status(guard, classified),
         "active_today_halt_count": classified.get("active_today_halt_count", 0),
+        "legacy_quarantined_halt_count": classified.get("legacy_quarantined_halt_count", 0),
         "stale_halt_count": classified.get("stale_halt_count", 0),
         "invalid_timestamp_halt_count": classified.get("invalid_timestamp_halt_count", 0),
+        "unknown_review_required_count": classified.get("unknown_review_required_count", classified.get("unknown_halt_count", 0)),
         "unknown_halt_count": classified.get("unknown_halt_count", 0),
         "latest_clearance_utc": classified.get("latest_clearance_utc", ""),
         "latest_halt_utc": classified.get("latest_halt_utc", ""),
@@ -68,6 +71,10 @@ def run_paper_daily_risk_audit(
         "daily_risk_ledger_status": classified.get("daily_risk_ledger_status", ""),
         "can_resume_micro_shadow": guard.get("accepted", False),
         "blocking_reason": "" if guard.get("accepted") else guard.get("blocking_reason", ""),
+        "active_scaled_drawdown": classified.get("active_scaled_drawdown_count", 0),
+        "legacy_unscaled_drawdown": classified.get("legacy_quarantined_halt_count", 0),
+        "drawdown_basis": classified.get("drawdown_basis", "SCALED_PAPER_PNL_ONLY"),
+        "legacy_drawdown_quarantined": classified.get("legacy_drawdown_quarantined", False),
         "paper_trades_open": state.get("paper_trades_open", 0),
         "raw_daily_pnl": sum(float(trade.get("raw_pnl", trade.get("profit", 0.0)) or 0.0) for trade in state.get("trades", [])),
         "scaled_daily_pnl": sum(pnl_value(trade) for trade in state.get("trades", [])),
@@ -102,7 +109,13 @@ def run_paper_daily_risk_clear(
         clearance_ledger=clearance_ledger,
         profile_config=profile_config,
     )
-    classified = classify_drawdown_halts(halt_events=list(state.get("halt_events", [])), profile_clearance=dict(state.get("profile_clearance", {})), profile_config=str(profile_config) if profile_config else None)
+    classified = classify_drawdown_halts(
+        halt_events=list(state.get("halt_events", [])),
+        profile_clearance=dict(state.get("profile_clearance", {})),
+        daily_risk_ledger=None,
+        profile_config=str(profile_config) if profile_config else None,
+        pnl_audit_dir=str(Path(reports_root) / "paper_pnl_audit"),
+    )
     validation = dict(state.get("profile_clearance_validation", {}))
     if int(state.get("paper_trades_open", 0) or 0) > 0:
         return _denied("PAPER_DAILY_RISK_CLEAR_DENIED_OPEN_TRADES", "Open paper trades must be zero.")
@@ -112,7 +125,7 @@ def run_paper_daily_risk_clear(
         return _denied("PAPER_DAILY_RISK_CLEAR_DENIED_EXECUTION_EVIDENCE", "Execution evidence must be clear.")
     if not state.get("telemetry_clear", False):
         return _denied("PAPER_DAILY_RISK_CLEAR_DENIED_TELEMETRY", "Telemetry must be clear or quarantined.")
-    if classified.get("active_today_halt_count", 0) or classified.get("latest_halt_after_clearance", False):
+    if classified.get("active_today_halt_count", 0) or classified.get("active_scaled_drawdown_count", 0):
         return _denied("PAPER_DAILY_RISK_CLEAR_DENIED_ACTIVE_HALT", "A halt after the latest clearance cannot be cleared as stale.")
     entry = append_daily_risk_clearance(
         output_dir=output_dir,
@@ -128,6 +141,7 @@ def run_paper_daily_risk_clear(
         "classification": "PAPER_DAILY_RISK_CLEARANCE_GRANTED",
         "cleared_for_profile": "BALANCED_STABLE_MICRO",
         "stale_halts_cleared": True,
+        "legacy_drawdown_quarantined": bool(classified.get("legacy_drawdown_quarantined", False) or classified.get("legacy_quarantined_halt_count", 0) or classified.get("stale_halt_count", 0)),
         "active_halts_cleared": False,
         "can_resume_micro_shadow": True,
         "not_for_demo_live": True,
@@ -146,9 +160,11 @@ def run_paper_daily_risk_clear(
 
 def _audit_status(guard: Mapping[str, Any], classified: Mapping[str, Any]) -> str:
     if guard.get("accepted"):
+        if classified.get("legacy_drawdown_quarantined"):
+            return "LEGACY_DRAWDOWN_QUARANTINED"
         return "PAPER_DAILY_RISK_CLEAR"
     if classified.get("active_today_halt_count", 0):
-        return "PAPER_DAILY_RISK_ACTIVE_HALT"
+        return "ACTIVE_DRAWDOWN_HALT"
     if classified.get("stale_halt_count", 0):
         return "PAPER_DAILY_RISK_STALE_HALT_REVIEW_REQUIRED"
     if classified.get("invalid_timestamp_halt_count", 0) or classified.get("unknown_halt_count", 0):

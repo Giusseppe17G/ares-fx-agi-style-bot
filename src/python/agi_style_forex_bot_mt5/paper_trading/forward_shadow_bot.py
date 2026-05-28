@@ -176,6 +176,7 @@ class ForwardShadowBot:
                 )
                 heartbeat_written = True
                 metrics = {**self.metrics.collect(), "mt5_connected": True, "sqlite_status": "OK", "jsonl_status": "OK"}
+                metrics = self._micro_legacy_drawdown_adjusted_metrics(metrics)
                 cycle_alerts = self.alerts.evaluate(metrics)
                 alerts_emitted += self.alerts.persist(cycle_alerts)
                 if cycle_alerts:
@@ -611,6 +612,7 @@ class ForwardShadowBot:
                 clearance_ledger=getattr(self.config, "paper_risk_clearance", ""),
                 profile=self.config.signal_profile,
                 profile_config=self.config.profile_config or None,
+                daily_risk_ledger=getattr(self.config, "paper_daily_risk_ledger", ""),
             )
             daily = validate_micro_daily_risk(
                 database=self.database,
@@ -638,6 +640,33 @@ class ForwardShadowBot:
                 status["paper_daily_risk_status"] = daily.get("paper_daily_risk_status", "")
                 status["daily_risk_ledger_status"] = daily.get("daily_risk_ledger_status", "")
         return status
+
+    def _micro_legacy_drawdown_adjusted_metrics(self, metrics: Mapping[str, Any]) -> dict[str, Any]:
+        adjusted = dict(metrics)
+        if self.config.signal_profile != "BALANCED_STABLE_MICRO":
+            return adjusted
+        daily = validate_micro_daily_risk(
+            database=self.database,
+            clearance_ledger=getattr(self.config, "paper_risk_clearance", ""),
+            daily_risk_ledger=getattr(self.config, "paper_daily_risk_ledger", ""),
+            profile_config=self.config.profile_config or None,
+        )
+        if daily.get("accepted") and daily.get("legacy_drawdown_quarantined"):
+            adjusted["legacy_drawdown_quarantined"] = True
+            adjusted["legacy_quarantined_halt_count"] = daily.get("legacy_quarantined_halt_count", 0)
+            adjusted["drawdown_basis"] = "SCALED_PAPER_PNL_ONLY"
+            adjusted["drawdown_paper"] = 0.0
+            self._audit(
+                "PAPER_LEGACY_DRAWDOWN_QUARANTINED",
+                Severity.INFO,
+                {
+                    "legacy_quarantined_halt_count": daily.get("legacy_quarantined_halt_count", 0),
+                    "drawdown_basis": "SCALED_PAPER_PNL_ONLY",
+                    "execution_attempted": False,
+                },
+                notify=False,
+            )
+        return adjusted
 
     def _stale_shadow_pause_cleared(self) -> bool:
         if self.config.signal_profile != "BALANCED_STABLE_MICRO":

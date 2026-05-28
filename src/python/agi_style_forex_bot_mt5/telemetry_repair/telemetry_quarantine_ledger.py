@@ -41,8 +41,11 @@ def quarantine_historical_issues(
 
     ledger = load_quarantine_ledger(output_dir)
     existing = {str(item.get("issue_id")): dict(item) for item in ledger.get("issues", []) if isinstance(item, Mapping)}
+    existing_hashes = {str(item.get("raw_value_hash")) for item in existing.values() if item.get("raw_value_hash")}
     updated = 0
+    previously_quarantined = 0
     skipped_active = 0
+    skipped_unknown = 0
     selected = 0
     now = datetime.now(timezone.utc).isoformat()
     for issue in issues:
@@ -53,9 +56,17 @@ def quarantine_historical_issues(
         if classification == "ACTIVE_TELEMETRY_INVALID":
             skipped_active += 1
             continue
+        if classification == "UNKNOWN_TELEMETRY_REVIEW_REQUIRED":
+            skipped_unknown += 1
+            continue
         if classification in {"SAFE_IGNORABLE_TEXT", "TELEMETRY_CLEAN"}:
             continue
         issue_id = str(issue.get("issue_id"))
+        issue_hash = raw_value_hash(issue.get("raw_value", ""))
+        ledger_status = str(issue.get("ledger_status", "")).upper()
+        if issue_id in existing or issue_hash in existing_hashes or classification == "QUARANTINED_HISTORICAL" or ledger_status in {"QUARANTINED", "REVIEWED"}:
+            previously_quarantined += 1
+            continue
         existing[issue_id] = {
             "issue_id": issue_id,
             "status": status.upper(),
@@ -65,10 +76,11 @@ def quarantine_historical_issues(
             "affected_source": issue.get("source", ""),
             "field_name": issue.get("field_name", ""),
             "classification": classification,
-            "raw_value_hash": raw_value_hash(issue.get("raw_value", "")),
+            "raw_value_hash": issue_hash,
             "raw_value_redacted_safe": _safe_raw(issue.get("raw_value", "")),
             "execution_attempted": False,
         }
+        existing_hashes.add(issue_hash)
         updated += 1
     new_ledger = {
         "mode": "telemetry-quarantine-ledger",
@@ -82,8 +94,11 @@ def quarantine_historical_issues(
     return {
         "ledger_path": str(path),
         "selected_issues": selected,
-        "quarantined_or_reviewed": updated,
+        "previously_quarantined_count": previously_quarantined,
+        "newly_quarantined_count": updated,
+        "quarantined_or_reviewed": previously_quarantined + updated,
         "skipped_active_blocking": skipped_active,
+        "skipped_unknown_review": skipped_unknown,
         "execution_attempted": False,
         "order_send_called": False,
         "order_check_called": False,

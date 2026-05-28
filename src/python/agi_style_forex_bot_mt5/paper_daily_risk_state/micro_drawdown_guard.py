@@ -35,6 +35,7 @@ def validate_micro_daily_risk(
         profile_clearance=dict(state.get("profile_clearance", {})),
         daily_risk_ledger=str(daily_risk_ledger) if daily_risk_ledger else None,
         profile_config=str(profile_config) if profile_config else None,
+        pnl_audit_dir=str(Path(reports_root) / "paper_pnl_audit"),
     )
     if not profile_validation.get("accepted"):
         return _result(False, "PAPER_RISK_CLEARANCE_REQUIRED", str(profile_validation.get("reason") or "Valid micro clearance is required."), classified)
@@ -48,7 +49,7 @@ def validate_micro_daily_risk(
         return _result(False, "PAPER_DAILY_RISK_LEDGER_REQUIRED", "Historical paper drawdown halts require daily risk ledger clearance.", classified)
     return {
         **_result(True, "PAPER_DAILY_RISK_ACCEPTED", "Daily paper risk state is clear for BALANCED_STABLE_MICRO paper/shadow.", classified),
-        "paper_daily_risk_status": "PAPER_DAILY_RISK_CLEAR",
+        "paper_daily_risk_status": "LEGACY_DRAWDOWN_QUARANTINED" if classified.get("legacy_drawdown_quarantined") else "PAPER_DAILY_RISK_CLEAR",
         "can_resume_micro_shadow": True,
         "cleared_for_profile": "BALANCED_STABLE_MICRO",
         "not_for_demo_live": True,
@@ -65,6 +66,10 @@ def _result(accepted: bool, status: str, reason: str, classified: dict[str, Any]
         "can_resume_micro_shadow": accepted,
         "active_today_halt_count": classified.get("active_today_halt_count", 0),
         "stale_halt_count": classified.get("stale_halt_count", 0),
+        "legacy_quarantined_halt_count": classified.get("legacy_quarantined_halt_count", 0),
+        "legacy_drawdown_quarantined": classified.get("legacy_drawdown_quarantined", False),
+        "active_scaled_drawdown_count": classified.get("active_scaled_drawdown_count", 0),
+        "drawdown_basis": classified.get("drawdown_basis", "SCALED_PAPER_PNL_ONLY"),
         "invalid_timestamp_halt_count": classified.get("invalid_timestamp_halt_count", 0),
         "unknown_halt_count": classified.get("unknown_halt_count", 0),
         "latest_clearance_utc": classified.get("latest_clearance_utc", ""),

@@ -23,8 +23,15 @@ def classify_timestamp_issue(issue: Mapping[str, Any], context: Mapping[str, Any
     if _safe_ignorable_source(source):
         classified.update({"classification": "SAFE_IGNORABLE_TEXT", "affects_acceptance": False})
         return classified
+    if _is_derived_example(issue):
+        classified.update({"classification": "INVALID_TIMESTAMP_DERIVED_EXAMPLE", "affects_acceptance": False, "ledger_status": "AUTO_QUARANTINE_CANDIDATE"})
+        return classified
     if _is_active(issue, context):
         classification = "ACTIVE_TELEMETRY_INVALID"
+    elif _is_historical_auto_quarantine_candidate(issue, context):
+        classification = "HISTORICAL_AUTO_QUARANTINE_CANDIDATE"
+    elif detect_redacted_datetime(raw) and not _is_active(issue, context):
+        classification = "REDACTED_TIMESTAMP_LEGACY"
     elif detect_redacted_datetime(raw):
         classification = "REDACTED_TIMESTAMP"
     elif str(issue.get("warning", "")).startswith("DATETIME_FUTURE"):
@@ -54,10 +61,18 @@ def summarize_classified_issues(issues: list[Mapping[str, Any]], ledger: Mapping
     historical = [
         item
         for item in issues
-        if item.get("classification") in {"HISTORICAL_TELEMETRY_INVALID", "REDACTED_TIMESTAMP", "FUTURE_TIMESTAMP", "EMPTY_TIMESTAMP"}
+        if item.get("classification") in {"HISTORICAL_TELEMETRY_INVALID", "REDACTED_TIMESTAMP", "FUTURE_TIMESTAMP", "EMPTY_TIMESTAMP", "HISTORICAL_AUTO_QUARANTINE_CANDIDATE", "REDACTED_TIMESTAMP_LEGACY", "INVALID_TIMESTAMP_DERIVED_EXAMPLE"}
         and item.get("classification") != "ACTIVE_TELEMETRY_INVALID"
     ]
-    unquarantined_historical = [item for item in historical if str(item.get("ledger_status")) not in {"QUARANTINED", "REVIEWED"}]
+    auto_quarantine = [item for item in historical if item.get("classification") in {"HISTORICAL_AUTO_QUARANTINE_CANDIDATE", "REDACTED_TIMESTAMP_LEGACY"}]
+    derived_examples = [item for item in historical if item.get("classification") == "INVALID_TIMESTAMP_DERIVED_EXAMPLE"]
+    redacted_legacy = [item for item in historical if item.get("classification") == "REDACTED_TIMESTAMP_LEGACY"]
+    unquarantined_historical = [
+        item
+        for item in historical
+        if str(item.get("ledger_status")) not in {"QUARANTINED", "REVIEWED", "AUTO_QUARANTINE_CANDIDATE"}
+        and item.get("classification") not in {"HISTORICAL_AUTO_QUARANTINE_CANDIDATE", "REDACTED_TIMESTAMP_LEGACY", "INVALID_TIMESTAMP_DERIVED_EXAMPLE"}
+    ]
     historical_total = [*historical, *quarantined]
     historical_invalid_count = len(historical_total)
     quarantined_count = len([item for item in quarantined if str(item.get("ledger_status")) == "QUARANTINED"])
@@ -69,7 +84,7 @@ def summarize_classified_issues(issues: list[Mapping[str, Any]], ledger: Mapping
         status = "TELEMETRY_UNKNOWN_REVIEW_REQUIRED"
     elif unquarantined_historical:
         status = "TELEMETRY_HISTORICAL_ISSUES_ONLY"
-    elif quarantined:
+    elif quarantined or auto_quarantine or derived_examples:
         status = "TELEMETRY_HISTORICAL_QUARANTINED"
     else:
         status = "TELEMETRY_CLEAN"
@@ -94,6 +109,9 @@ def summarize_classified_issues(issues: list[Mapping[str, Any]], ledger: Mapping
         "historical_quarantined_count": quarantined_count,
         "historical_unreviewed_count": unreviewed_count,
         "unquarantined_historical_count": unreviewed_count,
+        "auto_quarantine_candidate_count": len(auto_quarantine),
+        "derived_example_count": len(derived_examples),
+        "redacted_legacy_count": len(redacted_legacy),
         "telemetry_acceptance_clear": not active and not unknown and unreviewed_count == 0,
         "telemetry_policy_reason": policy_reason,
         "active_blocking_issues": active,
@@ -161,3 +179,23 @@ def _ledger_entry(issue: Mapping[str, Any], ledger: Mapping[str, Any]) -> dict[s
 def _safe_ignorable_source(source: str) -> bool:
     suffix = Path(source).suffix.lower()
     return suffix in {".md", ".ps1"} or "docs" in source or "readme" in source
+
+
+def _is_derived_example(issue: Mapping[str, Any]) -> bool:
+    source = str(issue.get("source", "")).lower()
+    field = str(issue.get("field_name", "")).lower()
+    return (
+        "forward_evidence" in source
+        and any(marker in field for marker in ("invalid_timestamp_examples", "invalid_timestamp_fields", "timestamp_issues"))
+    )
+
+
+def _is_historical_auto_quarantine_candidate(issue: Mapping[str, Any], context: Mapping[str, Any]) -> bool:
+    if str(issue.get("status") or "").upper() == "CLOSED":
+        return True
+    first_seen = safe_parse_datetime(issue.get("first_seen_utc"), field_name="first_seen_utc", source="timestamp_issue").value
+    window_start = safe_parse_datetime(context.get("latest_clean_window_start_utc"), field_name="latest_clean_window_start_utc", source="telemetry_context").value
+    event_type = str(issue.get("event_type") or "").upper()
+    if first_seen is not None and window_start is not None and first_seen < window_start:
+        return event_type in {"HEARTBEAT", "ML_PREDICTION", "PAPER_TRADE_MANUAL_CLOSE", "FORWARD_SHADOW_CYCLE", ""}
+    return False

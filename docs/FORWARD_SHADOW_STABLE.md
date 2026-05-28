@@ -264,3 +264,22 @@ py -m agi_style_forex_bot_mt5.cli --mode paper-risk-post-fix-gate --reports-root
 ```
 
 Legacy trades without `scaled_paper_pnl` are classified as `LEGACY_UNSCALED_PNL` and remain in evidence. They must not be mixed into the active micro drawdown window after ledger/clearance review.
+
+## FASE 42: Legacy Drawdown Quarantine
+
+`BALANCED_STABLE_MICRO` now separates legacy/unscaled drawdown evidence from active scaled paper risk. Only an `ACTIVE_SCALED_CURRENT_EVENT` after the current clearance and daily risk ledger can trigger a new active `PAPER_DAILY_DRAWDOWN_HALT`.
+
+Run the legacy audit before resuming micro shadow after a post-fix paper PnL repair:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode paper-legacy-drawdown-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --paper-risk-dir data\reports\paper_risk --daily-risk-dir data\reports\paper_daily_risk --pnl-audit-dir data\reports\paper_pnl_audit --clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --daily-risk-ledger data\reports\paper_daily_risk\paper_daily_risk_ledger.json --profile-config data\reports\paper_risk\balanced_stable_micro.ini --output-dir data\reports\paper_daily_risk
+```
+
+Expected safe legacy state:
+
+- `legacy_drawdown_status=LEGACY_DRAWDOWN_QUARANTINED`
+- `active_scaled_events_count=0`
+- `can_resume_micro_shadow=true`
+- `drawdown_basis=SCALED_PAPER_PNL_ONLY`
+
+Historical logs, SQLite rows and evidence are not deleted or rewritten. They remain auditable, but they do not revive active daily drawdown blocks once the post-fix clearance, daily risk ledger and scaled PnL engine are valid. A new scaled halt after the ledger still blocks immediately.

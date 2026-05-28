@@ -28,7 +28,7 @@ from .edge_filtering import run_edge_filtering, run_filtered_profile_builder
 from .edge_evaluation import run_edge_evaluation, run_strategy_selection, run_symbol_selection
 from .execution_simulation import compare_paper_vs_backtest, run_simulation_calibration
 from .execution_evidence import run_execution_evidence_audit
-from .forward_evidence import run_forward_acceptance, run_forward_evidence
+from .forward_evidence import run_acceptance_drawdown_policy_report, run_forward_acceptance, run_forward_evidence
 from .forward_diagnostics import run_forward_signal_diagnose
 from .forward_research import run_forward_blocker_sensitivity, run_forward_candidate_replay
 from .market_structure import run_strategy_diagnose, write_structure_report
@@ -43,13 +43,20 @@ from .paper_trading import (
     build_paper_state_report,
     build_stable_health,
     close_all_paper_trades,
+    close_invalid_open_paper_trade,
+    close_stale_open_paper_trade,
     forward_summary_to_json,
     pause_shadow,
     resume_shadow,
+    run_config_error_fix_plan,
+    run_config_error_root_cause_audit,
+    run_invalid_open_paper_trade_audit,
+    run_paper_state_recovery_audit,
+    run_paper_state_recovery_plan,
     write_stable_shadow_daily_report,
 )
 from .paper_trading.paper_pnl_engine import extract_paper_risk_multiplier
-from .paper_daily_risk_state import run_paper_daily_risk_audit, run_paper_daily_risk_clear, validate_micro_daily_risk
+from .paper_daily_risk_state import run_paper_daily_risk_audit, run_paper_daily_risk_clear, run_paper_legacy_drawdown_audit, validate_micro_daily_risk
 from .paper_pnl_audit import run_paper_pnl_audit, run_paper_pnl_scaling_check, run_paper_risk_post_fix_gate, run_paper_risk_recommendation
 from .paper_risk_calibration import build_paper_risk_profile, run_paper_risk_audit, run_paper_risk_status
 from .paper_risk_review import run_paper_risk_clearance, run_paper_risk_clearance_check, run_paper_risk_review, validate_micro_resume_clearance
@@ -65,11 +72,12 @@ from .persistence import (
 from .portfolio import build_correlation_report, build_exposure_report, build_portfolio_status
 from .profile_validation import run_balanced_candidate_gate, run_profile_integrity, run_profile_threshold_audit
 from .real_data_research import RealDataResearchConfig, load_latest_run_summary, run_real_data_research
+from .research_candidate_ranking import run_research_candidate_ranking
 from .research import run_research
 from .robustness_validation import run_robustness_fast, run_stable_robustness_gate
 from .stability_repair import run_build_stable_profile, run_stability_repair, run_walk_forward_failure_analysis
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
-from .telemetry_repair import run_quarantine_telemetry_issues, run_telemetry_acceptance_policy, run_telemetry_status, run_telemetry_timestamp_audit
+from .telemetry_repair import run_quarantine_telemetry_issues, run_telemetry_acceptance_policy, run_telemetry_drift_audit, run_telemetry_status, run_telemetry_timestamp_audit
 from .validation_pipeline import PipelineConfig, run_full_validation
 
 
@@ -157,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
             "forward-shadow",
             "forward-evidence",
             "forward-acceptance",
+            "acceptance-drawdown-policy-audit",
             "forward-signal-diagnose",
             "forward-candidate-replay",
             "forward-blocker-sensitivity",
@@ -165,8 +174,14 @@ def main(argv: list[str] | None = None) -> int:
             "quarantine-telemetry-issues",
             "telemetry-status",
             "telemetry-acceptance-policy",
+            "telemetry-drift-audit",
             "paper-open-trades",
             "paper-state-report",
+            "paper-state-recovery-audit",
+            "paper-state-recovery-plan",
+            "config-error-root-cause-audit",
+            "config-error-fix-plan",
+            "invalid-open-paper-trade-audit",
             "paper-risk-audit",
             "build-paper-risk-profile",
             "paper-risk-status",
@@ -175,11 +190,14 @@ def main(argv: list[str] | None = None) -> int:
             "paper-risk-clearance-check",
             "paper-daily-risk-audit",
             "paper-daily-risk-clear",
+            "paper-legacy-drawdown-audit",
             "paper-pnl-audit",
             "paper-pnl-scaling-check",
             "paper-risk-post-fix-gate",
             "paper-risk-recommendation",
             "paper-close-all",
+            "paper-close-stale-open-trade",
+            "paper-close-invalid-open-trade",
             "pause-shadow",
             "resume-shadow",
             "stable-health",
@@ -238,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
             "dry-run-market-open",
             "operator-dashboard",
             "daily-operator-report",
+            "research-candidate-ranking",
         ],
         default="shadow",
     )
@@ -271,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--paper-risk-dir", type=Path, default=Path("data/reports/paper_risk"), help="Paper risk report directory.")
     parser.add_argument("--daily-risk-dir", type=Path, default=Path("data/reports/paper_daily_risk"), help="Daily paper risk report directory.")
     parser.add_argument("--pnl-audit-dir", type=Path, default=Path("data/reports/paper_pnl_audit"), help="Paper PnL audit report directory.")
+    parser.add_argument("--telemetry-dir", type=Path, default=Path("data/reports/telemetry_repair"), help="Telemetry repair report directory.")
     parser.add_argument("--clearance-ledger", type=Path, default=None, help="Paper risk clearance ledger for paper-risk-status.")
     parser.add_argument("--paper-risk-clearance", type=Path, default=None, help="Paper risk clearance ledger required by BALANCED_STABLE_MICRO forward-shadow.")
     parser.add_argument("--daily-risk-ledger", type=Path, default=None, help="Daily paper risk ledger for BALANCED_STABLE_MICRO stale halt clearance.")
@@ -316,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Enable optional Telegram notifications using TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.",
     )
     parser.add_argument("--reason", default="", help="Operational reason for paper/shadow state commands.")
+    parser.add_argument("--trade-id", default="", help="Paper trade id for protected paper-only recovery commands.")
     parser.add_argument("--issue-class", default="", help="Telemetry issue class filter for quarantine.")
     parser.add_argument("--status", default="QUARANTINED", help="Telemetry quarantine ledger status.")
     parser.add_argument("--confirm-paper-only", default="false", help="Set true to execute paper-only close commands.")
@@ -332,6 +353,7 @@ def main(argv: list[str] | None = None) -> int:
         "stable-daily-summary",
         "forward-evidence",
         "forward-acceptance",
+        "acceptance-drawdown-policy-audit",
         "forward-signal-diagnose",
         "forward-candidate-replay",
         "execution-evidence-audit",
@@ -339,23 +361,31 @@ def main(argv: list[str] | None = None) -> int:
         "quarantine-telemetry-issues",
         "telemetry-status",
         "telemetry-acceptance-policy",
+        "telemetry-drift-audit",
         "paper-open-trades",
         "paper-state-report",
+        "paper-state-recovery-audit",
+        "config-error-root-cause-audit",
+        "invalid-open-paper-trade-audit",
         "paper-risk-audit",
             "paper-risk-status",
             "paper-risk-review",
             "paper-risk-clearance",
             "paper-daily-risk-audit",
             "paper-daily-risk-clear",
+            "paper-legacy-drawdown-audit",
             "paper-pnl-audit",
             "paper-pnl-scaling-check",
         "paper-close-all",
+        "paper-close-stale-open-trade",
+        "paper-close-invalid-open-trade",
         "pause-shadow",
         "resume-shadow",
         "weekend-readiness",
         "dry-run-market-open",
         "operator-dashboard",
         "daily-operator-report",
+        "research-candidate-ranking",
         "broker-quality",
         "readiness-report",
         "build-ml-dataset",
@@ -555,6 +585,12 @@ def main(argv: list[str] | None = None) -> int:
             print(_json_dumps(summary))
             return 0
 
+        if args.mode == "telemetry-drift-audit":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/telemetry_repair")
+            summary = run_telemetry_drift_audit(sqlite_path=args.sqlite, log_dir=args.log_dir, reports_root=args.reports_root, telemetry_dir=args.telemetry_dir, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
         if args.mode == "apply-signal-profile":
             output_dir = Path("data/reports/applied_profiles") if args.output_dir == Path("data/historical") else args.output_dir
             summary = apply_signal_profile(profile_name=args.profile, runs_root=args.runs_root, output_dir=output_dir)
@@ -662,6 +698,31 @@ def main(argv: list[str] | None = None) -> int:
             print(_json_dumps(summary))
             return 0
 
+        if args.mode == "research-candidate-ranking":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/research_candidate_ranking")
+            summary = run_research_candidate_ranking(database=database, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "acceptance-drawdown-policy-audit":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/forward_evidence")
+            summary = run_acceptance_drawdown_policy_report(
+                database=database,
+                log_dir=args.log_dir,
+                reports_root=args.reports_root,
+                paper_risk_dir=args.paper_risk_dir,
+                daily_risk_dir=args.daily_risk_dir,
+                pnl_audit_dir=args.pnl_audit_dir,
+                clearance_ledger=args.clearance_ledger,
+                daily_risk_ledger=args.daily_risk_ledger,
+                profile_config=args.profile_config,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
         if args.mode == "forward-signal-diagnose":
             assert database is not None
             if args.signal_profile:
@@ -718,6 +779,75 @@ def main(argv: list[str] | None = None) -> int:
             assert database is not None
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_state")
             print(_json_dumps(build_paper_state_report(database=database, log_dir=args.log_dir, output_dir=output_dir)))
+            return 0
+
+        if args.mode == "paper-state-recovery-audit":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_state_recovery")
+            print(
+                _json_dumps(
+                    run_paper_state_recovery_audit(
+                        database=database,
+                        log_dir=args.log_dir,
+                        reports_root=args.reports_root,
+                        paper_risk_dir=args.paper_risk_dir,
+                        daily_risk_dir=args.daily_risk_dir,
+                        pnl_audit_dir=args.pnl_audit_dir,
+                        clearance_ledger=args.clearance_ledger,
+                        daily_risk_ledger=args.daily_risk_ledger,
+                        profile_config=args.profile_config,
+                        stable_gate=args.stable_gate,
+                        output_dir=output_dir,
+                    )
+                )
+            )
+            return 0
+
+        if args.mode == "paper-state-recovery-plan":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_state_recovery")
+            print(_json_dumps(run_paper_state_recovery_plan(audit_dir=output_dir, output_dir=output_dir)))
+            return 0
+
+        if args.mode == "config-error-root-cause-audit":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/config_error_recovery")
+            print(
+                _json_dumps(
+                    run_config_error_root_cause_audit(
+                        database=database,
+                        log_dir=args.log_dir,
+                        reports_root=args.reports_root,
+                        paper_risk_dir=args.paper_risk_dir,
+                        daily_risk_dir=args.daily_risk_dir,
+                        pnl_audit_dir=args.pnl_audit_dir,
+                        clearance_ledger=args.clearance_ledger,
+                        daily_risk_ledger=args.daily_risk_ledger,
+                        profile_config=args.profile_config,
+                        stable_gate=args.stable_gate,
+                        output_dir=output_dir,
+                    )
+                )
+            )
+            return 0
+
+        if args.mode == "config-error-fix-plan":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/config_error_recovery")
+            print(_json_dumps(run_config_error_fix_plan(audit_dir=output_dir, output_dir=output_dir)))
+            return 0
+
+        if args.mode == "invalid-open-paper-trade-audit":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_state_recovery")
+            print(
+                _json_dumps(
+                    run_invalid_open_paper_trade_audit(
+                        database=database,
+                        log_dir=args.log_dir,
+                        reports_root=args.reports_root,
+                        output_dir=output_dir,
+                    )
+                )
+            )
             return 0
 
         if args.mode == "paper-risk-audit":
@@ -782,6 +912,26 @@ def main(argv: list[str] | None = None) -> int:
                         reports_root=args.reports_root,
                         paper_risk_dir=args.paper_risk_dir,
                         clearance_ledger=args.clearance_ledger,
+                        profile_config=args.profile_config,
+                        output_dir=output_dir,
+                    )
+                )
+            )
+            return 0
+
+        if args.mode == "paper-legacy-drawdown-audit":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_daily_risk")
+            print(
+                _json_dumps(
+                    run_paper_legacy_drawdown_audit(
+                        database=database,
+                        log_dir=args.log_dir,
+                        reports_root=args.reports_root,
+                        paper_risk_dir=args.paper_risk_dir,
+                        pnl_audit_dir=args.pnl_audit_dir,
+                        clearance_ledger=args.clearance_ledger,
+                        daily_risk_ledger=args.daily_risk_ledger,
                         profile_config=args.profile_config,
                         output_dir=output_dir,
                     )
@@ -857,6 +1007,37 @@ def main(argv: list[str] | None = None) -> int:
                     close_all_paper_trades(
                         database=database,
                         reason=args.reason or "manual paper close",
+                        output_dir=output_dir,
+                        confirm_paper_only=str(args.confirm_paper_only).lower() == "true",
+                    )
+                )
+            )
+            return 0
+
+        if args.mode == "paper-close-stale-open-trade":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_state_recovery")
+            print(
+                _json_dumps(
+                    close_stale_open_paper_trade(
+                        database=database,
+                        reason=args.reason,
+                        output_dir=output_dir,
+                        confirm_paper_only=str(args.confirm_paper_only).lower() == "true",
+                    )
+                )
+            )
+            return 0
+
+        if args.mode == "paper-close-invalid-open-trade":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/paper_state_recovery")
+            print(
+                _json_dumps(
+                    close_invalid_open_paper_trade(
+                        database=database,
+                        trade_id=args.trade_id,
+                        reason=args.reason,
                         output_dir=output_dir,
                         confirm_paper_only=str(args.confirm_paper_only).lower() == "true",
                     )
@@ -1120,6 +1301,7 @@ def main(argv: list[str] | None = None) -> int:
                         log_dir=args.log_dir,
                         reports_root=args.reports_root,
                         paper_risk_dir=args.paper_risk_dir,
+                        daily_risk_ledger=args.daily_risk_ledger,
                     )
                     if not clearance.get("accepted"):
                         print(_json_dumps(_stable_forward_block(str(clearance.get("paper_risk_clearance_status") or "PAPER_RISK_CLEARANCE_REQUIRED"), str(clearance.get("reason") or "BALANCED_STABLE_MICRO requires valid paper risk clearance"), args.stable_gate, clearance, signal_profile=config.signal_profile)))

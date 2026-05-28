@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from agi_style_forex_bot_mt5 import cli
@@ -9,6 +10,7 @@ from agi_style_forex_bot_mt5.operational_readiness import run_operator_dashboard
 from agi_style_forex_bot_mt5.config import BotConfig
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 from agi_style_forex_bot_mt5.telemetry_repair import run_quarantine_telemetry_issues, run_telemetry_acceptance_policy, run_telemetry_status, run_telemetry_timestamp_audit
+from agi_style_forex_bot_mt5.telemetry_repair.telemetry_quarantine_ledger import raw_value_hash
 from agi_style_forex_bot_mt5.telemetry_repair.timestamp_issue_loader import load_timestamp_issues
 from agi_style_forex_bot_mt5.telemetry_repair.timestamp_issue_classifier import classify_timestamp_issue
 
@@ -32,13 +34,14 @@ def test_classifies_historical_invalid_timestamp(tmp_path: Path) -> None:
     issues, context = load_timestamp_issues(log_dir=log_dir, reports_root=tmp_path / "reports")
     classified = [classify_timestamp_issue(issue, context, {}) for issue in issues]
 
-    assert any(item["classification"] in {"HISTORICAL_TELEMETRY_INVALID", "REDACTED_TIMESTAMP"} for item in classified)
+    assert any(item["classification"] in {"HISTORICAL_TELEMETRY_INVALID", "REDACTED_TIMESTAMP", "HISTORICAL_AUTO_QUARANTINE_CANDIDATE", "REDACTED_TIMESTAMP_LEGACY"} for item in classified)
 
 
 def test_classifies_recent_heartbeat_invalid_as_active(tmp_path: Path) -> None:
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    _write_jsonl(log_dir / "events.jsonl", {"event_type": "HEARTBEAT", "timestamp_utc": "2026-05-25T00:00:00.[REDACTED:1234]+00:00"})
+    prefix = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    _write_jsonl(log_dir / "events.jsonl", {"event_type": "HEARTBEAT", "timestamp_utc": f"{prefix}.[REDACTED:1234]+00:00"})
 
     issues, context = load_timestamp_issues(log_dir=log_dir, reports_root=tmp_path / "reports")
     classified = [classify_timestamp_issue(issue, context, {}) for issue in issues]
@@ -62,10 +65,50 @@ def test_quarantine_does_not_modify_logs_and_skips_active(tmp_path: Path) -> Non
     assert (tmp_path / "out" / "telemetry_quarantine_ledger.json").exists()
 
 
+def test_quarantine_adds_only_unreviewed_historical_issues(tmp_path: Path) -> None:
+    log_dir = tmp_path / "logs"
+    out = tmp_path / "out"
+    log_dir.mkdir()
+    out.mkdir()
+    log_path = log_dir / "events.jsonl"
+    _write_jsonl(log_path, {"event_type": "PAPER_TRADE_MANUAL_CLOSE", "timestamp_utc": "2026-05-25T00:00:00+00:00"})
+    for index in range(180):
+        _write_jsonl(log_path, {"event_type": "ML_PREDICTION", "timestamp_utc": f"2026-05-18T09:34:{index % 60:02d}.[REDACTED:{9000 + index}]+00:00"})
+    issues, _context = load_timestamp_issues(log_dir=log_dir, reports_root=tmp_path / "reports")
+    historical = issues[:174]
+    ledger = {
+        "mode": "telemetry-quarantine-ledger",
+        "issues": [
+            {
+                "issue_id": issue["issue_id"],
+                "status": "QUARANTINED",
+                "raw_value_hash": raw_value_hash(issue["raw_value"]),
+                "classification": "HISTORICAL_TELEMETRY_INVALID",
+            }
+            for issue in historical
+        ],
+        "execution_attempted": False,
+        "order_send_called": False,
+        "order_check_called": False,
+    }
+    (out / "telemetry_quarantine_ledger.json").write_text(json.dumps(ledger), encoding="utf-8")
+
+    summary = run_quarantine_telemetry_issues(log_dir=log_dir, reports_root=tmp_path / "reports", output_dir=out, reason="close remaining historical telemetry")
+
+    assert summary["historical_invalid_count"] == 180
+    assert summary["previously_quarantined_count"] == 174
+    assert summary["newly_quarantined_count"] == 6
+    assert summary["unreviewed_count_after"] == 0
+    assert summary["telemetry_status"] == "TELEMETRY_HISTORICAL_QUARANTINED"
+    assert summary["telemetry_acceptance_clear"] is True
+    assert (out / "telemetry_status_summary.json").exists()
+
+
 def test_quarantine_skips_active_issues(tmp_path: Path) -> None:
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    _write_jsonl(log_dir / "events.jsonl", {"event_type": "HEARTBEAT", "timestamp_utc": "2026-05-25T00:00:00.[REDACTED:1234]+00:00"})
+    prefix = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    _write_jsonl(log_dir / "events.jsonl", {"event_type": "HEARTBEAT", "timestamp_utc": f"{prefix}.[REDACTED:1234]+00:00"})
 
     summary = run_quarantine_telemetry_issues(log_dir=log_dir, reports_root=tmp_path / "reports", output_dir=tmp_path / "out", reason="reviewed")
 
@@ -185,11 +228,13 @@ def test_telemetry_cli_modes_generate_reports(tmp_path: Path, capsys) -> None:
     assert cli.main(["--mode", "telemetry-status", "--sqlite", str(sqlite), "--log-dir", str(log_dir), "--reports-root", str(tmp_path / "reports"), "--output-dir", str(tmp_path / "out")]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["telemetry_acceptance_clear"] is True
+    assert (tmp_path / "out" / "telemetry_status_summary.json").exists()
 
     assert cli.main(["--mode", "telemetry-acceptance-policy", "--sqlite", str(sqlite), "--log-dir", str(log_dir), "--reports-root", str(tmp_path / "reports"), "--output-dir", str(tmp_path / "out")]) == 0
     policy = json.loads(capsys.readouterr().out)
     assert policy["telemetry_acceptance_clear"] is True
     assert policy["order_send_called"] is False
+    assert (tmp_path / "out" / "telemetry_acceptance_policy.json").exists()
 
 
 def test_dashboard_shows_telemetry_status(tmp_path: Path) -> None:

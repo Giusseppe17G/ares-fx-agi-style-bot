@@ -37,6 +37,7 @@ def run_operator_dashboard(
     paper_pnl_audit = _load_json(reports / "paper_pnl_audit" / "paper_pnl_audit_summary.json")
     paper_risk_recommendation = _load_json(reports / "paper_pnl_audit" / "paper_risk_recommendation.json")
     daily_risk = _load_json(reports / "paper_daily_risk" / "paper_daily_risk_summary.json") or _load_json(reports / "paper_daily_risk" / "paper_daily_risk_clear_summary.json")
+    legacy_drawdown = _load_json(reports / "paper_daily_risk" / "legacy_drawdown_audit_summary.json")
     clearance = _load_json(reports / "paper_risk_review" / "paper_risk_clearance_summary.json")
     diagnostics = _load_json(reports / "forward_diagnostics" / "signal_scarcity_summary.json")
     stable_gate = _load_json(reports / "stable_gate" / "stable_gate_summary.json")
@@ -83,6 +84,11 @@ def run_operator_dashboard(
         "stale_halt_count": daily_risk.get("stale_halt_count", evidence.get("stale_halt_count", 0)),
         "daily_risk_ledger_status": daily_risk.get("daily_risk_ledger_status", evidence.get("daily_risk_ledger_status", "")),
         "can_resume_micro_shadow": daily_risk.get("can_resume_micro_shadow", evidence.get("can_resume_micro_shadow", False)),
+        "legacy_drawdown_status": legacy_drawdown.get("legacy_drawdown_status", evidence.get("legacy_drawdown_status", "")),
+        "legacy_drawdown_quarantined": legacy_drawdown.get("legacy_drawdown_quarantined", evidence.get("legacy_drawdown_quarantined", False)),
+        "legacy_quarantined_halt_count": legacy_drawdown.get("legacy_quarantined_halt_count", evidence.get("legacy_quarantined_halt_count", 0)),
+        "active_scaled_drawdown_count": legacy_drawdown.get("active_scaled_events_count", evidence.get("active_scaled_drawdown_count", 0)),
+        "drawdown_basis": legacy_drawdown.get("drawdown_basis", evidence.get("drawdown_basis", "")),
         "paper_pnl_audit_status": paper_pnl_audit.get("paper_pnl_audit_status", evidence.get("paper_pnl_audit_status", "")),
         "micro_risk_application_status": paper_pnl_audit.get("micro_risk_application_status", evidence.get("micro_risk_application_status", "")),
         "drawdown_root_cause": paper_pnl_audit.get("root_cause", evidence.get("drawdown_root_cause", "")),
@@ -125,6 +131,7 @@ def run_daily_operator_report(
     paper_pnl_audit = _load_json(reports / "paper_pnl_audit" / "paper_pnl_audit_summary.json")
     paper_risk_recommendation = _load_json(reports / "paper_pnl_audit" / "paper_risk_recommendation.json")
     daily_risk = _load_json(reports / "paper_daily_risk" / "paper_daily_risk_summary.json") or _load_json(reports / "paper_daily_risk" / "paper_daily_risk_clear_summary.json")
+    legacy_drawdown = _load_json(reports / "paper_daily_risk" / "legacy_drawdown_audit_summary.json")
     clearance = _load_json(reports / "paper_risk_review" / "paper_risk_clearance_summary.json")
     health = database.get_latest_health()
     top_blockers = diagnostics.get("top_blockers", [])
@@ -161,6 +168,11 @@ def run_daily_operator_report(
         "stale_halt_count": daily_risk.get("stale_halt_count", evidence.get("stale_halt_count", 0)),
         "daily_risk_ledger_status": daily_risk.get("daily_risk_ledger_status", evidence.get("daily_risk_ledger_status", "")),
         "can_resume_micro_shadow": daily_risk.get("can_resume_micro_shadow", evidence.get("can_resume_micro_shadow", False)),
+        "legacy_drawdown_status": legacy_drawdown.get("legacy_drawdown_status", evidence.get("legacy_drawdown_status", "")),
+        "legacy_drawdown_quarantined": legacy_drawdown.get("legacy_drawdown_quarantined", evidence.get("legacy_drawdown_quarantined", False)),
+        "legacy_quarantined_halt_count": legacy_drawdown.get("legacy_quarantined_halt_count", evidence.get("legacy_quarantined_halt_count", 0)),
+        "active_scaled_drawdown_count": legacy_drawdown.get("active_scaled_events_count", evidence.get("active_scaled_drawdown_count", 0)),
+        "drawdown_basis": legacy_drawdown.get("drawdown_basis", evidence.get("drawdown_basis", "")),
         "paper_pnl_audit_status": paper_pnl_audit.get("paper_pnl_audit_status", evidence.get("paper_pnl_audit_status", "")),
         "micro_risk_application_status": paper_pnl_audit.get("micro_risk_application_status", evidence.get("micro_risk_application_status", "")),
         "drawdown_root_cause": paper_pnl_audit.get("root_cause", evidence.get("drawdown_root_cause", "")),
@@ -207,6 +219,7 @@ def _source_status(reports: Path) -> dict[str, dict[str, Any]]:
         "execution_evidence": reports / "execution_evidence" / "execution_evidence_summary.json",
         "telemetry_repair": reports / "telemetry_repair" / "telemetry_timestamp_summary.json",
         "paper_daily_risk": reports / "paper_daily_risk" / "paper_daily_risk_summary.json",
+        "legacy_drawdown": reports / "paper_daily_risk" / "legacy_drawdown_audit_summary.json",
         "paper_pnl_audit": reports / "paper_pnl_audit" / "paper_pnl_audit_summary.json",
         "security_guardrails": reports / "ec2_deployment_pack" / "EC2_SECURITY_GUARDRAILS.md",
     }
@@ -237,7 +250,7 @@ def _dashboard_checks(
 ) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
     for name, source in sources.items():
-        severity = "PASS" if name in {"paper_daily_risk", "paper_pnl_audit"} else ("WARNING" if name in {"forward_evidence", "forward_diagnostics", "paper_state", "paper_risk"} else "FAIL")
+        severity = "PASS" if name in {"paper_daily_risk", "paper_pnl_audit", "legacy_drawdown"} else ("WARNING" if name in {"forward_evidence", "forward_diagnostics", "paper_state", "paper_risk"} else "FAIL")
         checks.append(
             {
                 "check_name": f"source_{name}",

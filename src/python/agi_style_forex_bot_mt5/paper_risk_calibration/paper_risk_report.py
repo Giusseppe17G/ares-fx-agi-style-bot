@@ -82,6 +82,7 @@ def run_paper_risk_status(
         log_dir=log_dir,
         reports_root=reports_root,
         paper_risk_dir=paper_risk_dir,
+        daily_risk_ledger=daily_risk_ledger,
     )
     if status.get("blocking_reason") == "PAPER_DRAWDOWN_HALT_BLOCK" and clearance.get("accepted"):
         daily_risk = _daily_risk_status(
@@ -97,7 +98,7 @@ def run_paper_risk_status(
             status.update(
                 {
                     "paper_risk_status": "PAPER_RISK_CLEAR_FOR_MICRO_SHADOW",
-                    "daily_drawdown_status": "CLEARED_STALE_HALT",
+                    "daily_drawdown_status": "LEGACY_DRAWDOWN_QUARANTINED" if daily_risk.get("legacy_drawdown_quarantined") else "CLEARED_STALE_HALT",
                     "can_open_new_paper_trade": True,
                     "blocking_reason": "",
                     "manual_review_required": False,
@@ -125,6 +126,11 @@ def run_paper_risk_status(
         "active_today_halt_count": daily_risk.get("active_today_halt_count", 0),
         "stale_halt_count": daily_risk.get("stale_halt_count", 0),
         "can_resume_micro_shadow": daily_risk.get("can_resume_micro_shadow", False),
+        "legacy_drawdown_status": daily_risk.get("paper_daily_risk_status", ""),
+        "legacy_drawdown_quarantined": daily_risk.get("legacy_drawdown_quarantined", False),
+        "legacy_quarantined_halt_count": daily_risk.get("legacy_quarantined_halt_count", 0),
+        "active_scaled_drawdown_count": daily_risk.get("active_scaled_drawdown_count", 0),
+        "drawdown_basis": daily_risk.get("drawdown_basis", ""),
         "paper_pnl_audit_status": pnl_audit.get("paper_pnl_audit_status", ""),
         "root_cause": pnl_audit.get("root_cause", ""),
         "paper_pnl_recommended_action": pnl_audit.get("recommended_action", ""),
@@ -150,6 +156,7 @@ def _clearance_status(
     log_dir: str | Path,
     reports_root: str | Path,
     paper_risk_dir: str | Path,
+    daily_risk_ledger: str | Path | None = None,
 ) -> dict[str, Any]:
     if not clearance_ledger:
         return {}
@@ -164,6 +171,7 @@ def _clearance_status(
             log_dir=log_dir,
             reports_root=reports_root,
             paper_risk_dir=paper_risk_dir,
+            daily_risk_ledger=daily_risk_ledger,
         )
     except Exception as exc:
         return {"accepted": False, "paper_risk_clearance_status": "PAPER_RISK_CLEARANCE_ERROR", "reason": str(exc)}

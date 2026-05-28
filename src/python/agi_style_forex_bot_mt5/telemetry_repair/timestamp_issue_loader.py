@@ -250,6 +250,8 @@ def _looks_like_timestamp_field(field_path: str) -> bool:
     lowered = field_path.lower()
     if lowered.endswith("_id") or lowered.endswith(".id") or "heartbeat_id" in lowered:
         return False
+    if lowered.endswith("_count") or lowered.endswith(".count") or lowered.endswith("_counts") or "count_by" in lowered:
+        return False
     return any(marker in lowered for marker in TIMESTAMP_FIELD_MARKERS)
 
 

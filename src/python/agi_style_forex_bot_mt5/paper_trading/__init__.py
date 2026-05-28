@@ -3,11 +3,13 @@
 from .forward_drift_detector import detect_forward_drift
 from .forward_stable_drift_detector import detect_stable_forward_drift
 from .forward_shadow_bot import ForwardShadowBot, ForwardShadowSummary, forward_summary_to_json
+from .config_error_root_cause import run_config_error_fix_plan, run_config_error_root_cause_audit
 from .paper_fill_model import PaperFillModel
 from .paper_performance import group_metrics, paper_metrics
 from .paper_position_manager import PaperPositionManager
 from .paper_report import write_forward_shadow_report
 from .paper_state import build_paper_open_trades_report, build_paper_state_report, close_all_paper_trades, pause_shadow, resume_shadow
+from .paper_state_recovery import close_invalid_open_paper_trade, close_stale_open_paper_trade, run_invalid_open_paper_trade_audit, run_paper_state_recovery_audit, run_paper_state_recovery_plan
 from .paper_trade import PaperTrade
 from .stable_shadow_report import build_stable_health, write_stable_shadow_daily_report
 
@@ -20,6 +22,8 @@ __all__ = [
     "detect_forward_drift",
     "detect_stable_forward_drift",
     "forward_summary_to_json",
+    "run_config_error_fix_plan",
+    "run_config_error_root_cause_audit",
     "group_metrics",
     "paper_metrics",
     "write_forward_shadow_report",
@@ -28,6 +32,11 @@ __all__ = [
     "build_paper_open_trades_report",
     "build_paper_state_report",
     "close_all_paper_trades",
+    "close_invalid_open_paper_trade",
+    "close_stale_open_paper_trade",
     "pause_shadow",
     "resume_shadow",
+    "run_invalid_open_paper_trade_audit",
+    "run_paper_state_recovery_audit",
+    "run_paper_state_recovery_plan",
 ]
