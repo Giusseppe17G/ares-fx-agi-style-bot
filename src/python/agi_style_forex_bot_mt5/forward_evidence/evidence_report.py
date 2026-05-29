@@ -49,6 +49,7 @@ def run_forward_evidence(
     forward_research = _load_json(Path(reports_root) / "forward_research" / "candidate_replay_summary.json")
     blocker_sensitivity = _load_json(Path(reports_root) / "forward_research" / "blocker_sensitivity.json")
     research_candidate_ranking = _load_json(Path(reports_root) / "research_candidate_ranking" / "candidate_ranking_summary.json")
+    forward_sufficiency = _load_json(Path(reports_root) / "forward_sufficiency" / "forward_sufficiency_summary.json")
     paper_pnl_audit = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_pnl_audit_summary.json")
     paper_risk_recommendation = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_risk_recommendation.json")
     legacy_drawdown = _load_json(Path(reports_root) / "paper_daily_risk" / "legacy_drawdown_audit_summary.json")
@@ -188,6 +189,11 @@ def run_forward_evidence(
         "research_candidate_score": research_candidate_ranking.get("research_candidate_score", 0.0),
         "best_research_symbols": research_candidate_ranking.get("best_symbols_for_next_shadow_window", []),
         "research_recommendation": research_candidate_ranking.get("recommended_next_research_action", ""),
+        "forward_sufficiency_status": forward_sufficiency.get("forward_sufficiency_status", ""),
+        "forward_sufficiency_hours_observed": forward_sufficiency.get("hours_observed", 0.0),
+        "forward_sufficiency_closed_paper_trades": forward_sufficiency.get("closed_paper_trades", 0),
+        "forward_sufficiency_estimated_hours_to_acceptance": forward_sufficiency.get("estimated_hours_to_acceptance"),
+        "forward_sufficiency_recommendation": forward_sufficiency.get("recommended_next_action", ""),
         "execution_attempted": False,
         "order_send_called": False,
         "order_check_called": False,

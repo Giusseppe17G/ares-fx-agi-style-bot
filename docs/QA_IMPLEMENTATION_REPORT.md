@@ -1519,3 +1519,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 44 QA Notes
+
+Added offline forward sufficiency diagnostics. New mode: `forward-sufficiency-audit`. The audit reads SQLite/log/report context, writes only under `data/reports/forward_sufficiency`, and reports observation hours, closed paper trades, estimated hours to acceptance, rejection funnels, blocker funnels, symbol activity, and profile throttle buckets.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

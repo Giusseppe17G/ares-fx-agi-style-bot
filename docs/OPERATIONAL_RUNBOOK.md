@@ -547,3 +547,13 @@ py -m agi_style_forex_bot_mt5.cli --mode research-candidate-ranking --sqlite dat
 The ranking reads SQLite, logs and reports, then writes only to `data\reports\research_candidate_ranking`. It scores symbols and strategies by signal quality, blockers, regime/session context, and paper performance. It does not alter configs, ledgers, risk state, telemetry state, paper trades, or forward-shadow status.
 
 Use this report to decide what to inspect next in research. It does not replace forward acceptance and does not authorize demo/live execution.
+
+## Phase 44 Forward Sufficiency Audit
+
+When `forward-acceptance` returns `NEEDS_MORE_FORWARD_DATA`, use the sufficiency audit to determine whether the blocker is only time/trade count or whether the micro profile is throttling activity:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode forward-sufficiency-audit --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --output-dir data\reports\forward_sufficiency
+```
+
+The audit writes only to `data\reports\forward_sufficiency`. It reports observation hours, closed paper trades, estimated time to 10 closed trades, rejection and blocker funnels, symbol activity, and profile throttle counts for session, score, spread, regime, liquidity, cooldown, paper risk, and data quality. It does not change runtime filters, pause/resume shadow, modify SQLite, or replace forward-acceptance.

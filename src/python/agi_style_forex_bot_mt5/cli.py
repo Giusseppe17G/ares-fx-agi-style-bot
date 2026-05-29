@@ -31,6 +31,7 @@ from .execution_evidence import run_execution_evidence_audit
 from .forward_evidence import run_acceptance_drawdown_policy_report, run_forward_acceptance, run_forward_evidence
 from .forward_diagnostics import run_forward_signal_diagnose
 from .forward_research import run_forward_blocker_sensitivity, run_forward_candidate_replay
+from .forward_sufficiency import run_forward_sufficiency_audit
 from .market_structure import run_strategy_diagnose, write_structure_report
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
@@ -169,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
             "forward-signal-diagnose",
             "forward-candidate-replay",
             "forward-blocker-sensitivity",
+            "forward-sufficiency-audit",
             "execution-evidence-audit",
             "telemetry-timestamp-audit",
             "quarantine-telemetry-issues",
@@ -356,6 +358,7 @@ def main(argv: list[str] | None = None) -> int:
         "acceptance-drawdown-policy-audit",
         "forward-signal-diagnose",
         "forward-candidate-replay",
+        "forward-sufficiency-audit",
         "execution-evidence-audit",
         "telemetry-timestamp-audit",
         "quarantine-telemetry-issues",
@@ -702,6 +705,13 @@ def main(argv: list[str] | None = None) -> int:
             assert database is not None
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/research_candidate_ranking")
             summary = run_research_candidate_ranking(database=database, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "forward-sufficiency-audit":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/forward_sufficiency")
+            summary = run_forward_sufficiency_audit(database=database, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=output_dir)
             print(_json_dumps(summary))
             return 0
 

@@ -280,3 +280,19 @@ Phase 43 adds `research-candidate-ranking`, which is read-only research. It prod
 - `report.html`
 
 Forward evidence may display `research_candidate_score`, `best_research_symbols`, and `research_recommendation` if this report exists. Those fields are informational only and never bypass paper risk, cooldown, forward acceptance, stable gate, or execution safety rules.
+
+## Forward Sufficiency Audit
+
+Phase 44 adds `forward-sufficiency-audit` for the common `NEEDS_MORE_FORWARD_DATA` state. It writes:
+
+- `forward_sufficiency_summary.json`
+- `observation_window.json`
+- `trade_frequency_audit.json`
+- `rejection_funnel.csv`
+- `blocker_funnel.csv`
+- `symbol_activity.csv`
+- `profile_throttle_audit.json`
+- `recommendations.md`
+- `report.html`
+
+Forward evidence may show `forward_sufficiency_status`, `forward_sufficiency_hours_observed`, `forward_sufficiency_closed_paper_trades`, `forward_sufficiency_estimated_hours_to_acceptance`, and `forward_sufficiency_recommendation` when this report exists. These fields explain whether more time, more trades, data quality, risk gates, sessions, or filter strictness are limiting the observation. They never bypass acceptance gates or authorize demo/live execution.
