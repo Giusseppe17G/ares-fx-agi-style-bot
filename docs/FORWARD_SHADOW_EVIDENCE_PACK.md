@@ -348,3 +348,19 @@ Rejected bottlenecks remain visible when no safe profile key exists. The proposa
 Phase 48 adds `micro-v2-proposed-review`. It validates the proposed profile produced by Phase 47, including 10% loss-cooldown reduction maximum, daily paper trade cap <= 3, unchanged drawdown halt cooldown, unchanged risk multiplier, paper-only markers, and stable/clearance/daily-ledger requirements.
 
 If approved, it creates `data/reports/paper_risk/balanced_stable_micro_v2.ini` for future paper dry-run review only. The evidence pack can display `micro_v2_proposed_review_status`, `micro_v2_profile_created`, and `micro_v2_profile_path`, but those fields never activate runtime or bypass acceptance gates.
+
+## Micro V2 Dry-Run Readiness
+
+Phase 49 adds `micro-v2-dry-run-readiness`, which validates the approved V2 profile and produces an isolated launch pack. It writes:
+
+- `micro_v2_dry_run_readiness_summary.json`
+- `v2_profile_guard.json`
+- `path_isolation_audit.json`
+- `launch_command.txt`
+- `launch_checklist.md`
+- `rollback_plan.md`
+- `monitoring_commands.md`
+- `recommendations.md`
+- `report.html`
+
+Forward evidence may display `micro_v2_dry_run_readiness_status` and `micro_v2_launch_command_available`. These fields are informational and do not execute V2 or bypass any gate.

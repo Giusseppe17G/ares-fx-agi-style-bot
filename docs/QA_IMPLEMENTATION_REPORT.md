@@ -1579,3 +1579,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 49 QA Notes
+
+Added offline readiness for BALANCED_STABLE_MICRO_V2 paper dry-run. New mode: `micro-v2-dry-run-readiness`. It validates V2 profile guardrails, required stable gate/clearance/daily ledgers, isolated SQLite/log/report paths, and writes launch, monitoring, rollback and checklist artifacts without executing forward-shadow.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

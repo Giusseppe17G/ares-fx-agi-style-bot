@@ -597,3 +597,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-proposed-review --sqlite data\
 ```
 
 Approval creates `data\reports\paper_risk\balanced_stable_micro_v2.ini` with `APPROVED_FOR_PAPER_DRY_RUN_ONLY=true`, `APPROVED_FOR_DEMO=false`, and `APPROVED_FOR_LIVE=false`. It does not activate forward-shadow, does not change the active micro profile, and still requires a later explicit phase before any paper dry-run.
+
+## Phase 49 Micro V2 Dry-Run Readiness
+
+Prepare the V2 paper dry-run launch pack without executing it:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-dry-run-readiness --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --stable-gate data\reports\stable_gate\stable_gate_summary.json --paper-risk-clearance data\reports\paper_risk_review\paper_risk_clearance_ledger.json --daily-risk-ledger data\reports\paper_daily_risk\paper_daily_risk_ledger.json --output-dir data\reports\micro_v2_dry_run_readiness
+```
+
+The generated command uses isolated paths: `data\sqlite\forward-shadow-v2-dryrun.sqlite3`, `data\logs\forward-shadow-v2-dryrun`, and `data\reports\micro_v2_dry_run`. Never point V2 at the stable SQLite or stable logs. This phase does not launch V2; it only writes checklist, monitoring commands, rollback plan, and readiness reports.

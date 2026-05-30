@@ -35,6 +35,7 @@ from .forward_sufficiency import run_forward_sufficiency_audit
 from .market_structure import run_strategy_diagnose, write_structure_report
 from .micro_frequency_calibration import run_micro_frequency_calibration
 from .micro_frequency_proposal import run_micro_frequency_proposal
+from .micro_v2_dry_run_readiness import run_micro_v2_dry_run_readiness
 from .micro_v2_review import run_micro_v2_proposed_review, run_micro_v2_review
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
@@ -178,6 +179,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-frequency-proposal",
             "micro-v2-review",
             "micro-v2-proposed-review",
+            "micro-v2-dry-run-readiness",
             "execution-evidence-audit",
             "telemetry-timestamp-audit",
             "quarantine-telemetry-issues",
@@ -290,6 +292,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base-profile-config", type=Path, default=Path("data/reports/paper_risk/balanced_stable_micro.ini"), help="Base profile INI for micro V2 review.")
     parser.add_argument("--candidate-profile-config", type=Path, default=Path("data/reports/micro_frequency_calibration/balanced_stable_micro_v2_candidate.ini"), help="Candidate profile INI for micro V2 review.")
     parser.add_argument("--proposed-profile-config", type=Path, default=Path("data/reports/micro_frequency_proposal/balanced_stable_micro_v2_proposed.ini"), help="Proposed profile INI for micro V2 proposed review.")
+    parser.add_argument("--v2-profile-config", type=Path, default=Path("data/reports/paper_risk/balanced_stable_micro_v2.ini"), help="Approved Micro V2 profile INI for dry-run readiness.")
+    parser.add_argument("--v2-sqlite", type=Path, default=Path("data/sqlite/forward-shadow-v2-dryrun.sqlite3"), help="Isolated SQLite path for Micro V2 dry-run.")
+    parser.add_argument("--v2-log-dir", type=Path, default=Path("data/logs/forward-shadow-v2-dryrun"), help="Isolated log directory for Micro V2 dry-run.")
+    parser.add_argument("--v2-reports-dir", type=Path, default=Path("data/reports/micro_v2_dry_run"), help="Isolated report directory for Micro V2 dry-run.")
     parser.add_argument("--frequency-dir", type=Path, default=Path("data/reports/micro_frequency_calibration"), help="Micro frequency calibration report directory.")
     parser.add_argument("--v2-review-dir", type=Path, default=Path("data/reports/micro_v2_review"), help="Micro V2 review report directory.")
     parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
@@ -375,6 +381,7 @@ def main(argv: list[str] | None = None) -> int:
         "micro-frequency-proposal",
         "micro-v2-review",
         "micro-v2-proposed-review",
+        "micro-v2-dry-run-readiness",
         "execution-evidence-audit",
         "telemetry-timestamp-audit",
         "quarantine-telemetry-issues",
@@ -783,6 +790,25 @@ def main(argv: list[str] | None = None) -> int:
                 base_profile_config=args.base_profile_config,
                 proposed_profile_config=args.proposed_profile_config,
                 output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-dry-run-readiness":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_dry_run_readiness")
+            summary = run_micro_v2_dry_run_readiness(
+                database=database,
+                log_dir=args.log_dir,
+                reports_root=args.reports_root,
+                v2_profile_config=args.v2_profile_config,
+                stable_gate=args.stable_gate,
+                paper_risk_clearance=args.paper_risk_clearance,
+                daily_risk_ledger=args.daily_risk_ledger,
+                output_dir=output_dir,
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                v2_reports_dir=args.v2_reports_dir,
             )
             print(_json_dumps(summary))
             return 0
