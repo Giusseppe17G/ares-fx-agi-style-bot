@@ -617,3 +617,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-runtime-profile-check --sqlite
 ```
 
 The profile is valid only for `--mode forward-shadow` with `balanced_stable_micro_v2.ini`, `PAPER_ONLY=true`, `NOT_FOR_DEMO_LIVE=true`, `NOT_FOR_LIVE=true`, dry-run approval markers, stable gate, paper risk clearance, daily risk ledger, and isolated V2 paths. It must use `data\sqlite\forward-shadow-v2-dryrun.sqlite3` and `data\logs\forward-shadow-v2-dryrun`; the stable SQLite/log directory remain blocked. This phase does not launch V2 and does not authorize demo/live execution.
+
+## Phase 51 Micro V2 Paper Risk Clearance
+
+Create the V2-specific paper risk clearance only after Phase 48 and Phase 50 are both green:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-paper-risk-clearance --sqlite data\sqlite\forward-shadow-stable.sqlite3 --reports-root data\reports --base-clearance-ledger data\reports\paper_risk_review\paper_risk_clearance_ledger.json --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --micro-v2-review-dir data\reports\micro_v2_review_proposed --runtime-profile-check-dir data\reports\micro_v2_runtime_profile_check --output-dir data\reports\micro_v2_clearance
+```
+
+This writes `data\reports\micro_v2_clearance\paper_risk_clearance_v2_ledger.json`. The base `BALANCED_STABLE_MICRO` clearance remains intact and is not reused. Future V2 dry-run launches must pass `--paper-risk-clearance data\reports\micro_v2_clearance\paper_risk_clearance_v2_ledger.json`; that ledger is valid only for `BALANCED_STABLE_MICRO_V2` paper dry-run and never authorizes demo/live execution.

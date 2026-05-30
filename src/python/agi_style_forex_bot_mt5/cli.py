@@ -35,6 +35,7 @@ from .forward_sufficiency import run_forward_sufficiency_audit
 from .market_structure import run_strategy_diagnose, write_structure_report
 from .micro_frequency_calibration import run_micro_frequency_calibration
 from .micro_frequency_proposal import run_micro_frequency_proposal
+from .micro_v2_clearance import run_micro_v2_paper_risk_clearance
 from .micro_v2_dry_run_readiness import run_micro_v2_dry_run_readiness
 from .micro_v2_runtime_profile import MICRO_V2_SIGNAL_PROFILE, run_micro_v2_runtime_profile_check, signal_profile_choices, validate_micro_v2_forward_shadow_runtime
 from .micro_v2_review import run_micro_v2_proposed_review, run_micro_v2_review
@@ -182,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-proposed-review",
             "micro-v2-dry-run-readiness",
             "micro-v2-runtime-profile-check",
+            "micro-v2-paper-risk-clearance",
             "execution-evidence-audit",
             "telemetry-timestamp-audit",
             "quarantine-telemetry-issues",
@@ -300,6 +302,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--v2-reports-dir", type=Path, default=Path("data/reports/micro_v2_dry_run"), help="Isolated report directory for Micro V2 dry-run.")
     parser.add_argument("--frequency-dir", type=Path, default=Path("data/reports/micro_frequency_calibration"), help="Micro frequency calibration report directory.")
     parser.add_argument("--v2-review-dir", type=Path, default=Path("data/reports/micro_v2_review"), help="Micro V2 review report directory.")
+    parser.add_argument("--micro-v2-review-dir", type=Path, default=Path("data/reports/micro_v2_review_proposed"), help="Micro V2 proposed review report directory.")
+    parser.add_argument("--runtime-profile-check-dir", type=Path, default=Path("data/reports/micro_v2_runtime_profile_check"), help="Micro V2 runtime profile check report directory.")
     parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
     parser.add_argument("--require-actionable-filter", default="false", help="Require edge-filtering to create an actionable BALANCED_FILTERED overlay.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
@@ -314,6 +318,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pnl-audit-dir", type=Path, default=Path("data/reports/paper_pnl_audit"), help="Paper PnL audit report directory.")
     parser.add_argument("--telemetry-dir", type=Path, default=Path("data/reports/telemetry_repair"), help="Telemetry repair report directory.")
     parser.add_argument("--clearance-ledger", type=Path, default=None, help="Paper risk clearance ledger for paper-risk-status.")
+    parser.add_argument("--base-clearance-ledger", type=Path, default=Path("data/reports/paper_risk_review/paper_risk_clearance_ledger.json"), help="Base BALANCED_STABLE_MICRO clearance ledger for Micro V2 clearance audit.")
     parser.add_argument("--paper-risk-clearance", type=Path, default=None, help="Paper risk clearance ledger required by BALANCED_STABLE_MICRO forward-shadow.")
     parser.add_argument("--daily-risk-ledger", type=Path, default=None, help="Daily paper risk ledger for BALANCED_STABLE_MICRO stale halt clearance.")
     parser.add_argument("--trades", type=Path, default=None, help="Trades CSV for monte-carlo.")
@@ -401,6 +406,7 @@ def main(argv: list[str] | None = None) -> int:
         "micro-v2-proposed-review",
         "micro-v2-dry-run-readiness",
         "micro-v2-runtime-profile-check",
+        "micro-v2-paper-risk-clearance",
         "execution-evidence-audit",
         "telemetry-timestamp-audit",
         "quarantine-telemetry-issues",
@@ -840,6 +846,21 @@ def main(argv: list[str] | None = None) -> int:
                 log_dir=args.log_dir,
                 reports_root=args.reports_root,
                 v2_profile_config=args.v2_profile_config,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-paper-risk-clearance":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_clearance")
+            summary = run_micro_v2_paper_risk_clearance(
+                sqlite_path=args.sqlite,
+                reports_root=args.reports_root,
+                base_clearance_ledger=args.base_clearance_ledger,
+                v2_profile_config=args.v2_profile_config,
+                micro_v2_review_dir=args.micro_v2_review_dir,
+                runtime_profile_check_dir=args.runtime_profile_check_dir,
                 output_dir=output_dir,
             )
             print(_json_dumps(summary))

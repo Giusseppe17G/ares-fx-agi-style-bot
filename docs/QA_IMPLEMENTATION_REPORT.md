@@ -1603,3 +1603,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 51 QA Notes
+
+Added explicit V2-only paper risk clearance. New mode: `micro-v2-paper-risk-clearance`. It validates `BALANCED_STABLE_MICRO_V2`, requires Phase 48 proposed review approval and Phase 50 runtime registration, preserves the base `BALANCED_STABLE_MICRO` clearance ledger, and writes `data/reports/micro_v2_clearance/paper_risk_clearance_v2_ledger.json`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

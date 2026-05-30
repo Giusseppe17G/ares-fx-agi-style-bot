@@ -27,10 +27,11 @@ def validate_micro_resume_clearance(
 
     requested = effective_requested_profile(profile, profile_config)
     requested_canonical = str(requested.get("requested_profile_canonical", ""))
-    if requested_canonical != "BALANCED_STABLE_MICRO":
-        return _result(False, "PAPER_RISK_CLEARANCE_PROFILE_MISMATCH", "Clearance is only valid for BALANCED_STABLE_MICRO.", requested=requested)
+    allowed_profiles = {"BALANCED_STABLE_MICRO", "BALANCED_STABLE_MICRO_V2"}
+    if requested_canonical not in allowed_profiles:
+        return _result(False, "PAPER_RISK_CLEARANCE_PROFILE_MISMATCH", "Clearance is only valid for BALANCED_STABLE_MICRO or BALANCED_STABLE_MICRO_V2.", requested=requested)
     if not clearance_ledger or not Path(clearance_ledger).exists():
-        return _result(False, "PAPER_RISK_CLEARANCE_REQUIRED", "BALANCED_STABLE_MICRO requires --paper-risk-clearance.", requested=requested)
+        return _result(False, "PAPER_RISK_CLEARANCE_REQUIRED", f"{requested_canonical or 'MICRO'} requires --paper-risk-clearance.", requested=requested)
     ledger = load_clearance_ledger(clearance_ledger)
     clearance = latest_clearance(ledger)
     if not clearance:
@@ -68,7 +69,7 @@ def validate_micro_resume_clearance(
             pass
         return _result(False, "PAPER_RISK_CLEARANCE_STALE", "A newer paper drawdown halt exists after the clearance.", clearance, latest_halt, requested=requested, cleared_canonical=cleared_canonical)
     return {
-        **_result(True, "PAPER_RISK_CLEARANCE_ACCEPTED", "Manual clearance is valid for BALANCED_STABLE_MICRO paper/shadow only.", clearance, latest_halt, requested=requested, cleared_canonical=cleared_canonical),
+        **_result(True, "PAPER_RISK_CLEARANCE_ACCEPTED", f"Manual clearance is valid for {requested_canonical} paper/shadow only.", clearance, latest_halt, requested=requested, cleared_canonical=cleared_canonical),
         "paper_risk_clearance_id": clearance.get("clearance_id", ""),
         "cleared_for_profile": cleared_canonical,
         "cleared_profile": cleared_canonical,

@@ -378,3 +378,16 @@ The check writes:
 - `report.html`
 
 The acceptance/evidence flow may surface these fields as informational status, but they never skip risk, telemetry, paper-state, daily-risk, or acceptance gates.
+
+## Micro V2 Paper Risk Clearance
+
+Phase 51 adds `micro-v2-paper-risk-clearance`. It validates the final V2 profile, confirms Phase 48 approval and Phase 50 runtime registration, audits the base clearance ledger without changing it, and writes a separate V2-only ledger:
+
+- `micro_v2_clearance_summary.json`
+- `paper_risk_clearance_v2_ledger.json`
+- `clearance_guard.json`
+- `base_clearance_audit.json`
+- `recommendations.md`
+- `report.html`
+
+The V2 ledger does not authorize `BALANCED_STABLE_MICRO`, demo, or live execution. It is only a paper dry-run prerequisite for `BALANCED_STABLE_MICRO_V2`.
