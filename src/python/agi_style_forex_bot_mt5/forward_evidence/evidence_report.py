@@ -54,6 +54,7 @@ def run_forward_evidence(
     micro_v2_review = _load_json(Path(reports_root) / "micro_v2_review" / "micro_v2_review_summary.json")
     micro_v2_proposed_review = _load_json(Path(reports_root) / "micro_v2_review_proposed" / "micro_v2_proposed_review_summary.json")
     micro_v2_dry_run_readiness = _load_json(Path(reports_root) / "micro_v2_dry_run_readiness" / "micro_v2_dry_run_readiness_summary.json")
+    micro_v2_dry_run_monitor = _load_json(Path(reports_root) / "micro_v2_dry_run_monitor" / "micro_v2_dry_run_monitor_summary.json")
     paper_pnl_audit = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_pnl_audit_summary.json")
     paper_risk_recommendation = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_risk_recommendation.json")
     legacy_drawdown = _load_json(Path(reports_root) / "paper_daily_risk" / "legacy_drawdown_audit_summary.json")
@@ -209,6 +210,11 @@ def run_forward_evidence(
         "micro_v2_profile_path": micro_v2_proposed_review.get("micro_v2_profile_path", micro_v2_review.get("micro_v2_profile_path", "")),
         "micro_v2_dry_run_readiness_status": micro_v2_dry_run_readiness.get("micro_v2_dry_run_readiness_status", ""),
         "micro_v2_launch_command_available": bool(micro_v2_dry_run_readiness.get("micro_v2_launch_command_available", False)),
+        "micro_v2_dry_run_monitor_status": micro_v2_dry_run_monitor.get("micro_v2_dry_run_monitor_status", ""),
+        "v2_hours_observed": micro_v2_dry_run_monitor.get("v2_hours_observed", 0.0),
+        "v2_paper_trades_closed": micro_v2_dry_run_monitor.get("v2_paper_trades_closed", 0),
+        "v2_signals_detected": micro_v2_dry_run_monitor.get("v2_signals_detected", 0),
+        "v2_recommended_next_action": micro_v2_dry_run_monitor.get("recommended_next_action", ""),
         "execution_attempted": False,
         "order_send_called": False,
         "order_check_called": False,

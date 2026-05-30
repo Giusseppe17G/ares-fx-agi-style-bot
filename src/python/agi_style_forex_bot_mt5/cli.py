@@ -36,6 +36,7 @@ from .market_structure import run_strategy_diagnose, write_structure_report
 from .micro_frequency_calibration import run_micro_frequency_calibration
 from .micro_frequency_proposal import run_micro_frequency_proposal
 from .micro_v2_clearance import run_micro_v2_clearance_runtime_check, run_micro_v2_paper_risk_clearance
+from .micro_v2_dry_run_monitor import run_micro_v2_dry_run_monitor
 from .micro_v2_dry_run_readiness import run_micro_v2_dry_run_readiness
 from .micro_v2_runtime_profile import MICRO_V2_SIGNAL_PROFILE, run_micro_v2_runtime_profile_check, signal_profile_choices, validate_micro_v2_forward_shadow_runtime
 from .micro_v2_review import run_micro_v2_proposed_review, run_micro_v2_review
@@ -182,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-review",
             "micro-v2-proposed-review",
             "micro-v2-dry-run-readiness",
+            "micro-v2-dry-run-monitor",
             "micro-v2-runtime-profile-check",
             "micro-v2-paper-risk-clearance",
             "micro-v2-clearance-runtime-check",
@@ -298,6 +300,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--candidate-profile-config", type=Path, default=Path("data/reports/micro_frequency_calibration/balanced_stable_micro_v2_candidate.ini"), help="Candidate profile INI for micro V2 review.")
     parser.add_argument("--proposed-profile-config", type=Path, default=Path("data/reports/micro_frequency_proposal/balanced_stable_micro_v2_proposed.ini"), help="Proposed profile INI for micro V2 proposed review.")
     parser.add_argument("--v2-profile-config", type=Path, default=Path("data/reports/paper_risk/balanced_stable_micro_v2.ini"), help="Approved Micro V2 profile INI for dry-run readiness.")
+    parser.add_argument("--base-sqlite", type=Path, default=Path("data/sqlite/forward-shadow-stable.sqlite3"), help="Stable/base SQLite path for Micro V2 comparison.")
+    parser.add_argument("--base-log-dir", type=Path, default=Path("data/logs/forward-shadow-stable"), help="Stable/base log directory for Micro V2 comparison.")
     parser.add_argument("--v2-sqlite", type=Path, default=Path("data/sqlite/forward-shadow-v2-dryrun.sqlite3"), help="Isolated SQLite path for Micro V2 dry-run.")
     parser.add_argument("--v2-log-dir", type=Path, default=Path("data/logs/forward-shadow-v2-dryrun"), help="Isolated log directory for Micro V2 dry-run.")
     parser.add_argument("--v2-reports-dir", type=Path, default=Path("data/reports/micro_v2_dry_run"), help="Isolated report directory for Micro V2 dry-run.")
@@ -836,6 +840,19 @@ def main(argv: list[str] | None = None) -> int:
                 v2_sqlite=args.v2_sqlite,
                 v2_log_dir=args.v2_log_dir,
                 v2_reports_dir=args.v2_reports_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-dry-run-monitor":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_dry_run_monitor")
+            summary = run_micro_v2_dry_run_monitor(
+                base_sqlite=args.base_sqlite,
+                base_log_dir=args.base_log_dir,
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                reports_root=args.reports_root,
+                output_dir=output_dir,
             )
             print(_json_dumps(summary))
             return 0

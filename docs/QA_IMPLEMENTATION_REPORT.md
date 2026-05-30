@@ -1627,3 +1627,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 53 QA Notes
+
+Added offline Micro V2 dry-run monitoring and base-vs-V2 comparison. New mode: `micro-v2-dry-run-monitor`. It reads the stable and V2 SQLite files in read-only mode, audits heartbeat/activity/safety flags, compares frequency and rejection metrics, and writes reports under `data/reports/micro_v2_dry_run_monitor`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

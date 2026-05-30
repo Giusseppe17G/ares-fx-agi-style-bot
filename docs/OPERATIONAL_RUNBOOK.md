@@ -637,3 +637,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-clearance-runtime-check --sqli
 ```
 
 This check is read-only. It validates explicit canonical matching between requested profile and cleared profile, requires `clearance_scope=PAPER_DRY_RUN_ONLY`, rejects demo/live approval flags, checks daily risk ledger presence, and confirms isolated V2 SQLite/log paths. The base clearance still cannot authorize V2, and the V2 clearance cannot authorize the base micro profile.
+
+## Phase 53 Micro V2 Dry-Run Monitor
+
+Monitor the isolated V2 dry-run and compare it with the stable/base run without touching either runtime:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-dry-run-monitor --base-sqlite data\sqlite\forward-shadow-stable.sqlite3 --base-log-dir data\logs\forward-shadow-stable --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --reports-root data\reports --output-dir data\reports\micro_v2_dry_run_monitor
+```
+
+The monitor reads SQLite in read-only mode and writes `data\reports\micro_v2_dry_run_monitor`. It reports heartbeat freshness, V2 activity, safety flags, rejection reasons, and base-vs-V2 frequency metrics. It does not launch V2, approve acceptance, pause/resume shadow, or authorize demo/live execution.

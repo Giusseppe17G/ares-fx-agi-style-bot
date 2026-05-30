@@ -404,3 +404,19 @@ Phase 52 adds `micro-v2-clearance-runtime-check`. It verifies the final runtime 
 - `report.html`
 
 The check confirms `requested_profile_canonical=BALANCED_STABLE_MICRO_V2`, `cleared_for_profile_canonical=BALANCED_STABLE_MICRO_V2`, `clearance_scope=PAPER_DRY_RUN_ONLY`, demo/live approval flags are false, daily risk ledger exists, and V2 paths are isolated.
+
+## Micro V2 Dry-Run Monitor
+
+Phase 53 adds `micro-v2-dry-run-monitor`, an offline/read-only comparison pack for the isolated V2 dry-run. Reports include:
+
+- `micro_v2_dry_run_monitor_summary.json`
+- `heartbeat_audit.json`
+- `v2_activity_summary.json`
+- `base_vs_v2_comparison.json`
+- `base_vs_v2_metrics.csv`
+- `v2_rejections.csv`
+- `safety_status.json`
+- `monitoring_recommendations.md`
+- `report.html`
+
+Forward evidence may display `micro_v2_dry_run_monitor_status`, `v2_hours_observed`, `v2_paper_trades_closed`, `v2_signals_detected`, and `v2_recommended_next_action` if the monitor report exists. These fields remain informational and never bypass acceptance, telemetry, paper-risk, or execution guardrails.
