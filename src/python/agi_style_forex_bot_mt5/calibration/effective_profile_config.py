@@ -34,7 +34,7 @@ def effective_profile_config(profile_name: str, *, source: str = "canonical", pr
     profile = get_signal_profile(profile_name)
     thresholds = thresholds_from_profile(profile)
     filters = _stable_filters(profile.name, profile_config)
-    if profile.name in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"} and filters.get("min_setup_score_stable") is not None:
+    if profile.name in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO", "BALANCED_STABLE_MICRO_V2"} and filters.get("min_setup_score_stable") is not None:
         thresholds["min_setup_score"] = float(filters["min_setup_score_stable"])
     payload = {
         "profile_name": profile.name,
@@ -77,7 +77,7 @@ def _profile_allowed_for_shadow(profile: SignalProfileSettings) -> bool:
 
 
 def _stable_filters(profile_name: str, profile_config: str | Path | None) -> dict[str, Any]:
-    if profile_name not in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"}:
+    if profile_name not in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO", "BALANCED_STABLE_MICRO_V2"}:
         return {}
     values = _read_simple_ini(Path(profile_config)) if profile_config else {}
     return {

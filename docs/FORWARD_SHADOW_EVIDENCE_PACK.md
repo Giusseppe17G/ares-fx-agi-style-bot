@@ -364,3 +364,17 @@ Phase 49 adds `micro-v2-dry-run-readiness`, which validates the approved V2 prof
 - `report.html`
 
 Forward evidence may display `micro_v2_dry_run_readiness_status` and `micro_v2_launch_command_available`. These fields are informational and do not execute V2 or bypass any gate.
+
+## Micro V2 Runtime Profile Registration
+
+Phase 50 adds `micro-v2-runtime-profile-check`. It confirms that `BALANCED_STABLE_MICRO_V2` is present in the `--signal-profile` registry and that runtime guards would reject unsafe use before a manual launch.
+
+The check writes:
+
+- `micro_v2_runtime_profile_check_summary.json`
+- `signal_profile_registry.json`
+- `v2_runtime_guards.json`
+- `recommendations.md`
+- `report.html`
+
+The acceptance/evidence flow may surface these fields as informational status, but they never skip risk, telemetry, paper-state, daily-risk, or acceptance gates.

@@ -60,16 +60,16 @@ def bot_config_with_signal_profile(config: BotConfig, profile_name: str, profile
     extra: dict[str, Any] = {}
     if profile_config:
         extra["profile_config"] = profile_config
-    if profile.name in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"} and profile_config:
+    if profile.name in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO", "BALANCED_STABLE_MICRO_V2"} and profile_config:
         stable_values = _read_profile_ini(Path(profile_config))
         extra.update(
             {
                 "stability_filters_applied": str(stable_values.get("APPLY_STABILITY_FILTERS", stable_values.get("STABILITY_FILTERS_APPLIED", "false"))).strip().lower() == "true",
-                "profile_type": str(stable_values.get("PROFILE_TYPE", "RESEARCH_BACKTEST_ONLY")),
+                "profile_type": str(stable_values.get("PROFILE_TYPE", "PAPER_SHADOW_ONLY" if profile.name in {"BALANCED_STABLE_MICRO", "BALANCED_STABLE_MICRO_V2"} else "RESEARCH_BACKTEST_ONLY")),
                 "requires_robustness_rerun": str(stable_values.get("REQUIRES_ROBUSTNESS_RERUN", "true")).strip().lower() == "true",
             }
         )
-        if profile.name == "BALANCED_STABLE_MICRO":
+        if profile.name in {"BALANCED_STABLE_MICRO", "BALANCED_STABLE_MICRO_V2"}:
             extra.update(
                 {
                     "paper_only": str(stable_values.get("PAPER_ONLY", "true")).strip().lower() == "true",
@@ -80,7 +80,7 @@ def bot_config_with_signal_profile(config: BotConfig, profile_name: str, profile
                     "block_new_entries_after_daily_halt": str(stable_values.get("BLOCK_NEW_ENTRIES_AFTER_DAILY_HALT", "true")).strip().lower() == "true",
                     "manual_resume_required": str(stable_values.get("MANUAL_RESUME_REQUIRED", "true")).strip().lower() == "true",
                     "paper_risk_multiplier": float(stable_values.get("PAPER_RISK_MULTIPLIER", 0.10) or 0.10),
-                    "risk_profile_used": "BALANCED_STABLE_MICRO",
+                    "risk_profile_used": profile.name,
                 }
             )
     updated = replace(config, signal_profile=profile.name, **extra)
@@ -381,6 +381,8 @@ def _profile_recommendation(name: str, profile: SignalProfileSettings) -> str:
         return "research/backtest-only stability repair profile; requires profile-config and robustness rerun"
     if profile.name == "BALANCED_STABLE_MICRO":
         return "paper-only safer shadow profile; requires stable gate and explicit profile-config"
+    if profile.name == "BALANCED_STABLE_MICRO_V2":
+        return "paper dry-run-only V2 profile; requires isolated SQLite/logs, stable gate, clearance, and daily risk ledger"
     if profile.name == "BALANCED":
         return "baseline calibrated research profile"
     return "conservative baseline"

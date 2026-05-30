@@ -607,3 +607,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-dry-run-readiness --sqlite dat
 ```
 
 The generated command uses isolated paths: `data\sqlite\forward-shadow-v2-dryrun.sqlite3`, `data\logs\forward-shadow-v2-dryrun`, and `data\reports\micro_v2_dry_run`. Never point V2 at the stable SQLite or stable logs. This phase does not launch V2; it only writes checklist, monitoring commands, rollback plan, and readiness reports.
+
+## Phase 50 Micro V2 Runtime Registration
+
+Verify that `BALANCED_STABLE_MICRO_V2` is registered as a runtime signal profile before any manual V2 dry-run:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-runtime-profile-check --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --output-dir data\reports\micro_v2_runtime_profile_check
+```
+
+The profile is valid only for `--mode forward-shadow` with `balanced_stable_micro_v2.ini`, `PAPER_ONLY=true`, `NOT_FOR_DEMO_LIVE=true`, `NOT_FOR_LIVE=true`, dry-run approval markers, stable gate, paper risk clearance, daily risk ledger, and isolated V2 paths. It must use `data\sqlite\forward-shadow-v2-dryrun.sqlite3` and `data\logs\forward-shadow-v2-dryrun`; the stable SQLite/log directory remain blocked. This phase does not launch V2 and does not authorize demo/live execution.

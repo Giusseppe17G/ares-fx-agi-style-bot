@@ -36,6 +36,7 @@ from .market_structure import run_strategy_diagnose, write_structure_report
 from .micro_frequency_calibration import run_micro_frequency_calibration
 from .micro_frequency_proposal import run_micro_frequency_proposal
 from .micro_v2_dry_run_readiness import run_micro_v2_dry_run_readiness
+from .micro_v2_runtime_profile import MICRO_V2_SIGNAL_PROFILE, run_micro_v2_runtime_profile_check, signal_profile_choices, validate_micro_v2_forward_shadow_runtime
 from .micro_v2_review import run_micro_v2_proposed_review, run_micro_v2_review
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
@@ -180,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-review",
             "micro-v2-proposed-review",
             "micro-v2-dry-run-readiness",
+            "micro-v2-runtime-profile-check",
             "execution-evidence-audit",
             "telemetry-timestamp-audit",
             "quarantine-telemetry-issues",
@@ -346,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile", default="BALANCED", help="Signal profile for apply-signal-profile.")
     parser.add_argument(
         "--signal-profile",
-        choices=["CONSERVATIVE", "BALANCED", "BALANCED_FILTERED", "BALANCED_STABLE", "BALANCED_STABLE_MICRO", "ACTIVE", "RESEARCH_ONLY"],
+        choices=signal_profile_choices(),
         default="",
         help="Research/backtest signal profile overlay.",
     )
@@ -363,6 +365,22 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
+    if str(args.signal_profile or "").upper() == MICRO_V2_SIGNAL_PROFILE and args.mode != "forward-shadow":
+        print(
+            _json_dumps(
+                {
+                    "mode": args.mode,
+                    "classification": "MICRO_V2_RUNTIME_GUARDS_FAILED",
+                    "decision": "BLOCK_SIGNAL_PROFILE",
+                    "reason": "BALANCED_STABLE_MICRO_V2 is only valid for forward-shadow paper dry-run.",
+                    "signal_profile_used": MICRO_V2_SIGNAL_PROFILE,
+                    "execution_attempted": False,
+                    "order_send_called": False,
+                    "order_check_called": False,
+                }
+            )
+        )
+        return 0
     if args.mode in {
         "mt5-data",
         "mt5-diagnose",
@@ -382,6 +400,7 @@ def main(argv: list[str] | None = None) -> int:
         "micro-v2-review",
         "micro-v2-proposed-review",
         "micro-v2-dry-run-readiness",
+        "micro-v2-runtime-profile-check",
         "execution-evidence-audit",
         "telemetry-timestamp-audit",
         "quarantine-telemetry-issues",
@@ -809,6 +828,19 @@ def main(argv: list[str] | None = None) -> int:
                 v2_sqlite=args.v2_sqlite,
                 v2_log_dir=args.v2_log_dir,
                 v2_reports_dir=args.v2_reports_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-runtime-profile-check":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_runtime_profile_check")
+            summary = run_micro_v2_runtime_profile_check(
+                sqlite_path=args.sqlite,
+                log_dir=args.log_dir,
+                reports_root=args.reports_root,
+                v2_profile_config=args.v2_profile_config,
+                output_dir=output_dir,
             )
             print(_json_dumps(summary))
             return 0
@@ -1391,15 +1423,41 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "forward-shadow":
             if database is None:
                 parser.error("--mode forward-shadow requires --sqlite for paper lifecycle persistence")
+            if str(args.signal_profile or "").upper() == MICRO_V2_SIGNAL_PROFILE:
+                runtime_guard = validate_micro_v2_forward_shadow_runtime(
+                    mode=args.mode,
+                    signal_profile=args.signal_profile,
+                    profile_config=args.profile_config,
+                    sqlite_path=args.sqlite,
+                    log_dir=args.log_dir,
+                )
+                if runtime_guard.get("micro_v2_runtime_guard_status") != "MICRO_V2_RUNTIME_GUARDS_PASSED":
+                    print(
+                        _json_dumps(
+                            {
+                                **_stable_forward_block(
+                                    str(runtime_guard.get("micro_v2_runtime_guard_status") or "MICRO_V2_RUNTIME_GUARDS_FAILED"),
+                                    "BALANCED_STABLE_MICRO_V2 runtime guard failed before forward-shadow launch",
+                                    args.stable_gate,
+                                    runtime_guard,
+                                    signal_profile=MICRO_V2_SIGNAL_PROFILE,
+                                ),
+                                "micro_v2_runtime_guard": runtime_guard,
+                            }
+                        )
+                    )
+                    return 0
             if args.signal_profile:
                 config = bot_config_with_signal_profile(config, args.signal_profile, str(args.profile_config) if args.profile_config else "")
-            if config.signal_profile in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"}:
+            stable_shadow_profiles = {"BALANCED_STABLE", "BALANCED_STABLE_MICRO", MICRO_V2_SIGNAL_PROFILE}
+            micro_shadow_profiles = {"BALANCED_STABLE_MICRO", MICRO_V2_SIGNAL_PROFILE}
+            if config.signal_profile in stable_shadow_profiles:
                 if not config.profile_config:
                     print(_json_dumps(_stable_forward_block("STABLE_PROFILE_CONFIG_REQUIRED", f"{config.signal_profile} requires --profile-config", args.stable_gate, signal_profile=config.signal_profile)))
                     return 0
-                if config.signal_profile == "BALANCED_STABLE_MICRO":
+                if config.signal_profile in micro_shadow_profiles:
                     if extract_paper_risk_multiplier(config.profile_config) is None:
-                        print(_json_dumps(_stable_forward_block("PAPER_PNL_SCALING_CONFIG_MISSING", "BALANCED_STABLE_MICRO requires PAPER_RISK_MULTIPLIER in --profile-config", args.stable_gate, signal_profile=config.signal_profile)))
+                        print(_json_dumps(_stable_forward_block("PAPER_PNL_SCALING_CONFIG_MISSING", f"{config.signal_profile} requires PAPER_RISK_MULTIPLIER in --profile-config", args.stable_gate, signal_profile=config.signal_profile)))
                         return 0
                     clearance = validate_micro_resume_clearance(
                         database=database,
@@ -1412,7 +1470,7 @@ def main(argv: list[str] | None = None) -> int:
                         daily_risk_ledger=args.daily_risk_ledger,
                     )
                     if not clearance.get("accepted"):
-                        print(_json_dumps(_stable_forward_block(str(clearance.get("paper_risk_clearance_status") or "PAPER_RISK_CLEARANCE_REQUIRED"), str(clearance.get("reason") or "BALANCED_STABLE_MICRO requires valid paper risk clearance"), args.stable_gate, clearance, signal_profile=config.signal_profile)))
+                        print(_json_dumps(_stable_forward_block(str(clearance.get("paper_risk_clearance_status") or "PAPER_RISK_CLEARANCE_REQUIRED"), str(clearance.get("reason") or f"{config.signal_profile} requires valid paper risk clearance"), args.stable_gate, clearance, signal_profile=config.signal_profile)))
                         return 0
                     daily_risk = validate_micro_daily_risk(
                         database=database,
@@ -1424,7 +1482,7 @@ def main(argv: list[str] | None = None) -> int:
                         paper_risk_dir=args.paper_risk_dir,
                     )
                     if not daily_risk.get("accepted"):
-                        print(_json_dumps(_stable_forward_block(str(daily_risk.get("paper_daily_risk_status") or "PAPER_DAILY_RISK_LEDGER_REQUIRED"), str(daily_risk.get("reason") or "BALANCED_STABLE_MICRO requires valid daily paper risk ledger"), args.stable_gate, daily_risk, signal_profile=config.signal_profile)))
+                        print(_json_dumps(_stable_forward_block(str(daily_risk.get("paper_daily_risk_status") or "PAPER_DAILY_RISK_LEDGER_REQUIRED"), str(daily_risk.get("reason") or f"{config.signal_profile} requires valid daily paper risk ledger"), args.stable_gate, daily_risk, signal_profile=config.signal_profile)))
                         return 0
                     config = replace(config, paper_risk_clearance=str(args.paper_risk_clearance), paper_daily_risk_ledger=str(args.daily_risk_ledger or ""))
                 stable_gate = _stable_gate_status(args.stable_gate)
@@ -1447,11 +1505,11 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 cycle_seconds=args.cycle_seconds,
                 max_cycles=args.max_cycles,
-                report_dir="data/reports/forward_shadow_stable" if config.signal_profile in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"} else "data/reports/forward_shadow",
-                stable_gate_confirmed=config.signal_profile in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"},
-                stable_gate_decision="PAPER_SHADOW_READY" if config.signal_profile in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"} else "",
+                report_dir="data/reports/forward_shadow_stable" if config.signal_profile in stable_shadow_profiles else "data/reports/forward_shadow",
+                stable_gate_confirmed=config.signal_profile in stable_shadow_profiles,
+                stable_gate_decision="PAPER_SHADOW_READY" if config.signal_profile in stable_shadow_profiles else "",
             )
-            if config.signal_profile in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"}:
+            if config.signal_profile in stable_shadow_profiles:
                 event = Event.create(
                     run_id="forward-shadow-stable",
                     environment=Environment.DEMO,
@@ -1463,16 +1521,16 @@ def main(argv: list[str] | None = None) -> int:
                     payload={"stable_gate": str(args.stable_gate), "signal_profile_used": config.signal_profile, "execution_attempted": False},
                 )
                 database.insert_event(event)
-            if config.signal_profile == "BALANCED_STABLE_MICRO":
+            if config.signal_profile in micro_shadow_profiles:
                 event = Event.create(
                     run_id="forward-shadow-stable",
                     environment=Environment.DEMO,
                     severity=Severity.INFO,
                     module="cli",
                     event_type="PAPER_RISK_CLEARANCE_ACCEPTED",
-                    message="BALANCED_STABLE_MICRO paper risk clearance accepted",
+                    message=f"{config.signal_profile} paper risk clearance accepted",
                     correlation_id="forward-shadow-stable:paper-risk-clearance",
-                    payload={"paper_risk_clearance": str(args.paper_risk_clearance), "daily_risk_ledger": str(args.daily_risk_ledger), "signal_profile_used": config.signal_profile, "paper_risk_profile": "BALANCED_STABLE_MICRO", "execution_attempted": False},
+                    payload={"paper_risk_clearance": str(args.paper_risk_clearance), "daily_risk_ledger": str(args.daily_risk_ledger), "signal_profile_used": config.signal_profile, "paper_risk_profile": config.signal_profile, "execution_attempted": False},
                 )
                 database.insert_event(event)
                 event = Event.create(
@@ -1481,7 +1539,7 @@ def main(argv: list[str] | None = None) -> int:
                     severity=Severity.INFO,
                     module="cli",
                     event_type="PAPER_DAILY_RISK_LEDGER_ACCEPTED",
-                    message="BALANCED_STABLE_MICRO daily paper risk ledger accepted",
+                    message=f"{config.signal_profile} daily paper risk ledger accepted",
                     correlation_id="forward-shadow-stable:paper-daily-risk",
                     payload={"daily_risk_ledger": str(args.daily_risk_ledger), "signal_profile_used": config.signal_profile, "execution_attempted": False},
                 )

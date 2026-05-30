@@ -113,8 +113,8 @@ class BotConfig:
             raise ValueError("max open risk cannot exceed 5%")
         if not self.require_sl or not self.require_tp:
             raise ValueError("SL and TP must be required")
-        if self.signal_profile.upper() not in {"CONSERVATIVE", "BALANCED", "BALANCED_FILTERED", "BALANCED_STABLE", "BALANCED_STABLE_MICRO", "ACTIVE", "RESEARCH_ONLY"}:
-            raise ValueError("SIGNAL_PROFILE must be CONSERVATIVE, BALANCED, BALANCED_FILTERED, BALANCED_STABLE, BALANCED_STABLE_MICRO, ACTIVE, or RESEARCH_ONLY")
+        if self.signal_profile.upper() not in {"CONSERVATIVE", "BALANCED", "BALANCED_FILTERED", "BALANCED_STABLE", "BALANCED_STABLE_MICRO", "BALANCED_STABLE_MICRO_V2", "ACTIVE", "RESEARCH_ONLY"}:
+            raise ValueError("SIGNAL_PROFILE must be CONSERVATIVE, BALANCED, BALANCED_FILTERED, BALANCED_STABLE, BALANCED_STABLE_MICRO, BALANCED_STABLE_MICRO_V2, ACTIVE, or RESEARCH_ONLY")
         if self.signal_profile.upper() == "BALANCED_STABLE":
             if not self.profile_config and not self.stability_filters_applied:
                 raise ValueError("STABLE_PROFILE_CONFIG_REQUIRED")
@@ -131,6 +131,19 @@ class BotConfig:
                 raise ValueError("BALANCED_STABLE_MICRO max open paper trades cannot exceed 3")
             if self.paper_risk_multiplier > 0.25:
                 raise ValueError("BALANCED_STABLE_MICRO paper risk multiplier cannot exceed 0.25")
+        if self.signal_profile.upper() == "BALANCED_STABLE_MICRO_V2":
+            if not self.profile_config:
+                raise ValueError("MICRO_V2_PROFILE_CONFIG_REQUIRED")
+            if self.profile_type.upper() != "PAPER_SHADOW_ONLY":
+                raise ValueError("BALANCED_STABLE_MICRO_V2 requires PROFILE_TYPE=PAPER_SHADOW_ONLY")
+            if not self.paper_only:
+                raise ValueError("BALANCED_STABLE_MICRO_V2 requires PAPER_ONLY=true")
+            if self.max_open_paper_trades > 1:
+                raise ValueError("BALANCED_STABLE_MICRO_V2 max open paper trades cannot exceed 1")
+            if self.max_paper_trades_per_day > 3:
+                raise ValueError("BALANCED_STABLE_MICRO_V2 max paper trades per day cannot exceed 3")
+            if self.paper_risk_multiplier > 0.25:
+                raise ValueError("BALANCED_STABLE_MICRO_V2 paper risk multiplier cannot exceed 0.25")
 
 
 def load_config(path: str | Path | None = None) -> BotConfig:

@@ -1591,3 +1591,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 50 QA Notes
+
+Registered `BALANCED_STABLE_MICRO_V2` as a guarded runtime signal profile for paper dry-run only. New mode: `micro-v2-runtime-profile-check`. The forward-shadow path now fails closed unless V2 uses `balanced_stable_micro_v2.ini`, required paper-only/demo-live guard markers, and isolated V2 SQLite/log paths.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
