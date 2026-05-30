@@ -462,3 +462,20 @@ Phase 56 adds `micro-v2-market-open-readiness`, which combines V2 heartbeat, MT5
 - `report.html`
 
 Forward evidence may display market-open readiness fields, but they are informational only and never bypass acceptance or risk gates.
+
+## Micro V2 Observation Playbook
+
+Phase 57 adds `micro-v2-observation-playbook`, an offline/read-only pack for operating the next market-open V2 observation window. Reports include:
+
+- `micro_v2_observation_playbook_summary.json`
+- `launch_commands.md`
+- `monitoring_commands.md`
+- `evidence_commands.md`
+- `advancement_criteria.md`
+- `stop_rollback_criteria.md`
+- `observation_schedule.md`
+- `operator_checklist.md`
+- `recommendations.md`
+- `report.html`
+
+Forward evidence may display `micro_v2_observation_playbook_status`, `observation_playbook_available`, and `observation_playbook_recommended_next_action`. These fields are advisory only and never activate V2, approve acceptance, or authorize demo/live execution.

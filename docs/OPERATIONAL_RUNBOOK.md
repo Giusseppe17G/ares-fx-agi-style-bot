@@ -685,3 +685,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-market-open-readiness --v2-sql
 ```
 
 Statuses distinguish `MICRO_V2_WAITING_FOR_MARKET_OPEN`, `MICRO_V2_MARKET_OPEN_TICKS_FRESH`, stale ticks, MT5 disconnect, runtime not running, manual review, and safety block. This audit is read-only and does not approve acceptance or demo/live execution.
+
+## Phase 57 Micro V2 Observation Playbook
+
+Prepare the market-open observation checklist and command pack before fresh ticks arrive:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-observation-playbook --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --base-sqlite data\sqlite\forward-shadow-stable.sqlite3 --base-log-dir data\logs\forward-shadow-stable --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --output-dir data\reports\micro_v2_observation_playbook
+```
+
+The playbook writes launch, monitoring, evidence, advancement, rollback, schedule, checklist, and recommendation documents. It does not launch V2, pause/resume shadow, open/close paper trades, or approve demo/live. V2 observation must use isolated V2 paths, at least 24 market-open hours, and at least 10 closed paper trades before any acceptance comparison.

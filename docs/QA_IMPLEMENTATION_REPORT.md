@@ -1675,3 +1675,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 57 QA Notes
+
+Added Micro V2 market-open observation playbook. New mode: `micro-v2-observation-playbook`. It generates exact monitoring/evidence commands, advancement criteria, stop/rollback criteria, an observation schedule, operator checklist, recommendations, and an HTML/JSON summary under `data/reports/micro_v2_observation_playbook`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
