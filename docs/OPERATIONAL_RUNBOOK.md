@@ -577,3 +577,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-review --sqlite data\sqlite\fo
 ```
 
 The review compares base vs candidate, audits risk, cooldown, session, threshold, symbol and paper-limit changes, and writes reports to `data\reports\micro_v2_review`. It creates `data\reports\paper_risk\balanced_stable_micro_v2.ini` only when the candidate has conservative actionable changes and all safety constraints pass. A created V2 remains inactive and is approved only for a later explicit paper dry-run phase.
+
+## Phase 47 Controlled Micro Frequency Proposal
+
+If the Phase 46 candidate has no actionable changes, build a new offline proposal from real bottlenecks and existing profile keys only:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-frequency-proposal --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --base-profile-config data\reports\paper_risk\balanced_stable_micro.ini --frequency-dir data\reports\micro_frequency_calibration --v2-review-dir data\reports\micro_v2_review --output-dir data\reports\micro_frequency_proposal
+```
+
+The proposal may reduce `COOLDOWN_AFTER_LOSS_MINUTES` by at most 10% or 15 minutes and may raise `MAX_PAPER_TRADES_PER_DAY` only up to 3, if those keys already exist. It never reduces drawdown halt cooldown, never increases risk, never raises open trade limits, and never invents missing regime/liquidity/stale/signal-score parameters. The proposed profile is not active and must go through a later review/dry-run phase.

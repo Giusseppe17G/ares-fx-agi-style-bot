@@ -327,3 +327,18 @@ Phase 46 adds `micro-v2-review`, a manual offline gate for the V2 candidate. It 
 - `report.html`
 
 Forward evidence may display `micro_v2_review_status`, `micro_v2_candidate_available`, and `micro_v2_profile_created` if the review report exists. These fields remain informational. They do not select a profile, do not skip acceptance, and do not authorize demo/live execution.
+
+## Controlled Micro Frequency Proposal
+
+Phase 47 adds `micro-frequency-proposal`, which creates a non-active `balanced_stable_micro_v2_proposed.ini` only when real bottlenecks can be mapped to existing safe profile parameters. It writes:
+
+- `micro_frequency_proposal_summary.json`
+- `proposed_profile_diff.csv`
+- `proposed_changes.csv`
+- `rejected_possible_changes.csv`
+- `safety_audit.json`
+- `balanced_stable_micro_v2_proposed.ini` when a safe proposal exists
+- `recommendations.md`
+- `report.html`
+
+Rejected bottlenecks remain visible when no safe profile key exists. The proposal does not replace the active micro profile and does not affect forward acceptance.

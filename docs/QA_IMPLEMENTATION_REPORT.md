@@ -1555,3 +1555,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 47 QA Notes
+
+Added controlled offline micro frequency proposal builder. New mode: `micro-frequency-proposal`. It maps bottlenecks only to existing safe profile keys, writes reports under `data/reports/micro_frequency_proposal`, and creates `balanced_stable_micro_v2_proposed.ini` only when conservative changes pass safety audit.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
