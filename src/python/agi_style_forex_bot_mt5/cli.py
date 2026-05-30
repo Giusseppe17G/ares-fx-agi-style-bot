@@ -33,6 +33,7 @@ from .forward_diagnostics import run_forward_signal_diagnose
 from .forward_research import run_forward_blocker_sensitivity, run_forward_candidate_replay
 from .forward_sufficiency import run_forward_sufficiency_audit
 from .market_structure import run_strategy_diagnose, write_structure_report
+from .micro_frequency_calibration import run_micro_frequency_calibration
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .ml import build_ml_dataset, build_ml_report, train_ml_filter
@@ -171,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
             "forward-candidate-replay",
             "forward-blocker-sensitivity",
             "forward-sufficiency-audit",
+            "micro-frequency-calibration",
             "execution-evidence-audit",
             "telemetry-timestamp-audit",
             "quarantine-telemetry-issues",
@@ -359,6 +361,7 @@ def main(argv: list[str] | None = None) -> int:
         "forward-signal-diagnose",
         "forward-candidate-replay",
         "forward-sufficiency-audit",
+        "micro-frequency-calibration",
         "execution-evidence-audit",
         "telemetry-timestamp-audit",
         "quarantine-telemetry-issues",
@@ -712,6 +715,19 @@ def main(argv: list[str] | None = None) -> int:
             assert database is not None
             output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/forward_sufficiency")
             summary = run_forward_sufficiency_audit(database=database, log_dir=args.log_dir, reports_root=args.reports_root, output_dir=output_dir)
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-frequency-calibration":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_frequency_calibration")
+            summary = run_micro_frequency_calibration(
+                database=database,
+                log_dir=args.log_dir,
+                reports_root=args.reports_root,
+                profile_config=args.profile_config,
+                output_dir=output_dir,
+            )
             print(_json_dumps(summary))
             return 0
 

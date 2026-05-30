@@ -557,3 +557,13 @@ py -m agi_style_forex_bot_mt5.cli --mode forward-sufficiency-audit --sqlite data
 ```
 
 The audit writes only to `data\reports\forward_sufficiency`. It reports observation hours, closed paper trades, estimated time to 10 closed trades, rejection and blocker funnels, symbol activity, and profile throttle counts for session, score, spread, regime, liquidity, cooldown, paper risk, and data quality. It does not change runtime filters, pause/resume shadow, modify SQLite, or replace forward-acceptance.
+
+## Phase 45 Micro Frequency Calibration
+
+If the 24h requirement is already satisfied but the observation still has fewer than 10 closed paper trades, run the offline micro frequency calibration:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-frequency-calibration --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --profile-config data\reports\paper_risk\balanced_stable_micro.ini --output-dir data\reports\micro_frequency_calibration
+```
+
+This mode diagnoses rejection pressure, score/session/regime/spread/cooldown bottlenecks, symbol conversion, and paper exit latency. It creates `balanced_stable_micro_v2_candidate.ini` as a non-active research artifact only. It does not replace `balanced_stable_micro.ini`, does not change stable gate or ledgers, and does not approve forward acceptance.

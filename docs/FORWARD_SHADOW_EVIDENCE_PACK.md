@@ -296,3 +296,19 @@ Phase 44 adds `forward-sufficiency-audit` for the common `NEEDS_MORE_FORWARD_DAT
 - `report.html`
 
 Forward evidence may show `forward_sufficiency_status`, `forward_sufficiency_hours_observed`, `forward_sufficiency_closed_paper_trades`, `forward_sufficiency_estimated_hours_to_acceptance`, and `forward_sufficiency_recommendation` when this report exists. These fields explain whether more time, more trades, data quality, risk gates, sessions, or filter strictness are limiting the observation. They never bypass acceptance gates or authorize demo/live execution.
+
+## Micro Frequency Calibration
+
+Phase 45 adds `micro-frequency-calibration` for offline review when time is sufficient but closed paper trade count is still below 10. It writes:
+
+- `micro_frequency_summary.json`
+- `frequency_bottlenecks.csv`
+- `threshold_sensitivity.csv`
+- `symbol_frequency.csv`
+- `session_opportunity.csv`
+- `exit_latency_audit.json`
+- `balanced_stable_micro_v2_candidate.ini`
+- `recommendations.md`
+- `report.html`
+
+Forward evidence may display `micro_frequency_status`, `micro_frequency_estimated_hours_to_10_trades_current_profile`, `micro_frequency_top_bottlenecks`, and `micro_frequency_candidate_profile_available`. These fields are advisory only. Any future use of the candidate profile must happen in a separate approved offline phase.

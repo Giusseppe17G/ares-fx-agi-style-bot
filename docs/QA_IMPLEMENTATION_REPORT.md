@@ -1531,3 +1531,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 45 QA Notes
+
+Added offline micro profile frequency calibration. New mode: `micro-frequency-calibration`. The module reads SQLite/log/report context, analyzes frequency bottlenecks and conversions, and creates a non-active `balanced_stable_micro_v2_candidate.ini` in `data/reports/micro_frequency_calibration`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
