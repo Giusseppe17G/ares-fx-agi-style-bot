@@ -312,3 +312,18 @@ Phase 45 adds `micro-frequency-calibration` for offline review when time is suff
 - `report.html`
 
 Forward evidence may display `micro_frequency_status`, `micro_frequency_estimated_hours_to_10_trades_current_profile`, `micro_frequency_top_bottlenecks`, and `micro_frequency_candidate_profile_available`. These fields are advisory only. Any future use of the candidate profile must happen in a separate approved offline phase.
+
+## Micro V2 Review
+
+Phase 46 adds `micro-v2-review`, a manual offline gate for the V2 candidate. It writes:
+
+- `micro_v2_review_summary.json`
+- `profile_diff.csv`
+- `safety_constraints.json`
+- `frequency_gain_estimate.json`
+- `rejected_changes.csv`
+- `approved_changes.csv`
+- `recommendations.md`
+- `report.html`
+
+Forward evidence may display `micro_v2_review_status`, `micro_v2_candidate_available`, and `micro_v2_profile_created` if the review report exists. These fields remain informational. They do not select a profile, do not skip acceptance, and do not authorize demo/live execution.

@@ -567,3 +567,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-frequency-calibration --sqlite da
 ```
 
 This mode diagnoses rejection pressure, score/session/regime/spread/cooldown bottlenecks, symbol conversion, and paper exit latency. It creates `balanced_stable_micro_v2_candidate.ini` as a non-active research artifact only. It does not replace `balanced_stable_micro.ini`, does not change stable gate or ledgers, and does not approve forward acceptance.
+
+## Phase 46 Micro V2 Manual Review
+
+Review the non-active candidate before any future dry-run:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-review --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --base-profile-config data\reports\paper_risk\balanced_stable_micro.ini --candidate-profile-config data\reports\micro_frequency_calibration\balanced_stable_micro_v2_candidate.ini --output-dir data\reports\micro_v2_review
+```
+
+The review compares base vs candidate, audits risk, cooldown, session, threshold, symbol and paper-limit changes, and writes reports to `data\reports\micro_v2_review`. It creates `data\reports\paper_risk\balanced_stable_micro_v2.ini` only when the candidate has conservative actionable changes and all safety constraints pass. A created V2 remains inactive and is approved only for a later explicit paper dry-run phase.

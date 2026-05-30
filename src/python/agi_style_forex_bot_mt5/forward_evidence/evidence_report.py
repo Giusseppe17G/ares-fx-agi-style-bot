@@ -51,6 +51,7 @@ def run_forward_evidence(
     research_candidate_ranking = _load_json(Path(reports_root) / "research_candidate_ranking" / "candidate_ranking_summary.json")
     forward_sufficiency = _load_json(Path(reports_root) / "forward_sufficiency" / "forward_sufficiency_summary.json")
     micro_frequency = _load_json(Path(reports_root) / "micro_frequency_calibration" / "micro_frequency_summary.json")
+    micro_v2_review = _load_json(Path(reports_root) / "micro_v2_review" / "micro_v2_review_summary.json")
     paper_pnl_audit = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_pnl_audit_summary.json")
     paper_risk_recommendation = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_risk_recommendation.json")
     legacy_drawdown = _load_json(Path(reports_root) / "paper_daily_risk" / "legacy_drawdown_audit_summary.json")
@@ -199,6 +200,9 @@ def run_forward_evidence(
         "micro_frequency_estimated_hours_to_10_trades_current_profile": micro_frequency.get("estimated_hours_to_10_trades_current_profile"),
         "micro_frequency_top_bottlenecks": micro_frequency.get("top_frequency_bottlenecks", []),
         "micro_frequency_candidate_profile_available": micro_frequency.get("candidate_profile_available", False),
+        "micro_v2_review_status": micro_v2_review.get("micro_v2_review_status", ""),
+        "micro_v2_candidate_available": bool(micro_v2_review.get("candidate_profile_exists", False)),
+        "micro_v2_profile_created": bool(micro_v2_review.get("micro_v2_profile_created", False)),
         "execution_attempted": False,
         "order_send_called": False,
         "order_check_called": False,

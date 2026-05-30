@@ -34,6 +34,7 @@ from .forward_research import run_forward_blocker_sensitivity, run_forward_candi
 from .forward_sufficiency import run_forward_sufficiency_audit
 from .market_structure import run_strategy_diagnose, write_structure_report
 from .micro_frequency_calibration import run_micro_frequency_calibration
+from .micro_v2_review import run_micro_v2_review
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .ml import build_ml_dataset, build_ml_report, train_ml_filter
@@ -173,6 +174,7 @@ def main(argv: list[str] | None = None) -> int:
             "forward-blocker-sensitivity",
             "forward-sufficiency-audit",
             "micro-frequency-calibration",
+            "micro-v2-review",
             "execution-evidence-audit",
             "telemetry-timestamp-audit",
             "quarantine-telemetry-issues",
@@ -282,6 +284,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--edge-dir", type=Path, default=Path("data/reports/edge"), help="Edge evaluation report directory.")
     parser.add_argument("--base-profile", default="BALANCED", help="Base profile for filtered edge profile generation.")
     parser.add_argument("--profile-config", type=Path, default=None, help="Profile overlay INI for BALANCED_FILTERED research runs.")
+    parser.add_argument("--base-profile-config", type=Path, default=Path("data/reports/paper_risk/balanced_stable_micro.ini"), help="Base profile INI for micro V2 review.")
+    parser.add_argument("--candidate-profile-config", type=Path, default=Path("data/reports/micro_frequency_calibration/balanced_stable_micro_v2_candidate.ini"), help="Candidate profile INI for micro V2 review.")
     parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
     parser.add_argument("--require-actionable-filter", default="false", help="Require edge-filtering to create an actionable BALANCED_FILTERED overlay.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
@@ -362,6 +366,7 @@ def main(argv: list[str] | None = None) -> int:
         "forward-candidate-replay",
         "forward-sufficiency-audit",
         "micro-frequency-calibration",
+        "micro-v2-review",
         "execution-evidence-audit",
         "telemetry-timestamp-audit",
         "quarantine-telemetry-issues",
@@ -726,6 +731,20 @@ def main(argv: list[str] | None = None) -> int:
                 log_dir=args.log_dir,
                 reports_root=args.reports_root,
                 profile_config=args.profile_config,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-review":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_review")
+            summary = run_micro_v2_review(
+                database=database,
+                log_dir=args.log_dir,
+                reports_root=args.reports_root,
+                base_profile_config=args.base_profile_config,
+                candidate_profile_config=args.candidate_profile_config,
                 output_dir=output_dir,
             )
             print(_json_dumps(summary))

@@ -1543,3 +1543,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 46 QA Notes
+
+Added manual offline review for `BALANCED_STABLE_MICRO_V2` candidates. New mode: `micro-v2-review`. The review compares base and candidate INI files, audits safety constraints, estimates frequency gain, and builds `data/reports/paper_risk/balanced_stable_micro_v2.ini` only when conservative actionable changes pass.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
