@@ -1567,3 +1567,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 48 QA Notes
+
+Added conservative review gate for the controlled proposed micro V2 profile. New mode: `micro-v2-proposed-review`. It approves only the bounded `COOLDOWN_AFTER_LOSS_MINUTES` and `MAX_PAPER_TRADES_PER_DAY` changes, rejects unsafe risk/open-trade/drawdown-halt changes, and creates `balanced_stable_micro_v2.ini` only for a future explicit paper dry-run phase.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

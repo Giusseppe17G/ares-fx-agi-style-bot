@@ -587,3 +587,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-frequency-proposal --sqlite data\
 ```
 
 The proposal may reduce `COOLDOWN_AFTER_LOSS_MINUTES` by at most 10% or 15 minutes and may raise `MAX_PAPER_TRADES_PER_DAY` only up to 3, if those keys already exist. It never reduces drawdown halt cooldown, never increases risk, never raises open trade limits, and never invents missing regime/liquidity/stale/signal-score parameters. The proposed profile is not active and must go through a later review/dry-run phase.
+
+## Phase 48 Micro V2 Proposed Review
+
+Review the proposed profile before creating the final V2 paper dry-run artifact:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-proposed-review --sqlite data\sqlite\forward-shadow-stable.sqlite3 --log-dir data\logs\forward-shadow-stable --reports-root data\reports --base-profile-config data\reports\paper_risk\balanced_stable_micro.ini --proposed-profile-config data\reports\micro_frequency_proposal\balanced_stable_micro_v2_proposed.ini --output-dir data\reports\micro_v2_review_proposed
+```
+
+Approval creates `data\reports\paper_risk\balanced_stable_micro_v2.ini` with `APPROVED_FOR_PAPER_DRY_RUN_ONLY=true`, `APPROVED_FOR_DEMO=false`, and `APPROVED_FOR_LIVE=false`. It does not activate forward-shadow, does not change the active micro profile, and still requires a later explicit phase before any paper dry-run.

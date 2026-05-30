@@ -342,3 +342,9 @@ Phase 47 adds `micro-frequency-proposal`, which creates a non-active `balanced_s
 - `report.html`
 
 Rejected bottlenecks remain visible when no safe profile key exists. The proposal does not replace the active micro profile and does not affect forward acceptance.
+
+## Micro V2 Proposed Review
+
+Phase 48 adds `micro-v2-proposed-review`. It validates the proposed profile produced by Phase 47, including 10% loss-cooldown reduction maximum, daily paper trade cap <= 3, unchanged drawdown halt cooldown, unchanged risk multiplier, paper-only markers, and stable/clearance/daily-ledger requirements.
+
+If approved, it creates `data/reports/paper_risk/balanced_stable_micro_v2.ini` for future paper dry-run review only. The evidence pack can display `micro_v2_proposed_review_status`, `micro_v2_profile_created`, and `micro_v2_profile_path`, but those fields never activate runtime or bypass acceptance gates.

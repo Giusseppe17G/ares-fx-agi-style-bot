@@ -35,7 +35,7 @@ from .forward_sufficiency import run_forward_sufficiency_audit
 from .market_structure import run_strategy_diagnose, write_structure_report
 from .micro_frequency_calibration import run_micro_frequency_calibration
 from .micro_frequency_proposal import run_micro_frequency_proposal
-from .micro_v2_review import run_micro_v2_review
+from .micro_v2_review import run_micro_v2_proposed_review, run_micro_v2_review
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .ml import build_ml_dataset, build_ml_report, train_ml_filter
@@ -177,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-frequency-calibration",
             "micro-frequency-proposal",
             "micro-v2-review",
+            "micro-v2-proposed-review",
             "execution-evidence-audit",
             "telemetry-timestamp-audit",
             "quarantine-telemetry-issues",
@@ -288,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile-config", type=Path, default=None, help="Profile overlay INI for BALANCED_FILTERED research runs.")
     parser.add_argument("--base-profile-config", type=Path, default=Path("data/reports/paper_risk/balanced_stable_micro.ini"), help="Base profile INI for micro V2 review.")
     parser.add_argument("--candidate-profile-config", type=Path, default=Path("data/reports/micro_frequency_calibration/balanced_stable_micro_v2_candidate.ini"), help="Candidate profile INI for micro V2 review.")
+    parser.add_argument("--proposed-profile-config", type=Path, default=Path("data/reports/micro_frequency_proposal/balanced_stable_micro_v2_proposed.ini"), help="Proposed profile INI for micro V2 proposed review.")
     parser.add_argument("--frequency-dir", type=Path, default=Path("data/reports/micro_frequency_calibration"), help="Micro frequency calibration report directory.")
     parser.add_argument("--v2-review-dir", type=Path, default=Path("data/reports/micro_v2_review"), help="Micro V2 review report directory.")
     parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
@@ -372,6 +374,7 @@ def main(argv: list[str] | None = None) -> int:
         "micro-frequency-calibration",
         "micro-frequency-proposal",
         "micro-v2-review",
+        "micro-v2-proposed-review",
         "execution-evidence-audit",
         "telemetry-timestamp-audit",
         "quarantine-telemetry-issues",
@@ -765,6 +768,20 @@ def main(argv: list[str] | None = None) -> int:
                 base_profile_config=args.base_profile_config,
                 frequency_dir=args.frequency_dir,
                 v2_review_dir=args.v2_review_dir,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-proposed-review":
+            assert database is not None
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_review_proposed")
+            summary = run_micro_v2_proposed_review(
+                database=database,
+                log_dir=args.log_dir,
+                reports_root=args.reports_root,
+                base_profile_config=args.base_profile_config,
+                proposed_profile_config=args.proposed_profile_config,
                 output_dir=output_dir,
             )
             print(_json_dumps(summary))
