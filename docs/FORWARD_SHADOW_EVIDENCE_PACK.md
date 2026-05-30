@@ -420,3 +420,30 @@ Phase 53 adds `micro-v2-dry-run-monitor`, an offline/read-only comparison pack f
 - `report.html`
 
 Forward evidence may display `micro_v2_dry_run_monitor_status`, `v2_hours_observed`, `v2_paper_trades_closed`, `v2_signals_detected`, and `v2_recommended_next_action` if the monitor report exists. These fields remain informational and never bypass acceptance, telemetry, paper-risk, or execution guardrails.
+
+## Micro V2 Symbol Rejection Audit
+
+Phase 54 adds `micro-v2-symbol-rejection-audit`. It reads the isolated V2 SQLite/log inputs, V2 profile, stable gate summary, and monitor pack to explain `symbol_rejected` dominance. Reports include:
+
+- `micro_v2_symbol_rejection_summary.json`
+- `rejected_symbols.csv`
+- `symbol_normalization_audit.json`
+- `allowed_universe_audit.json`
+- `stable_gate_symbol_audit.json`
+- `broker_symbol_mapping_audit.json`
+- `symbol_rejection_fix_plan.md`
+- `recommendations.md`
+- `report.html`
+
+If a safe non-active proposal applies, it may create `balanced_stable_micro_v2_symbol_fix_candidate.ini` with `NOT_ACTIVE_RESEARCH_ONLY=true` and `APPROVED_FOR_PAPER_DRY_RUN_ONLY=false`. Forward evidence may display `micro_v2_symbol_rejection_status`, `symbol_rejection_root_cause`, and `symbol_fix_candidate_available`; these fields are advisory only.
+
+## Rejection Labeling Taxonomy
+
+Phase 55 adds precise labels for future market-data rejections:
+
+- `STALE_TICK_REJECTION`
+- `MARKET_CLOSED_REJECTION`
+- `FUTURE_SIGNAL_REJECTION`
+- `INVALID_MARKET_SNAPSHOT_REJECTION`
+
+`SYMBOL_REJECTED` remains for true symbol availability/universe failures. The `rejection-labeling-audit` report writes `rejection_labeling_summary.json`, `rejection_taxonomy.json`, `suspected_misclassified_rejections.csv`, `legacy_rejections.csv`, `recommendations.md`, and `report.html`. The audit is read-only and does not rewrite legacy events.

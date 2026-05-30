@@ -40,6 +40,7 @@ from .micro_v2_dry_run_monitor import run_micro_v2_dry_run_monitor
 from .micro_v2_dry_run_readiness import run_micro_v2_dry_run_readiness
 from .micro_v2_runtime_profile import MICRO_V2_SIGNAL_PROFILE, run_micro_v2_runtime_profile_check, signal_profile_choices, validate_micro_v2_forward_shadow_runtime
 from .micro_v2_review import run_micro_v2_proposed_review, run_micro_v2_review
+from .micro_v2_symbol_rejection_audit import run_micro_v2_symbol_rejection_audit
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
 from .mt5_history_exporter import MT5HistoryExporter, export_summary_to_json
 from .ml import build_ml_dataset, build_ml_report, train_ml_filter
@@ -80,6 +81,7 @@ from .persistence import (
 from .portfolio import build_correlation_report, build_exposure_report, build_portfolio_status
 from .profile_validation import run_balanced_candidate_gate, run_profile_integrity, run_profile_threshold_audit
 from .real_data_research import RealDataResearchConfig, load_latest_run_summary, run_real_data_research
+from .rejection_labeling import run_rejection_labeling_audit
 from .research_candidate_ranking import run_research_candidate_ranking
 from .research import run_research
 from .robustness_validation import run_robustness_fast, run_stable_robustness_gate
@@ -184,6 +186,8 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-proposed-review",
             "micro-v2-dry-run-readiness",
             "micro-v2-dry-run-monitor",
+            "micro-v2-symbol-rejection-audit",
+            "rejection-labeling-audit",
             "micro-v2-runtime-profile-check",
             "micro-v2-paper-risk-clearance",
             "micro-v2-clearance-runtime-check",
@@ -309,6 +313,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--v2-review-dir", type=Path, default=Path("data/reports/micro_v2_review"), help="Micro V2 review report directory.")
     parser.add_argument("--micro-v2-review-dir", type=Path, default=Path("data/reports/micro_v2_review_proposed"), help="Micro V2 proposed review report directory.")
     parser.add_argument("--runtime-profile-check-dir", type=Path, default=Path("data/reports/micro_v2_runtime_profile_check"), help="Micro V2 runtime profile check report directory.")
+    parser.add_argument("--monitor-dir", type=Path, default=Path("data/reports/micro_v2_dry_run_monitor"), help="Micro V2 dry-run monitor report directory.")
     parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
     parser.add_argument("--require-actionable-filter", default="false", help="Require edge-filtering to create an actionable BALANCED_FILTERED overlay.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
@@ -850,6 +855,33 @@ def main(argv: list[str] | None = None) -> int:
                 base_sqlite=args.base_sqlite,
                 base_log_dir=args.base_log_dir,
                 v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                reports_root=args.reports_root,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-symbol-rejection-audit":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_symbol_rejection_audit")
+            summary = run_micro_v2_symbol_rejection_audit(
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                reports_root=args.reports_root,
+                v2_profile_config=args.v2_profile_config,
+                stable_gate=args.stable_gate,
+                monitor_dir=args.monitor_dir,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "rejection-labeling-audit":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/rejection_labeling_audit")
+            summary = run_rejection_labeling_audit(
+                base_sqlite=args.base_sqlite,
+                v2_sqlite=args.v2_sqlite,
+                base_log_dir=args.base_log_dir,
                 v2_log_dir=args.v2_log_dir,
                 reports_root=args.reports_root,
                 output_dir=output_dir,

@@ -647,3 +647,31 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-dry-run-monitor --base-sqlite 
 ```
 
 The monitor reads SQLite in read-only mode and writes `data\reports\micro_v2_dry_run_monitor`. It reports heartbeat freshness, V2 activity, safety flags, rejection reasons, and base-vs-V2 frequency metrics. It does not launch V2, approve acceptance, pause/resume shadow, or authorize demo/live execution.
+
+## Phase 54 Micro V2 Symbol Rejection Audit
+
+If V2 detects signals but all are rejected as `symbol_rejected`, run the offline root-cause audit:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-symbol-rejection-audit --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --stable-gate data\reports\stable_gate\stable_gate_summary.json --monitor-dir data\reports\micro_v2_dry_run_monitor --output-dir data\reports\micro_v2_symbol_rejection_audit
+```
+
+The audit distinguishes CLI symbol parsing, string-vs-list type errors, profile universe mismatches, stable gate scope, broker suffix mapping, and stale tick or market-closed rejections that were recorded as `symbol_rejected`. Any fix is written only as a plan or non-active candidate and requires a later review phase.
+
+## Phase 55 Rejection Labeling Repair
+
+Future runtime telemetry separates market-data rejections from true symbol universe rejections:
+
+- `SYMBOL_REJECTED`: symbol is genuinely unavailable or not permitted.
+- `STALE_TICK_REJECTION`: tick timestamp is stale.
+- `MARKET_CLOSED_REJECTION`: market appears closed or there are no fresh ticks.
+- `FUTURE_SIGNAL_REJECTION`: tick/signal timestamp is from the future.
+- `INVALID_MARKET_SNAPSHOT_REJECTION`: snapshot or market data is malformed.
+
+Audit legacy and new labels offline:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode rejection-labeling-audit --base-sqlite data\sqlite\forward-shadow-stable.sqlite3 --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --base-log-dir data\logs\forward-shadow-stable --v2-log-dir data\logs\forward-shadow-v2-dryrun --reports-root data\reports --output-dir data\reports\rejection_labeling_audit
+```
+
+This does not rewrite historical telemetry. Legacy `SYMBOL_REJECTED` rows remain auditable and are classified as suspected mislabels when their payload contains stale tick or market-closed evidence.

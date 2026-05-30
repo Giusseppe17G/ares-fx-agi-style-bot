@@ -21,6 +21,7 @@ from agi_style_forex_bot_mt5.paper_daily_risk_state import validate_micro_daily_
 from agi_style_forex_bot_mt5.paper_risk_review import validate_micro_resume_clearance
 from agi_style_forex_bot_mt5.portfolio import DynamicRiskAllocator, PortfolioGuard, SignalRanker
 from agi_style_forex_bot_mt5.persistence import RecoveryManager
+from agi_style_forex_bot_mt5.rejection_labeling import classify_rejection_event_type
 from agi_style_forex_bot_mt5.risk import RiskRuntimeState
 from agi_style_forex_bot_mt5.strategy import evaluate_ensemble
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase, TelegramNotifier
@@ -772,7 +773,8 @@ class ForwardShadowBot:
         assert self.connector is not None
         check, snapshot = self.connector.ensure_symbol_snapshot(broker_symbol, canonical_symbol=canonical_symbol, source="forward-shadow")
         if not check.accepted:
-            self._audit("SYMBOL_REJECTED", Severity.WARNING, check.payload, symbol=canonical_symbol)
+            event_type = classify_rejection_event_type(reject_code=check.code, reject_reason=check.reason, payload=check.payload)
+            self._audit(event_type, Severity.WARNING, check.payload, symbol=canonical_symbol)
             return None
         if check.payload.get("timestamp_normalized"):
             event_type = "STABLE_TICK_TIME_NORMALIZED" if self.config.signal_profile in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"} else "TICK_TIME_NORMALIZED"

@@ -1639,3 +1639,27 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 54 QA Notes
+
+Added offline Micro V2 symbol rejection root-cause audit. New mode: `micro-v2-symbol-rejection-audit`. It diagnoses `symbol_rejected` dominance across CLI parsing, string/list type handling, profile/stable-gate universes, broker suffix mapping, and stale tick/market-closed payloads. It writes only reports and optional non-active candidates.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
+## FASE 55 QA Notes
+
+Repaired rejection taxonomy so stale ticks, market closed/no fresh ticks, future timestamps, and invalid market snapshots are no longer emitted as `SYMBOL_REJECTED` in new runtime telemetry. Added read-only `rejection-labeling-audit` to separate legacy misclassifications from new labels without rewriting historical SQLite/logs.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

@@ -33,6 +33,7 @@ from .data_pipeline.live_data_contract import DIAGNOSTIC_MIN_BARS, normalize_ohl
 from .execution import MT5Connector, ShadowExecutionEngine, ShadowOrder
 from .market_structure import build_market_structure_features
 from .risk import RiskEngine, RiskRuntimeState
+from .rejection_labeling import classify_rejection_event_type
 from .strategy import evaluate_ensemble
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
 
@@ -656,21 +657,23 @@ class MT5DataOnlyBot:
         *,
         broker_symbol: str | None = None,
     ) -> None:
+        payload_dict = {
+            "symbol": symbol,
+            "canonical_symbol": symbol,
+            "broker_symbol": broker_symbol or dict(payload or {}).get("broker_symbol") or symbol,
+            "reject_code": reject_code,
+            "reject_reason": reject_reason,
+            **dict(payload or {}),
+        }
+        event_type = classify_rejection_event_type(reject_code=reject_code, reject_reason=reject_reason, payload=payload_dict)
         self._audit(
             severity=Severity.WARNING,
             module="mt5_data",
-            event_type="SYMBOL_REJECTED",
+            event_type=event_type,
             message=reject_reason,
             correlation_id=f"{self.run_id}:{symbol}",
             symbol=symbol,
-            payload={
-                "symbol": symbol,
-                "canonical_symbol": symbol,
-                "broker_symbol": broker_symbol or dict(payload or {}).get("broker_symbol") or symbol,
-                "reject_code": reject_code,
-                "reject_reason": reject_reason,
-                **dict(payload or {}),
-            },
+            payload=payload_dict,
             notify=True,
         )
 

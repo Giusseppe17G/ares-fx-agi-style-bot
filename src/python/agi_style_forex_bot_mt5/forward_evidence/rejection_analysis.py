@@ -30,7 +30,7 @@ def analyze_rejections(*, database: TelemetryDatabase) -> tuple[dict[str, Any], 
     counter: Counter[str] = Counter()
     for row in database.fetch_all("events"):
         event_type = str(row["event_type"])
-        if event_type not in {"SIGNAL_REJECTED", "STRATEGY_BLOCKED_BY_CONTEXT", "RISK_REJECTED", "SYMBOL_REJECTED"}:
+        if event_type not in {"SIGNAL_REJECTED", "STRATEGY_BLOCKED_BY_CONTEXT", "RISK_REJECTED", "SYMBOL_REJECTED", "STALE_TICK_REJECTION", "MARKET_CLOSED_REJECTION", "FUTURE_SIGNAL_REJECTION", "INVALID_MARKET_SNAPSHOT_REJECTION"}:
             continue
         payload = _payload(row)
         reason = str(payload.get("reject_reason") or payload.get("reject_code") or _first(payload.get("blocking_reasons")) or event_type)
