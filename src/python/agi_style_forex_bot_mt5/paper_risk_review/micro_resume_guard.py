@@ -39,6 +39,9 @@ def validate_micro_resume_clearance(
     cleared_canonical = normalize_profile_name(clearance.get("canonical_cleared_for_profile") or clearance.get("cleared_for_profile"))
     if cleared_canonical != requested_canonical:
         return _result(False, "PAPER_RISK_CLEARANCE_PROFILE_MISMATCH", "Clearance profile does not match requested paper risk profile.", clearance, requested=requested, cleared_canonical=cleared_canonical)
+    scope_status = _clearance_scope_status(clearance, requested_canonical)
+    if not scope_status["accepted"]:
+        return _result(False, str(scope_status["status"]), str(scope_status["reason"]), clearance, requested=requested, cleared_canonical=cleared_canonical)
     context = load_drawdown_halt_context(database=database, log_dir=log_dir, reports_root=reports_root, paper_risk_dir=paper_risk_dir)
     latest_halt = str(context.get("latest_halt_utc") or "")
     if clearance_is_stale(clearance, latest_halt):
@@ -106,3 +109,23 @@ def _result(
         "order_send_called": False,
         "order_check_called": False,
     }
+
+
+def _clearance_scope_status(clearance: dict[str, Any], requested_canonical: str) -> dict[str, Any]:
+    if requested_canonical != "BALANCED_STABLE_MICRO_V2":
+        return {"accepted": True, "status": "PAPER_RISK_CLEARANCE_SCOPE_ACCEPTED", "reason": ""}
+    if str(clearance.get("clearance_scope", "")).upper() != "PAPER_DRY_RUN_ONLY":
+        return {"accepted": False, "status": "MICRO_V2_CLEARANCE_SCOPE_INVALID", "reason": "BALANCED_STABLE_MICRO_V2 clearance must be PAPER_DRY_RUN_ONLY."}
+    if _bool(clearance.get("approved_for_demo"), False):
+        return {"accepted": False, "status": "MICRO_V2_CLEARANCE_LEDGER_INVALID", "reason": "BALANCED_STABLE_MICRO_V2 clearance cannot approve demo execution."}
+    if _bool(clearance.get("approved_for_live"), False):
+        return {"accepted": False, "status": "MICRO_V2_CLEARANCE_LEDGER_INVALID", "reason": "BALANCED_STABLE_MICRO_V2 clearance cannot approve live execution."}
+    return {"accepted": True, "status": "PAPER_RISK_CLEARANCE_SCOPE_ACCEPTED", "reason": ""}
+
+
+def _bool(value: Any, default: bool = False) -> bool:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"true", "1", "yes", "on"}

@@ -1615,3 +1615,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 52 QA Notes
+
+Repaired runtime clearance matching for `BALANCED_STABLE_MICRO_V2`. The daily risk guard now receives the requested profile instead of forcing `BALANCED_STABLE_MICRO`, and V2 clearance validation checks canonical profile, paper dry-run scope, demo/live approval flags, daily risk ledger, and isolated runtime paths. New mode: `micro-v2-clearance-runtime-check`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

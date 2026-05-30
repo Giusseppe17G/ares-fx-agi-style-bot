@@ -20,6 +20,7 @@ def validate_micro_daily_risk(
     log_dir: str | Path = "data/logs/forward-shadow-stable",
     reports_root: str | Path = "data/reports",
     paper_risk_dir: str | Path = "data/reports/paper_risk",
+    profile: str = "BALANCED_STABLE_MICRO",
 ) -> dict[str, Any]:
     state = load_drawdown_state(
         database=database,
@@ -28,6 +29,7 @@ def validate_micro_daily_risk(
         paper_risk_dir=paper_risk_dir,
         clearance_ledger=clearance_ledger,
         profile_config=profile_config,
+        profile=profile,
     )
     profile_validation = dict(state.get("profile_clearance_validation", {}))
     classified = classify_drawdown_halts(
@@ -48,10 +50,10 @@ def validate_micro_daily_risk(
     if classified.get("stale_halt_count", 0) and classified.get("daily_risk_ledger_status") != "DAILY_RISK_LEDGER_ACCEPTED":
         return _result(False, "PAPER_DAILY_RISK_LEDGER_REQUIRED", "Historical paper drawdown halts require daily risk ledger clearance.", classified)
     return {
-        **_result(True, "PAPER_DAILY_RISK_ACCEPTED", "Daily paper risk state is clear for BALANCED_STABLE_MICRO paper/shadow.", classified),
+        **_result(True, "PAPER_DAILY_RISK_ACCEPTED", f"Daily paper risk state is clear for {profile} paper/shadow.", classified),
         "paper_daily_risk_status": "LEGACY_DRAWDOWN_QUARANTINED" if classified.get("legacy_drawdown_quarantined") else "PAPER_DAILY_RISK_CLEAR",
         "can_resume_micro_shadow": True,
-        "cleared_for_profile": "BALANCED_STABLE_MICRO",
+        "cleared_for_profile": profile,
         "not_for_demo_live": True,
     }
 

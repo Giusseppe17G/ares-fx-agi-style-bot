@@ -35,7 +35,7 @@ from .forward_sufficiency import run_forward_sufficiency_audit
 from .market_structure import run_strategy_diagnose, write_structure_report
 from .micro_frequency_calibration import run_micro_frequency_calibration
 from .micro_frequency_proposal import run_micro_frequency_proposal
-from .micro_v2_clearance import run_micro_v2_paper_risk_clearance
+from .micro_v2_clearance import run_micro_v2_clearance_runtime_check, run_micro_v2_paper_risk_clearance
 from .micro_v2_dry_run_readiness import run_micro_v2_dry_run_readiness
 from .micro_v2_runtime_profile import MICRO_V2_SIGNAL_PROFILE, run_micro_v2_runtime_profile_check, signal_profile_choices, validate_micro_v2_forward_shadow_runtime
 from .micro_v2_review import run_micro_v2_proposed_review, run_micro_v2_review
@@ -184,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-dry-run-readiness",
             "micro-v2-runtime-profile-check",
             "micro-v2-paper-risk-clearance",
+            "micro-v2-clearance-runtime-check",
             "execution-evidence-audit",
             "telemetry-timestamp-audit",
             "quarantine-telemetry-issues",
@@ -370,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
-    if str(args.signal_profile or "").upper() == MICRO_V2_SIGNAL_PROFILE and args.mode != "forward-shadow":
+    if str(args.signal_profile or "").upper() == MICRO_V2_SIGNAL_PROFILE and args.mode not in {"forward-shadow", "micro-v2-clearance-runtime-check"}:
         print(
             _json_dumps(
                 {
@@ -407,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
         "micro-v2-dry-run-readiness",
         "micro-v2-runtime-profile-check",
         "micro-v2-paper-risk-clearance",
+        "micro-v2-clearance-runtime-check",
         "execution-evidence-audit",
         "telemetry-timestamp-audit",
         "quarantine-telemetry-issues",
@@ -861,6 +863,28 @@ def main(argv: list[str] | None = None) -> int:
                 v2_profile_config=args.v2_profile_config,
                 micro_v2_review_dir=args.micro_v2_review_dir,
                 runtime_profile_check_dir=args.runtime_profile_check_dir,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-clearance-runtime-check":
+            assert database is not None
+            if not args.signal_profile:
+                parser.error("--mode micro-v2-clearance-runtime-check requires --signal-profile BALANCED_STABLE_MICRO_V2")
+            if not args.profile_config:
+                parser.error("--mode micro-v2-clearance-runtime-check requires --profile-config")
+            if not args.paper_risk_clearance:
+                parser.error("--mode micro-v2-clearance-runtime-check requires --paper-risk-clearance")
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_clearance_runtime_check")
+            summary = run_micro_v2_clearance_runtime_check(
+                database=database,
+                log_dir=args.log_dir,
+                reports_root=args.reports_root,
+                signal_profile=args.signal_profile,
+                profile_config=args.profile_config,
+                paper_risk_clearance=args.paper_risk_clearance,
+                daily_risk_ledger=args.daily_risk_ledger,
                 output_dir=output_dir,
             )
             print(_json_dumps(summary))
@@ -1498,6 +1522,7 @@ def main(argv: list[str] | None = None) -> int:
                         clearance_ledger=args.paper_risk_clearance,
                         daily_risk_ledger=args.daily_risk_ledger,
                         profile_config=config.profile_config,
+                        profile=config.signal_profile,
                         log_dir=args.log_dir,
                         reports_root=args.reports_root,
                         paper_risk_dir=args.paper_risk_dir,

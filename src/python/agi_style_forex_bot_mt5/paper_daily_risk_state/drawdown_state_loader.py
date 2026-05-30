@@ -20,6 +20,7 @@ def load_drawdown_state(
     paper_risk_dir: str | Path = "data/reports/paper_risk",
     clearance_ledger: str | Path | None = None,
     profile_config: str | Path | None = None,
+    profile: str = "BALANCED_STABLE_MICRO",
 ) -> dict[str, Any]:
     context = load_drawdown_halt_context(database=database, log_dir=log_dir, reports_root=reports_root, paper_risk_dir=paper_risk_dir)
     ledger = load_clearance_ledger(clearance_ledger)
@@ -27,7 +28,7 @@ def load_drawdown_state(
     validation = validate_micro_resume_clearance(
         database=database,
         clearance_ledger=clearance_ledger,
-        profile="BALANCED_STABLE_MICRO",
+        profile=profile,
         profile_config=profile_config,
         log_dir=log_dir,
         reports_root=reports_root,

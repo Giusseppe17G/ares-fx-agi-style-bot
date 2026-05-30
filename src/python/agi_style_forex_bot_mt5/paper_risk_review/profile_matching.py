@@ -35,7 +35,12 @@ def read_profile_config_profile(profile_config: str | Path | None) -> dict[str, 
             break
     warnings: list[str] = []
     inferred = False
-    if not raw_profile and path and "balanced_stable_micro" in path.name.lower():
+    if not raw_profile and path and "balanced_stable_micro_v2" in path.name.lower():
+        raw_profile = "BALANCED_STABLE_MICRO_V2"
+        source_key = "CONFIG_PATH"
+        inferred = True
+        warnings.append("PROFILE_INFERRED_FROM_CONFIG_PATH")
+    elif not raw_profile and path and "balanced_stable_micro" in path.name.lower():
         raw_profile = "BALANCED_STABLE_MICRO"
         source_key = "CONFIG_PATH"
         inferred = True

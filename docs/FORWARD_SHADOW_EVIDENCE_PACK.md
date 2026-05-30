@@ -391,3 +391,16 @@ Phase 51 adds `micro-v2-paper-risk-clearance`. It validates the final V2 profile
 - `report.html`
 
 The V2 ledger does not authorize `BALANCED_STABLE_MICRO`, demo, or live execution. It is only a paper dry-run prerequisite for `BALANCED_STABLE_MICRO_V2`.
+
+## Micro V2 Clearance Runtime Match
+
+Phase 52 adds `micro-v2-clearance-runtime-check`. It verifies the final runtime matching path without launching forward-shadow. Reports include:
+
+- `micro_v2_clearance_runtime_check_summary.json`
+- `clearance_runtime_match.json`
+- `requested_vs_cleared_profile.json`
+- `guard_trace.json`
+- `recommendations.md`
+- `report.html`
+
+The check confirms `requested_profile_canonical=BALANCED_STABLE_MICRO_V2`, `cleared_for_profile_canonical=BALANCED_STABLE_MICRO_V2`, `clearance_scope=PAPER_DRY_RUN_ONLY`, demo/live approval flags are false, daily risk ledger exists, and V2 paths are isolated.

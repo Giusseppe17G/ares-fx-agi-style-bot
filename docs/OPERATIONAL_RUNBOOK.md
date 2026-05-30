@@ -627,3 +627,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-paper-risk-clearance --sqlite 
 ```
 
 This writes `data\reports\micro_v2_clearance\paper_risk_clearance_v2_ledger.json`. The base `BALANCED_STABLE_MICRO` clearance remains intact and is not reused. Future V2 dry-run launches must pass `--paper-risk-clearance data\reports\micro_v2_clearance\paper_risk_clearance_v2_ledger.json`; that ledger is valid only for `BALANCED_STABLE_MICRO_V2` paper dry-run and never authorizes demo/live execution.
+
+## Phase 52 Micro V2 Clearance Runtime Match
+
+Before launching V2, run the offline runtime match check:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-clearance-runtime-check --sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --log-dir data\logs\forward-shadow-v2-dryrun --reports-root data\reports --signal-profile BALANCED_STABLE_MICRO_V2 --profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --paper-risk-clearance data\reports\micro_v2_clearance\paper_risk_clearance_v2_ledger.json --daily-risk-ledger data\reports\paper_daily_risk\paper_daily_risk_ledger.json --output-dir data\reports\micro_v2_clearance_runtime_check
+```
+
+This check is read-only. It validates explicit canonical matching between requested profile and cleared profile, requires `clearance_scope=PAPER_DRY_RUN_ONLY`, rejects demo/live approval flags, checks daily risk ledger presence, and confirms isolated V2 SQLite/log paths. The base clearance still cannot authorize V2, and the V2 clearance cannot authorize the base micro profile.
