@@ -675,3 +675,13 @@ py -m agi_style_forex_bot_mt5.cli --mode rejection-labeling-audit --base-sqlite 
 ```
 
 This does not rewrite historical telemetry. Legacy `SYMBOL_REJECTED` rows remain auditable and are classified as suspected mislabels when their payload contains stale tick or market-closed evidence.
+
+## Phase 56 Micro V2 Market Open Readiness
+
+Use the market-open readiness audit to tell whether V2 is merely waiting for the market or has fresh ticks suitable for paper observation:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-market-open-readiness --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --rejection-labeling-dir data\reports\rejection_labeling_audit --monitor-dir data\reports\micro_v2_dry_run_monitor --output-dir data\reports\micro_v2_market_open_readiness
+```
+
+Statuses distinguish `MICRO_V2_WAITING_FOR_MARKET_OPEN`, `MICRO_V2_MARKET_OPEN_TICKS_FRESH`, stale ticks, MT5 disconnect, runtime not running, manual review, and safety block. This audit is read-only and does not approve acceptance or demo/live execution.

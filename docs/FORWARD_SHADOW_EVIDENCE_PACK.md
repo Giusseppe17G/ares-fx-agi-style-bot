@@ -447,3 +447,18 @@ Phase 55 adds precise labels for future market-data rejections:
 - `INVALID_MARKET_SNAPSHOT_REJECTION`
 
 `SYMBOL_REJECTED` remains for true symbol availability/universe failures. The `rejection-labeling-audit` report writes `rejection_labeling_summary.json`, `rejection_taxonomy.json`, `suspected_misclassified_rejections.csv`, `legacy_rejections.csv`, `recommendations.md`, and `report.html`. The audit is read-only and does not rewrite legacy events.
+
+## Micro V2 Market Open Readiness
+
+Phase 56 adds `micro-v2-market-open-readiness`, which combines V2 heartbeat, MT5 connection, rejection-label taxonomy, and latest tick evidence to classify whether V2 is waiting for market open or observing fresh ticks. Reports include:
+
+- `micro_v2_market_open_readiness_summary.json`
+- `fresh_tick_audit.json`
+- `market_closed_audit.json`
+- `mt5_connection_audit.json`
+- `v2_runtime_state.json`
+- `symbol_tick_freshness.csv`
+- `recommendations.md`
+- `report.html`
+
+Forward evidence may display market-open readiness fields, but they are informational only and never bypass acceptance or risk gates.
