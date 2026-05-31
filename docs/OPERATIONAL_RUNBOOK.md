@@ -705,3 +705,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-observation-checkpoint --base-
 ```
 
 The checkpoint classifies whether V2 is waiting for market open, collecting fresh-tick data, ready for filter analysis, needs more trades, ready for a separate acceptance review, not running, safety blocked, or requiring manual review. It writes reports only and does not replace forward acceptance or approve demo/live.
+
+## Phase 59 Micro V2 Filter Analysis
+
+When the checkpoint reports `MICRO_V2_CHECKPOINT_READY_FOR_FILTER_ANALYSIS`, run the offline filter analysis:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-filter-analysis --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --base-sqlite data\sqlite\forward-shadow-stable.sqlite3 --base-log-dir data\logs\forward-shadow-stable --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --checkpoint-dir data\reports\micro_v2_observation_checkpoint --monitor-dir data\reports\micro_v2_dry_run_monitor --readiness-dir data\reports\micro_v2_market_open_readiness --output-dir data\reports\micro_v2_filter_analysis
+```
+
+The analysis separates market closed, stale tick, invalid snapshot, regime, liquidity, spread, score, cooldown, session, risk, and real symbol blocks. Any tuning output is a non-active research candidate only and requires a later explicit review phase before any profile/runtime change.

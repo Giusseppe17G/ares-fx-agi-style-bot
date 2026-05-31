@@ -59,6 +59,7 @@ def run_forward_evidence(
     micro_v2_market_open = _load_json(Path(reports_root) / "micro_v2_market_open_readiness" / "micro_v2_market_open_readiness_summary.json")
     micro_v2_observation_playbook = _load_json(Path(reports_root) / "micro_v2_observation_playbook" / "micro_v2_observation_playbook_summary.json")
     micro_v2_checkpoint = _load_json(Path(reports_root) / "micro_v2_observation_checkpoint" / "micro_v2_observation_checkpoint_summary.json")
+    micro_v2_filter_analysis = _load_json(Path(reports_root) / "micro_v2_filter_analysis" / "micro_v2_filter_analysis_summary.json")
     paper_pnl_audit = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_pnl_audit_summary.json")
     paper_risk_recommendation = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_risk_recommendation.json")
     legacy_drawdown = _load_json(Path(reports_root) / "paper_daily_risk" / "legacy_drawdown_audit_summary.json")
@@ -233,6 +234,10 @@ def run_forward_evidence(
         "micro_v2_checkpoint_status": micro_v2_checkpoint.get("micro_v2_checkpoint_status", ""),
         "v2_checkpoint_available": bool(micro_v2_checkpoint),
         "v2_checkpoint_recommended_next_action": micro_v2_checkpoint.get("recommended_next_action", ""),
+        "micro_v2_filter_analysis_status": micro_v2_filter_analysis.get("micro_v2_filter_analysis_status", ""),
+        "dominant_v2_filter": micro_v2_filter_analysis.get("dominant_v2_filter", ""),
+        "filter_tuning_candidate_available": bool(micro_v2_filter_analysis.get("filter_tuning_candidate_available", False)),
+        "micro_v2_filter_analysis_recommended_next_action": micro_v2_filter_analysis.get("recommended_next_action", ""),
         "execution_attempted": False,
         "order_send_called": False,
         "order_check_called": False,

@@ -496,3 +496,21 @@ Phase 58 adds `micro-v2-observation-checkpoint`, a read-only consolidation pack 
 - `report.html`
 
 Forward evidence may display `micro_v2_checkpoint_status`, `v2_checkpoint_available`, and `v2_checkpoint_recommended_next_action`. These fields are informational only and never bypass forward acceptance, risk gates, telemetry guards, or demo/live restrictions.
+
+## Micro V2 Filter Analysis
+
+Phase 59 adds `micro-v2-filter-analysis`, an offline/read-only rejection analysis for V2 once fresh tick data is present. Reports include:
+
+- `micro_v2_filter_analysis_summary.json`
+- `rejection_breakdown.csv`
+- `rejection_by_symbol.csv`
+- `rejection_by_session.csv`
+- `fresh_tick_filter_scope.json`
+- `dominant_filter_audit.json`
+- `base_vs_v2_filter_comparison.json`
+- `filter_tuning_recommendations.md`
+- `filter_tuning_candidate.json` when a dominant real filter is found
+- `recommendations.md`
+- `report.html`
+
+Forward evidence may display `micro_v2_filter_analysis_status`, `dominant_v2_filter`, `filter_tuning_candidate_available`, and `micro_v2_filter_analysis_recommended_next_action`. These fields are advisory only and never activate tuning, bypass gates, or authorize demo/live.

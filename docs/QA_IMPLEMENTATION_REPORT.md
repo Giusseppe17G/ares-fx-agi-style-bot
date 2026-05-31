@@ -1699,3 +1699,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 59 QA Notes
+
+Added Micro V2 live-market filter rejection analysis. New mode: `micro-v2-filter-analysis`. It reads V2 telemetry offline, separates market-data rejections from real filters, compares base vs V2 rates, identifies dominant filters, and writes non-active research-only tuning candidates when applicable.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
