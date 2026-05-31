@@ -36,6 +36,7 @@ from .market_structure import run_strategy_diagnose, write_structure_report
 from .micro_frequency_calibration import run_micro_frequency_calibration
 from .micro_frequency_proposal import run_micro_frequency_proposal
 from .micro_v2_clearance import run_micro_v2_clearance_runtime_check, run_micro_v2_paper_risk_clearance
+from .micro_v2_checkpoint_runner import run_micro_v2_observation_checkpoint
 from .micro_v2_dry_run_monitor import run_micro_v2_dry_run_monitor
 from .micro_v2_dry_run_readiness import run_micro_v2_dry_run_readiness
 from .micro_v2_market_open_readiness import run_micro_v2_market_open_readiness
@@ -190,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-dry-run-monitor",
             "micro-v2-market-open-readiness",
             "micro-v2-observation-playbook",
+            "micro-v2-observation-checkpoint",
             "micro-v2-symbol-rejection-audit",
             "rejection-labeling-audit",
             "micro-v2-runtime-profile-check",
@@ -888,6 +890,20 @@ def main(argv: list[str] | None = None) -> int:
                 v2_log_dir=args.v2_log_dir,
                 base_sqlite=args.base_sqlite,
                 base_log_dir=args.base_log_dir,
+                reports_root=args.reports_root,
+                v2_profile_config=args.v2_profile_config,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-observation-checkpoint":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_observation_checkpoint")
+            summary = run_micro_v2_observation_checkpoint(
+                base_sqlite=args.base_sqlite,
+                base_log_dir=args.base_log_dir,
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
                 reports_root=args.reports_root,
                 v2_profile_config=args.v2_profile_config,
                 output_dir=output_dir,

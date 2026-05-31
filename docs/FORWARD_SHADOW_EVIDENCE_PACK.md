@@ -479,3 +479,20 @@ Phase 57 adds `micro-v2-observation-playbook`, an offline/read-only pack for ope
 - `report.html`
 
 Forward evidence may display `micro_v2_observation_playbook_status`, `observation_playbook_available`, and `observation_playbook_recommended_next_action`. These fields are advisory only and never activate V2, approve acceptance, or authorize demo/live execution.
+
+## Micro V2 Observation Checkpoint
+
+Phase 58 adds `micro-v2-observation-checkpoint`, a read-only consolidation pack for repeated V2 observation checkpoints. Reports include:
+
+- `micro_v2_observation_checkpoint_summary.json`
+- `status_snapshot.json`
+- `readiness_snapshot.json`
+- `monitor_snapshot.json`
+- `rejection_snapshot.json`
+- `acceptance_snapshot.json`
+- `checkpoint_decision.json`
+- `recommended_commands.md`
+- `recommendations.md`
+- `report.html`
+
+Forward evidence may display `micro_v2_checkpoint_status`, `v2_checkpoint_available`, and `v2_checkpoint_recommended_next_action`. These fields are informational only and never bypass forward acceptance, risk gates, telemetry guards, or demo/live restrictions.

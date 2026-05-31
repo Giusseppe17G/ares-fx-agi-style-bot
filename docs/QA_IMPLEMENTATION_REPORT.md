@@ -1687,3 +1687,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 58 QA Notes
+
+Added Micro V2 observation checkpoint runner. New mode: `micro-v2-observation-checkpoint`. It consolidates V2 heartbeat/runtime status, MT5 connection, market-open tick readiness, rejection taxonomy, dry-run monitor metrics, existing V2 acceptance evidence if present, and recommended next commands under `data/reports/micro_v2_observation_checkpoint`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

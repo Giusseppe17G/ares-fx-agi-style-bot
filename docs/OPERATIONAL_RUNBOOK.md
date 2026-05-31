@@ -695,3 +695,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-observation-playbook --v2-sqli
 ```
 
 The playbook writes launch, monitoring, evidence, advancement, rollback, schedule, checklist, and recommendation documents. It does not launch V2, pause/resume shadow, open/close paper trades, or approve demo/live. V2 observation must use isolated V2 paths, at least 24 market-open hours, and at least 10 closed paper trades before any acceptance comparison.
+
+## Phase 58 Micro V2 Observation Checkpoint
+
+Run a repeatable checkpoint during V2 observation to consolidate runtime, market-open readiness, monitor, rejection labeling, and existing acceptance evidence:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-observation-checkpoint --base-sqlite data\sqlite\forward-shadow-stable.sqlite3 --base-log-dir data\logs\forward-shadow-stable --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --output-dir data\reports\micro_v2_observation_checkpoint
+```
+
+The checkpoint classifies whether V2 is waiting for market open, collecting fresh-tick data, ready for filter analysis, needs more trades, ready for a separate acceptance review, not running, safety blocked, or requiring manual review. It writes reports only and does not replace forward acceptance or approve demo/live.
