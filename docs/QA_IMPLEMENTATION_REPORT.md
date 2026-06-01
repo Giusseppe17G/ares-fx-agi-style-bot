@@ -1819,3 +1819,19 @@ Safety remains unchanged:
 - no real trades are opened or closed.
 - no artificial paper PnL is created.
 - stable SQLite is not modified.
+
+## FASE 68 QA Notes
+
+Added Micro V2 daily drawdown state recovery audit. New mode: `micro-v2-daily-drawdown-state-recovery`. It audits daily risk ledger scope, paper state errors, closed trade integrity, open trade integrity, drawdown root cause, and deterministic repair eligibility without changing V2 state by default.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+- no real trades are opened or closed.
+- no new paper trades are opened.
+- no artificial paper PnL is created.
+- stable SQLite is not modified.

@@ -653,3 +653,21 @@ Phase 67 adds `micro-v2-papertrade-schema-repair`, a dry-run-first report pack f
 - `report.html`
 
 Forward-compatible fields such as `invalid_close`, `quarantine_reason`, `repair_id`, and audit flags are preserved as metadata during loading. They do not authorize execution, do not create paper PnL, and do not change risk/acceptance gates.
+
+## Micro V2 Daily Drawdown State Recovery
+
+Phase 68 adds `micro-v2-daily-drawdown-state-recovery`, an offline/read-only evidence pack for V2 `PAPER_DAILY_DRAWDOWN_HALT` and `PAPER_STATE_ERROR`. Reports include:
+
+- `micro_v2_daily_drawdown_state_recovery_summary.json`
+- `daily_risk_ledger_audit.json`
+- `paper_state_error_audit.json`
+- `closed_trade_integrity_audit.json`
+- `open_trade_integrity_audit.json`
+- `drawdown_recovery_plan.json`
+- `repair_validation.json`
+- `sqlite_backup_manifest.json` when apply is used
+- `recommended_commands.md`
+- `recommendations.md`
+- `report.html`
+
+Legitimate drawdown from closed paper losses is not a false positive and must not be cleared automatically. Quarantined trades must not contribute PnL or closed-trade counts. The pack is advisory and cannot authorize demo/live or skip risk gates.

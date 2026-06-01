@@ -801,3 +801,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-papertrade-schema-repair --v2-
 ```
 
 Dry-run is the default. It audits extra fields, validates the safe loader, and checks post-exit state without modifying SQLite. Use `--apply-repair` only if the dry-run explicitly requires V2 SQLite payload normalization. The phase does not create PnL, does not close/open trades, does not touch stable SQLite/logs, and does not authorize demo/live.
+
+## Phase 68 Micro V2 Daily Drawdown State Recovery
+
+Run the drawdown state recovery audit when V2 remains blocked by `PAPER_DAILY_DRAWDOWN_HALT` or `PAPER_STATE_ERROR` after schema repair:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-daily-drawdown-state-recovery --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --daily-risk-ledger data\reports\paper_daily_risk\paper_daily_risk_ledger.json --resume-guard-dir data\reports\micro_v2_post_repair_resume_guard --schema-repair-dir data\reports\micro_v2_papertrade_schema_repair --repair-dir data\reports\micro_v2_guarded_paper_state_repair --output-dir data\reports\micro_v2_daily_drawdown_state_recovery
+```
+
+If the halt is backed by real closed paper losses, keep V2 blocked and review the losses; do not clear it. Only deterministic false positives, quarantine contamination, or V2 ledger scope issues may proceed to a separate guarded repair phase. Never touch stable SQLite/logs, profiles, stable gate, demo/live settings, or broker execution.
