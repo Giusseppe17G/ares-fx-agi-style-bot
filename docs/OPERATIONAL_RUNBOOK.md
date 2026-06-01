@@ -827,3 +827,11 @@ Apply only if the dry-run is ready and V2 runtime is stopped. The repair marks o
 Use `micro-v2-closed-loss-scope-decision` after guarded invalid open-trade repair and daily drawdown recovery. The report confirms whether Micro V2 closed paper losses are legitimate, whether quarantined trades contaminated drawdown, whether closed trades have valid risk distance and scaled PnL, and whether the daily risk ledger is scoped to BALANCED_STABLE_MICRO_V2.
 
 Do not clear a daily halt from this phase. If `closed_loss_legitimate=true`, keep the daily halt active until reset or a later explicit ledger-scope repair phase. `DAILY_RISK_SCOPE_MISMATCH_REPAIR_NEEDED` means the base ledger scope does not authorize V2 daily-risk restart decisions; it is not repaired automatically.
+
+### FASE 71 - Micro V2 Daily Risk Scope Repair
+
+Run `micro-v2-daily-risk-scope-repair` after FASE 70 confirms legitimate Micro V2 closed losses and `DAILY_RISK_SCOPE_MISMATCH_REPAIR_NEEDED`. The dry-run must be reviewed before `--apply-repair`.
+
+Allowed repair: add V2-specific ledger scope metadata while keeping `daily_halt_active=true`, preserving `closed_scaled_pnl_total=-9.996`, preserving the 2 closed paper trades, and leaving BALANCED_STABLE_MICRO entries untouched. This phase never clears a legitimate daily halt; if apply succeeds, wait for daily reset before relaunching V2.
+
+Blocked cases include unsafe reset, PnL mismatch, missing backup, safety flags, or inability to validate that the V2 scope exists after apply.

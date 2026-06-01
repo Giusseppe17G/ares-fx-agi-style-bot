@@ -1,0 +1,45 @@
+{
+  "daily_risk_clearances": [
+    {
+      "active_halts_cleared": false,
+      "canonical_cleared_for_profile": "BALANCED_STABLE_MICRO",
+      "cleared_for_paper_shadow": true,
+      "cleared_for_profile": "BALANCED_STABLE_MICRO",
+      "created_at_utc": "2026-05-25T07:00:45.856351+00:00",
+      "daily_risk_clearance_id": "pdrc_fb97c1a988f24a3faf3adcc8bae6ca86",
+      "execution_attempted": false,
+      "latest_halt_utc_at_clearance": "2026-05-25T06:07:13.487323+00:00",
+      "latest_profile_clearance_utc": "2026-05-25T07:00:39.690354+00:00",
+      "not_for_demo_live": true,
+      "operational_day": "2026-05-25",
+      "order_check_called": false,
+      "order_send_called": false,
+      "profile_clearance_id": "prc_770874f0639b4a47b7c2ac18e2af9e60",
+      "reason": "Clear legacy unscaled drawdown after FASE 41 paper PnL scaling fix",
+      "reviewer": "operator",
+      "stale_halts_cleared": true
+    },
+    {
+      "active_halts_cleared": false,
+      "canonical_cleared_for_profile": "BALANCED_STABLE_MICRO",
+      "cleared_for_paper_shadow": true,
+      "cleared_for_profile": "BALANCED_STABLE_MICRO",
+      "created_at_utc": "2026-05-25T07:06:23.099892+00:00",
+      "daily_risk_clearance_id": "pdrc_56fbcea4ff944a98bbdfbe467285347a",
+      "execution_attempted": false,
+      "latest_halt_utc_at_clearance": "2026-05-25T07:00:56.423629+00:00",
+      "latest_profile_clearance_utc": "2026-05-25T07:06:17.268885+00:00",
+      "not_for_demo_live": true,
+      "operational_day": "2026-05-25",
+      "order_check_called": false,
+      "order_send_called": false,
+      "profile_clearance_id": "prc_b7f1fc5b421b4d41a29c15c29cc118ce",
+      "reason": "Clear stale/legacy drawdown after latest post FASE 41 clearance",
+      "reviewer": "operator",
+      "stale_halts_cleared": true
+    }
+  ],
+  "execution_attempted": false,
+  "mode": "paper-daily-risk-ledger",
+  "updated_at_utc": "2026-05-25T07:06:23.099892+00:00"
+}

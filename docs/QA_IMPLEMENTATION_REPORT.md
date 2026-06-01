@@ -1855,3 +1855,7 @@ Safety remains unchanged:
 ### FASE 70 - QA Implementation Note
 
 Implemented `micro_v2_closed_loss_scope_decision` with unit coverage for legitimate closed losses, PnL integrity failures, quarantine contamination, V2 daily-risk scope validity, base/V2 scope mismatch handling, CLI registration, read-only SQLite/ledger behavior, and safety flags. Validation requires full `py -m pytest -q` plus a real offline CLI run against the V2 dry-run paths.
+
+### FASE 71 - QA Implementation Note
+
+Implemented `micro_v2_daily_risk_scope_repair` with dry-run/apply paths, backup-before-apply, V2 ledger scope append, validation that daily halt remains active, PnL/closed trade counts remain unchanged, base scope remains present, and safety flags stay false. Tests cover dry-run, apply, no-repair-needed, unsafe reset, PnL mismatch, backup failure, CLI registration, no SQLite/profile mutation, and config safety invariants.
