@@ -702,3 +702,7 @@ The evidence pack includes `data/reports/micro_v2_daily_risk_scope_repair/` with
 ### FASE 72 - Daily Reset Readiness Evidence
 
 The evidence pack includes `data/reports/micro_v2_daily_reset_readiness/` with `micro_v2_daily_reset_readiness_summary.json`, halt status audit, ledger date audit, relaunch gate, recommended commands, recommendations, and HTML report. These artifacts document whether V2 can be relaunched after daily reset without changing ledger, SQLite, logs, profiles, or paper trades.
+
+### FASE 73 - Paper Trade Creation Guard Evidence
+
+Forward evidence can expose `zero_risk_guard_enabled`, `invalid_paper_trade_prevention_active`, `paper_trade_creation_guard_status`, `zero_risk_rejections_count`, `last_zero_risk_rejection_reason`, `sl_tp_side_guard_enabled`, and `precision_rounding_guard_enabled` from `data/reports/micro_v2_pre_relaunch_safety_pack/`. These fields are evidence only and do not skip acceptance, daily halt, or risk gates.

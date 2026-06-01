@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from typing import Iterable
+from uuid import uuid4
 
 from agi_style_forex_bot_mt5.contracts import MarketSnapshot, TradeSignal, RiskDecision
+from agi_style_forex_bot_mt5.micro_v2_pre_relaunch_safety_pack import PaperTradeGuardInput, validate_paper_trade_creation
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 
 from .paper_fill_model import PaperFillModel
@@ -72,6 +74,19 @@ class PaperPositionManager:
         entry = entry_result.fill_price
         risk_amount = float(risk_decision.risk_amount_account_currency or 0.0)
         effective_risk_pct = float(risk_decision.checks.get("effective_risk_pct") or signal.risk_pct or 0.0)
+        guard = validate_paper_trade_creation(
+            PaperTradeGuardInput(
+                entry_price=round(entry, snapshot.digits),
+                sl_price=signal.sl_price,
+                tp_price=signal.tp_price,
+                side=signal.direction.value,
+                digits=snapshot.digits,
+                metadata=dict(signal.metadata),
+            )
+        )
+        if not guard.get("paper_trade_creation_allowed"):
+            self._record_creation_rejection(signal=signal, snapshot=snapshot, guard=guard, broker_symbol=broker_symbol)
+            raise ValueError(str(guard.get("rejection_reason") or "PAPER_TRADE_REJECTED_INVALID_SETUP"))
         trade = PaperTrade(
             paper_trade_id=PaperTrade.new_id(),
             signal_id=signal.signal_id,
@@ -110,6 +125,34 @@ class PaperPositionManager:
         if inserted:
             self.database.insert_paper_trade_event(trade.paper_trade_id, "PAPER_TRADE_OPENED", trade.to_dict())
         return trade
+
+    def _record_creation_rejection(self, *, signal: TradeSignal, snapshot: MarketSnapshot, guard: dict[str, object], broker_symbol: str) -> None:
+        payload = {
+            **guard,
+            "signal_id": signal.signal_id,
+            "symbol": signal.symbol,
+            "broker_symbol": broker_symbol,
+            "entry_price": guard.get("entry_price", signal.entry_price),
+            "sl_price": signal.sl_price,
+            "tp_price": signal.tp_price,
+            "timestamp_utc": snapshot.timestamp_utc.astimezone(timezone.utc).isoformat(),
+        }
+        self.database.insert_event(
+            {
+                "event_id": f"evt_{uuid4().hex}",
+                "event_type": "PAPER_TRADE_CREATION_REJECTED",
+                "severity": "WARNING",
+                "module": "paper_trading",
+                "symbol": signal.symbol,
+                "signal_id": signal.signal_id,
+                "message": str(guard.get("rejection_reason") or "paper_trade_creation_rejected"),
+                "payload_json": json.dumps(payload, sort_keys=True),
+                "timestamp_utc": snapshot.timestamp_utc.astimezone(timezone.utc).isoformat(),
+                "environment": "DEMO",
+                "run_id": "paper_trade_creation_guard",
+                "idempotency_key": f"paper_trade_creation_rejected:{signal.signal_id}:{guard.get('rejection_reason', '')}",
+            }
+        )
 
     def update_with_snapshot(self, trade: PaperTrade, snapshot: MarketSnapshot) -> PaperTrade:
         if trade.status != "OPEN":

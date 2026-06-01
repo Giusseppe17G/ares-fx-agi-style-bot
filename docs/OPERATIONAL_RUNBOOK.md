@@ -841,3 +841,9 @@ Blocked cases include unsafe reset, PnL mismatch, missing backup, safety flags, 
 Use `micro-v2-daily-reset-readiness` after FASE 71 reports `DAILY_RISK_SCOPE_OK_FOR_V2`. The check is read-only and determines whether the latest V2 daily drawdown halt belongs to the current operational day or a prior day.
 
 If status is `MICRO_V2_DAILY_RESET_READY_FOR_RELAUNCH`, the report writes the exact BALANCED_STABLE_MICRO_V2 paper dry-run launch command. If status is not ready, keep V2 stopped and rerun the readiness check later. Never manually clear the halt from this phase.
+
+### FASE 73 - Pre-Relaunch Safety Pack
+
+Before any future V2 relaunch, paper trade creation now runs a preventive guard before `PaperTrade(...)`, SQLite insert, exposure update, or open-trade notification. Invalid setups are rejected with explicit `PAPER_TRADE_REJECTED_*` reasons and no paper trade row is created.
+
+Run `micro-v2-pre-relaunch-safety-pack` while V2 is stopped. It does not relaunch V2 or clear daily halt. If the reset gate is not ready, keep V2 stopped and rerun `micro-v2-daily-reset-readiness` later. If the gate is ready, use the generated command manually in a later operator step.
