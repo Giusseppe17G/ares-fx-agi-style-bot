@@ -57,6 +57,7 @@ from .micro_v2_pre_relaunch_safety_pack import run_micro_v2_pre_relaunch_safety_
 from .micro_v2_post_repair_resume_guard import evaluate_post_repair_resume_guard, run_micro_v2_post_repair_resume_guard
 from .micro_v2_post_repair_resume_guard.lifecycle_recheck import recheck_lifecycle, safety_flags as post_repair_safety_flags
 from .micro_v2_post_repair_resume_guard.post_repair_loader import load_post_repair_inputs
+from .micro_v2_post_reset_relaunch_pack import run_micro_v2_post_reset_relaunch_pack
 from .micro_v2_runtime_profile import MICRO_V2_SIGNAL_PROFILE, run_micro_v2_runtime_profile_check, signal_profile_choices, validate_micro_v2_forward_shadow_runtime
 from .micro_v2_review import run_micro_v2_proposed_review, run_micro_v2_review
 from .micro_v2_stable_market_window import run_micro_v2_stable_market_window
@@ -224,6 +225,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-daily-risk-scope-repair",
             "micro-v2-daily-reset-readiness",
             "micro-v2-pre-relaunch-safety-pack",
+            "micro-v2-post-reset-relaunch-pack",
             "micro-v2-symbol-rejection-audit",
             "rejection-labeling-audit",
             "micro-v2-runtime-profile-check",
@@ -369,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--closed-loss-scope-dir", type=Path, default=Path("data/reports/micro_v2_closed_loss_scope_decision"), help="Micro V2 closed loss scope decision report directory.")
     parser.add_argument("--daily-risk-scope-repair-dir", type=Path, default=Path("data/reports/micro_v2_daily_risk_scope_repair"), help="Micro V2 daily risk scope repair report directory.")
     parser.add_argument("--daily-reset-readiness-dir", type=Path, default=Path("data/reports/micro_v2_daily_reset_readiness"), help="Micro V2 daily reset readiness report directory.")
+    parser.add_argument("--pre-relaunch-safety-dir", type=Path, default=Path("data/reports/micro_v2_pre_relaunch_safety_pack"), help="Micro V2 pre-relaunch safety pack report directory.")
     parser.add_argument("--previous-repair-dir", type=Path, default=Path("data/reports/micro_v2_guarded_paper_state_repair"), help="Previous Micro V2 guarded repair report directory.")
     parser.add_argument("--repair-plan", type=Path, default=Path("data/reports/micro_v2_invalid_trade_forensics/repair_plan.json"), help="Guarded paper-state repair plan JSON.")
     parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
@@ -1204,6 +1207,23 @@ def main(argv: list[str] | None = None) -> int:
                 daily_risk_scope_repair_dir=args.daily_risk_scope_repair_dir,
                 closed_loss_scope_dir=args.closed_loss_scope_dir,
                 open_trade_repair_dir=args.open_trade_repair_dir,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-post-reset-relaunch-pack":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_post_reset_relaunch_pack")
+            summary = run_micro_v2_post_reset_relaunch_pack(
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                reports_root=args.reports_root,
+                v2_profile_config=args.v2_profile_config,
+                daily_risk_ledger=args.daily_risk_ledger,
+                daily_reset_readiness_dir=args.daily_reset_readiness_dir,
+                pre_relaunch_safety_dir=args.pre_relaunch_safety_dir,
+                daily_risk_scope_repair_dir=args.daily_risk_scope_repair_dir,
+                closed_loss_scope_dir=args.closed_loss_scope_dir,
                 output_dir=output_dir,
             )
             print(_json_dumps(summary))

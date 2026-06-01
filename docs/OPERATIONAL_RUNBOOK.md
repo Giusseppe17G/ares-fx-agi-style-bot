@@ -847,3 +847,9 @@ If status is `MICRO_V2_DAILY_RESET_READY_FOR_RELAUNCH`, the report writes the ex
 Before any future V2 relaunch, paper trade creation now runs a preventive guard before `PaperTrade(...)`, SQLite insert, exposure update, or open-trade notification. Invalid setups are rejected with explicit `PAPER_TRADE_REJECTED_*` reasons and no paper trade row is created.
 
 Run `micro-v2-pre-relaunch-safety-pack` while V2 is stopped. It does not relaunch V2 or clear daily halt. If the reset gate is not ready, keep V2 stopped and rerun `micro-v2-daily-reset-readiness` later. If the gate is ready, use the generated command manually in a later operator step.
+
+### FASE 74 - Post-Reset Relaunch Pack
+
+Run `micro-v2-post-reset-relaunch-pack` after daily reset readiness and pre-relaunch safety hardening. It reads existing reports, validates that the daily halt has reset, confirms V2 ledger scope and zero-risk guard evidence, checks paper state, and writes a post-relaunch observation plan.
+
+This phase never launches V2. If it reports ready, relaunch is still a manual operator action using the generated command. If it reports keep-halted, leave V2 stopped and rerun this pack later.

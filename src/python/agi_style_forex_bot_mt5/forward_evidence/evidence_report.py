@@ -68,6 +68,7 @@ def run_forward_evidence(
     micro_v2_guarded_repair = _load_json(Path(reports_root) / "micro_v2_guarded_paper_state_repair" / "micro_v2_guarded_paper_state_repair_summary.json")
     micro_v2_post_repair_resume = _load_json(Path(reports_root) / "micro_v2_post_repair_resume_guard" / "micro_v2_post_repair_resume_guard_summary.json")
     micro_v2_pre_relaunch_safety = _load_json(Path(reports_root) / "micro_v2_pre_relaunch_safety_pack" / "micro_v2_pre_relaunch_safety_pack_summary.json")
+    micro_v2_post_reset_relaunch = _load_json(Path(reports_root) / "micro_v2_post_reset_relaunch_pack" / "micro_v2_post_reset_relaunch_pack_summary.json")
     paper_pnl_audit = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_pnl_audit_summary.json")
     paper_risk_recommendation = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_risk_recommendation.json")
     legacy_drawdown = _load_json(Path(reports_root) / "paper_daily_risk" / "legacy_drawdown_audit_summary.json")
@@ -246,6 +247,12 @@ def run_forward_evidence(
         "last_zero_risk_rejection_reason": micro_v2_pre_relaunch_safety.get("last_zero_risk_rejection_reason", ""),
         "sl_tp_side_guard_enabled": bool(micro_v2_pre_relaunch_safety.get("sl_tp_side_guard_enabled", False)),
         "precision_rounding_guard_enabled": bool(micro_v2_pre_relaunch_safety.get("precision_rounding_guard_enabled", False)),
+        "micro_v2_post_reset_relaunch_pack_status": micro_v2_post_reset_relaunch.get("micro_v2_post_reset_relaunch_pack_status", ""),
+        "post_reset_relaunch_allowed": bool(micro_v2_post_reset_relaunch.get("post_reset_relaunch_allowed", False)),
+        "zero_risk_guard_verified": bool(micro_v2_post_reset_relaunch.get("zero_risk_guard_verified", False)),
+        "daily_risk_scope_verified": bool(micro_v2_post_reset_relaunch.get("daily_risk_scope_verified", False)),
+        "post_reset_paper_state_clean_for_relaunch": bool(micro_v2_post_reset_relaunch.get("paper_state_clean_for_relaunch", False)),
+        "post_reset_relaunch_recommended_next_action": micro_v2_post_reset_relaunch.get("recommended_next_action", ""),
         "micro_v2_checkpoint_status": micro_v2_checkpoint.get("micro_v2_checkpoint_status", ""),
         "v2_checkpoint_available": bool(micro_v2_checkpoint),
         "v2_checkpoint_recommended_next_action": micro_v2_checkpoint.get("recommended_next_action", ""),

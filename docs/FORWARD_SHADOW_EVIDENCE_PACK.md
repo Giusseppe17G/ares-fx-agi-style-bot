@@ -706,3 +706,7 @@ The evidence pack includes `data/reports/micro_v2_daily_reset_readiness/` with `
 ### FASE 73 - Paper Trade Creation Guard Evidence
 
 Forward evidence can expose `zero_risk_guard_enabled`, `invalid_paper_trade_prevention_active`, `paper_trade_creation_guard_status`, `zero_risk_rejections_count`, `last_zero_risk_rejection_reason`, `sl_tp_side_guard_enabled`, and `precision_rounding_guard_enabled` from `data/reports/micro_v2_pre_relaunch_safety_pack/`. These fields are evidence only and do not skip acceptance, daily halt, or risk gates.
+
+### FASE 74 - Post-Reset Relaunch Evidence
+
+The evidence pack can include `micro_v2_post_reset_relaunch_pack_status`, `post_reset_relaunch_allowed`, `zero_risk_guard_verified`, `daily_risk_scope_verified`, `paper_state_clean_for_relaunch`, and the recommended next action from `data/reports/micro_v2_post_reset_relaunch_pack/`. These fields are advisory evidence only and do not bypass acceptance or risk gates.
