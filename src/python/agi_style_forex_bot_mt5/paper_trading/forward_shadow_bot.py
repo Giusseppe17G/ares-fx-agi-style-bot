@@ -156,7 +156,21 @@ class ForwardShadowBot:
                 else:
                     if shadow_paused and stale_pause_cleared:
                         self._audit("PAPER_DAILY_RISK_LEDGER_ACCEPTED", Severity.INFO, {"reason": "stale drawdown halt reviewed for micro paper/shadow", "execution_attempted": False})
-                    opened += self._scan_new_paper_trades(account)
+                    if self._manage_open_trades_only_enabled():
+                        self._audit(
+                            "PAPER_DAILY_RISK_RESUME_MANAGE_OPEN_TRADES_ONLY",
+                            Severity.WARNING,
+                            {
+                                "paper_resume_mode": "MANAGE_OPEN_TRADES_ONLY",
+                                "new_entries_blocked": True,
+                                "new_paper_trades_blocked": True,
+                                "paper_exit_evaluation_allowed": True,
+                                "execution_attempted": False,
+                            },
+                            notify=True,
+                        )
+                    else:
+                        opened += self._scan_new_paper_trades(account)
                 after_open = len(self.manager.load_open_trades())
                 cycles += 1
                 heartbeat = self.heartbeat.write(
@@ -596,6 +610,19 @@ class ForwardShadowBot:
         return updated
 
     def _paper_risk_guard(self) -> dict[str, Any]:
+        if self._manage_open_trades_only_enabled():
+            return {
+                "paper_risk_status": "PAPER_DAILY_RISK_RESUME_MANAGE_OPEN_TRADES_ONLY",
+                "paper_risk_profile": self.config.signal_profile,
+                "can_open_new_paper_trade": False,
+                "blocking_reason": "MANAGE_OPEN_TRADES_ONLY",
+                "paper_resume_mode": "MANAGE_OPEN_TRADES_ONLY",
+                "new_entries_blocked": True,
+                "paper_exit_evaluation_allowed": True,
+                "execution_attempted": False,
+                "order_send_called": False,
+                "order_check_called": False,
+            }
         if self.config.signal_profile != "BALANCED_STABLE_MICRO":
             return {
                 "paper_risk_status": "PAPER_RISK_NOT_APPLIED",
@@ -641,6 +668,10 @@ class ForwardShadowBot:
                 status["paper_daily_risk_status"] = daily.get("paper_daily_risk_status", "")
                 status["daily_risk_ledger_status"] = daily.get("daily_risk_ledger_status", "")
         return status
+
+    def _manage_open_trades_only_enabled(self) -> bool:
+        state = self.database.get_operational_state()
+        return self.config.signal_profile == "BALANCED_STABLE_MICRO_V2" and str(state.get("paper_resume_mode", "")).upper() == "MANAGE_OPEN_TRADES_ONLY"
 
     def _micro_legacy_drawdown_adjusted_metrics(self, metrics: Mapping[str, Any]) -> dict[str, Any]:
         adjusted = dict(metrics)

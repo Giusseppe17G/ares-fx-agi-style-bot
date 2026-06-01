@@ -66,6 +66,7 @@ def run_forward_evidence(
     micro_v2_lifecycle = _load_json(Path(reports_root) / "micro_v2_lifecycle_risk_comparison" / "micro_v2_lifecycle_risk_comparison_summary.json")
     micro_v2_invalid_trade_forensics = _load_json(Path(reports_root) / "micro_v2_invalid_trade_forensics" / "micro_v2_invalid_trade_forensics_summary.json")
     micro_v2_guarded_repair = _load_json(Path(reports_root) / "micro_v2_guarded_paper_state_repair" / "micro_v2_guarded_paper_state_repair_summary.json")
+    micro_v2_post_repair_resume = _load_json(Path(reports_root) / "micro_v2_post_repair_resume_guard" / "micro_v2_post_repair_resume_guard_summary.json")
     paper_pnl_audit = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_pnl_audit_summary.json")
     paper_risk_recommendation = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_risk_recommendation.json")
     legacy_drawdown = _load_json(Path(reports_root) / "paper_daily_risk" / "legacy_drawdown_audit_summary.json")
@@ -274,6 +275,13 @@ def run_forward_evidence(
         "micro_v2_guarded_repair_backup_created": bool(micro_v2_guarded_repair.get("backup_created", False)),
         "micro_v2_guarded_repair_applied": bool(micro_v2_guarded_repair.get("repair_applied", False)),
         "micro_v2_guarded_repair_recommended_next_action": micro_v2_guarded_repair.get("recommended_next_action", ""),
+        "micro_v2_post_repair_resume_guard_status": micro_v2_post_repair_resume.get("micro_v2_post_repair_resume_guard_status", ""),
+        "micro_v2_post_repair_open_trade_count": micro_v2_post_repair_resume.get("open_trade_count", 0),
+        "micro_v2_post_repair_invalid_open_trade_count": micro_v2_post_repair_resume.get("invalid_open_trade_count", 0),
+        "micro_v2_manage_open_trades_only_enabled": bool(micro_v2_post_repair_resume.get("manage_open_trades_only_enabled", False)),
+        "micro_v2_manage_only_new_entries_blocked": bool(micro_v2_post_repair_resume.get("new_entries_blocked", False)),
+        "micro_v2_manage_only_exit_eval_allowed": bool(micro_v2_post_repair_resume.get("paper_exit_evaluation_allowed", False)),
+        "micro_v2_post_repair_resume_recommended_next_action": micro_v2_post_repair_resume.get("recommended_next_action", ""),
         "execution_attempted": False,
         "order_send_called": False,
         "order_check_called": False,

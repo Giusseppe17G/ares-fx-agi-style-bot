@@ -47,6 +47,9 @@ from .micro_v2_lifecycle_risk_comparison import run_micro_v2_lifecycle_risk_comp
 from .micro_v2_market_open_readiness import run_micro_v2_market_open_readiness
 from .micro_v2_risk_block_audit import run_micro_v2_risk_block_audit
 from .micro_v2_observation_playbook import run_micro_v2_observation_playbook
+from .micro_v2_post_repair_resume_guard import evaluate_post_repair_resume_guard, run_micro_v2_post_repair_resume_guard
+from .micro_v2_post_repair_resume_guard.lifecycle_recheck import recheck_lifecycle, safety_flags as post_repair_safety_flags
+from .micro_v2_post_repair_resume_guard.post_repair_loader import load_post_repair_inputs
 from .micro_v2_runtime_profile import MICRO_V2_SIGNAL_PROFILE, run_micro_v2_runtime_profile_check, signal_profile_choices, validate_micro_v2_forward_shadow_runtime
 from .micro_v2_review import run_micro_v2_proposed_review, run_micro_v2_review
 from .micro_v2_stable_market_window import run_micro_v2_stable_market_window
@@ -206,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-lifecycle-risk-comparison",
             "micro-v2-invalid-trade-forensics",
             "micro-v2-guarded-paper-state-repair",
+            "micro-v2-post-repair-resume-guard",
             "micro-v2-symbol-rejection-audit",
             "rejection-labeling-audit",
             "micro-v2-runtime-profile-check",
@@ -343,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stable-window-dir", type=Path, default=Path("data/reports/micro_v2_stable_market_window"), help="Micro V2 stable market window report directory.")
     parser.add_argument("--lifecycle-dir", type=Path, default=Path("data/reports/micro_v2_lifecycle_risk_comparison"), help="Micro V2 lifecycle/risk comparison report directory.")
     parser.add_argument("--forensics-dir", type=Path, default=Path("data/reports/micro_v2_invalid_trade_forensics"), help="Micro V2 invalid trade forensics report directory.")
+    parser.add_argument("--repair-dir", type=Path, default=Path("data/reports/micro_v2_guarded_paper_state_repair"), help="Micro V2 guarded paper-state repair report directory.")
     parser.add_argument("--repair-plan", type=Path, default=Path("data/reports/micro_v2_invalid_trade_forensics/repair_plan.json"), help="Guarded paper-state repair plan JSON.")
     parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
     parser.add_argument("--require-actionable-filter", default="false", help="Require edge-filtering to create an actionable BALANCED_FILTERED overlay.")
@@ -1049,6 +1054,23 @@ def main(argv: list[str] | None = None) -> int:
                 lifecycle_dir=args.lifecycle_dir,
                 output_dir=output_dir,
                 apply_repair=bool(args.apply_repair),
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-post-repair-resume-guard":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_post_repair_resume_guard")
+            summary = run_micro_v2_post_repair_resume_guard(
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                base_sqlite=args.base_sqlite,
+                base_log_dir=args.base_log_dir,
+                reports_root=args.reports_root,
+                v2_profile_config=args.v2_profile_config,
+                repair_dir=args.repair_dir,
+                lifecycle_dir=args.lifecycle_dir,
+                daily_risk_ledger=args.daily_risk_ledger,
+                output_dir=output_dir,
             )
             print(_json_dumps(summary))
             return 0
@@ -1768,8 +1790,54 @@ def main(argv: list[str] | None = None) -> int:
                         paper_risk_dir=args.paper_risk_dir,
                     )
                     if not daily_risk.get("accepted"):
-                        print(_json_dumps(_stable_forward_block(str(daily_risk.get("paper_daily_risk_status") or "PAPER_DAILY_RISK_LEDGER_REQUIRED"), str(daily_risk.get("reason") or f"{config.signal_profile} requires valid daily paper risk ledger"), args.stable_gate, daily_risk, signal_profile=config.signal_profile)))
-                        return 0
+                        if str(daily_risk.get("paper_daily_risk_status")) == "PAPER_DAILY_RISK_BLOCKED_OPEN_TRADES" and config.signal_profile == MICRO_V2_SIGNAL_PROFILE:
+                            post_repair_inputs = load_post_repair_inputs(
+                                v2_sqlite=args.sqlite,
+                                v2_log_dir=args.log_dir,
+                                base_sqlite=args.base_sqlite,
+                                base_log_dir=args.base_log_dir,
+                                reports_root=args.reports_root,
+                                v2_profile_config=config.profile_config,
+                                repair_dir=args.repair_dir,
+                                lifecycle_dir=args.lifecycle_dir,
+                                daily_risk_ledger=args.daily_risk_ledger,
+                            )
+                            lifecycle = recheck_lifecycle(post_repair_inputs["v2_dataset"], post_repair_inputs.get("repair_after", {}))
+                            post_repair_policy = evaluate_post_repair_resume_guard(
+                                signal_profile=config.signal_profile,
+                                sqlite_path=args.sqlite,
+                                profile_values=post_repair_inputs.get("profile_values", {}),
+                                lifecycle=lifecycle,
+                                safety_flags=post_repair_safety_flags(post_repair_inputs["v2_dataset"]),
+                                daily_risk_status=str(daily_risk.get("paper_daily_risk_status") or ""),
+                            )
+                            if post_repair_policy.get("accepted"):
+                                database.update_operational_state(
+                                    {
+                                        "paper_resume_mode": "MANAGE_OPEN_TRADES_ONLY",
+                                        "paper_resume_reason": "PAPER_DAILY_RISK_BLOCKED_OPEN_TRADES",
+                                        "block_new_entries": True,
+                                        "signal_profile_used": MICRO_V2_SIGNAL_PROFILE,
+                                        "execution_attempted": False,
+                                    }
+                                )
+                                event = Event.create(
+                                    run_id="forward-shadow-v2-dryrun",
+                                    environment=Environment.DEMO,
+                                    severity=Severity.WARNING,
+                                    module="cli",
+                                    event_type="PAPER_DAILY_RISK_RESUME_MANAGE_OPEN_TRADES_ONLY",
+                                    message="V2 daily risk open-trade block converted to manage-open-trades-only resume",
+                                    correlation_id="forward-shadow-v2-dryrun:post-repair-resume",
+                                    payload={**post_repair_policy, "daily_risk": daily_risk, "execution_attempted": False},
+                                )
+                                database.insert_event(event)
+                            else:
+                                print(_json_dumps(_stable_forward_block(str(post_repair_policy.get("micro_v2_post_repair_resume_guard_status") or daily_risk.get("paper_daily_risk_status") or "PAPER_DAILY_RISK_LEDGER_REQUIRED"), str(post_repair_policy.get("reason") or daily_risk.get("reason") or f"{config.signal_profile} requires valid daily paper risk ledger"), args.stable_gate, {**daily_risk, "post_repair_resume_guard": post_repair_policy}, signal_profile=config.signal_profile)))
+                                return 0
+                        else:
+                            print(_json_dumps(_stable_forward_block(str(daily_risk.get("paper_daily_risk_status") or "PAPER_DAILY_RISK_LEDGER_REQUIRED"), str(daily_risk.get("reason") or f"{config.signal_profile} requires valid daily paper risk ledger"), args.stable_gate, daily_risk, signal_profile=config.signal_profile)))
+                            return 0
                     config = replace(config, paper_risk_clearance=str(args.paper_risk_clearance), paper_daily_risk_ledger=str(args.daily_risk_ledger or ""))
                 stable_gate = _stable_gate_status(args.stable_gate)
                 if not stable_gate["exists"]:

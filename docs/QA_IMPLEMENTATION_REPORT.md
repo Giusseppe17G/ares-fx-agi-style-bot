@@ -1789,3 +1789,18 @@ Safety remains unchanged:
 - no real trades are opened or closed.
 - no paper PnL or closed paper trade is created by quarantine.
 - stable SQLite is not modified.
+
+## FASE 66 QA Notes
+
+Added Micro V2 post-repair resume guard. New mode: `micro-v2-post-repair-resume-guard`. It rechecks that invalid open trades are gone after quarantine, diagnoses the daily-risk open-trade deadlock, and enables a V2-only `MANAGE_OPEN_TRADES_ONLY` runtime policy when safe.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+- new entries and new paper trades are blocked in manage-only mode.
+- paper exit evaluation for existing paper trades is allowed.
+- stable SQLite is not modified.

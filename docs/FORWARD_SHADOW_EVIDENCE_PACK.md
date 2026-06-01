@@ -621,3 +621,18 @@ Phase 65 adds `micro-v2-guarded-paper-state-repair`, a protected paper-only repa
 - `report.html`
 
 Forward evidence may display `micro_v2_guarded_repair_status`, repaired trade ids, quarantined trade count, backup status, repair applied status, and the recommended next action. The only permitted applied action is quarantine of the invalid V2 paper trade; it does not create a closed trade or realized PnL.
+
+## Micro V2 Post-Repair Resume Guard
+
+Phase 66 adds `micro-v2-post-repair-resume-guard`, an offline/read-only pack and runtime policy for the post-quarantine daily-risk open-trade deadlock. Reports include:
+
+- `micro_v2_post_repair_resume_guard_summary.json`
+- `lifecycle_recheck.json`
+- `daily_risk_block_diagnosis.json`
+- `resume_guard_policy.json`
+- `manage_open_trades_only_policy.json`
+- `recommended_commands.md`
+- `recommendations.md`
+- `report.html`
+
+Forward evidence may display the post-repair resume status, open/invalid trade counts, whether manage-open-trades-only is enabled, whether new entries are blocked, whether paper exit evaluation is allowed, and the recommended next action. The policy is V2-only and does not permit new paper entries or demo/live execution.

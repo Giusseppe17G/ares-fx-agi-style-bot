@@ -781,3 +781,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-guarded-paper-state-repair --v
 ```
 
 This phase can modify only the isolated V2 SQLite and only to mark the invalid paper trade as `QUARANTINED_INVALID_PAPER_TRADE`. It creates a backup first, does not close a trade, does not create PnL, does not touch stable SQLite, and does not authorize demo/live.
+
+## Phase 66 Micro V2 Post-Repair Resume Guard
+
+After a guarded quarantine, run the post-repair resume guard before relaunching V2:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-post-repair-resume-guard --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --base-sqlite data\sqlite\forward-shadow-stable.sqlite3 --base-log-dir data\logs\forward-shadow-stable --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --repair-dir data\reports\micro_v2_guarded_paper_state_repair --lifecycle-dir data\reports\micro_v2_lifecycle_risk_comparison --daily-risk-ledger data\reports\paper_daily_risk\paper_daily_risk_ledger.json --output-dir data\reports\micro_v2_post_repair_resume_guard
+```
+
+If it returns `MICRO_V2_POST_REPAIR_MANAGE_OPEN_TRADES_ONLY_ENABLED`, the V2 runtime may resume only to manage existing open paper trades. New entries and new paper trades remain blocked until open trades reach zero and daily risk clearing can run normally. This mode is V2-only and never applies to stable/base.
