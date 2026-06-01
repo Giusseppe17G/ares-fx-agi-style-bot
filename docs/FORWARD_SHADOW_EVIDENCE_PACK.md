@@ -514,3 +514,41 @@ Phase 59 adds `micro-v2-filter-analysis`, an offline/read-only rejection analysi
 - `report.html`
 
 Forward evidence may display `micro_v2_filter_analysis_status`, `dominant_v2_filter`, `filter_tuning_candidate_available`, and `micro_v2_filter_analysis_recommended_next_action`. These fields are advisory only and never activate tuning, bypass gates, or authorize demo/live.
+
+## Micro V2 Risk Block Audit
+
+Phase 60 adds `micro-v2-risk-block-audit`, a read-only root-cause audit for V2 `RISK_REJECTED` evidence. Reports include:
+
+- `micro_v2_risk_block_summary.json`
+- `risk_rejections.csv`
+- `risk_reason_breakdown.csv`
+- `risk_by_symbol.csv`
+- `risk_by_session.csv`
+- `cooldown_risk_audit.json`
+- `trade_limit_audit.json`
+- `exposure_risk_audit.json`
+- `drawdown_risk_audit.json`
+- `invalid_trade_state_audit.json`
+- `recommendations.md`
+- `risk_block_fix_recommendations.md` and `risk_block_candidate.json` only when a reviewable cause is found
+- `report.html`
+
+Forward evidence may display `micro_v2_risk_block_status`, `dominant_risk_block_reason`, `risk_block_candidate_available`, and `micro_v2_risk_block_recommended_next_action`. These fields are informational and never override market-closed dominance, risk gates, or demo/live restrictions.
+
+## Micro V2 Consolidated Risk/Market Audit
+
+Phase 61 adds `micro-v2-consolidated-risk-market-audit`, combining exposure explainability, double-counting detection, risk decision review, and market stability into one offline pack. Reports include:
+
+- `micro_v2_consolidated_audit_summary.json`
+- `exposure_explainability.json`
+- `exposure_blocks.csv`
+- `exposure_by_symbol.csv`
+- `exposure_double_counting_audit.json`
+- `market_stability_audit.json`
+- `risk_decision_audit.json`
+- `continue_or_repair_decision.json`
+- `recommendations.md`
+- optional research-only repair/tuning recommendation markdown files
+- `report.html`
+
+Forward evidence may display `consolidated_v2_audit_status`, `exposure_guard_diagnosis`, `market_stability_status`, and `micro_v2_consolidated_recommended_next_action`. These fields are informational only and cannot activate tuning, runtime repair, acceptance, demo, or live trading.

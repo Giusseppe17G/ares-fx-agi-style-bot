@@ -1711,3 +1711,27 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 60 QA Notes
+
+Added Micro V2 risk block root-cause audit. New mode: `micro-v2-risk-block-audit`. It inspects `RISK_REJECTED` evidence offline, classifies cooldown, trade-limit, max-open, drawdown, daily-ledger, profile-limit, exposure, invalid-risk-distance, zero-size, invalid SL/TP, invalid state, and expected safety guard reasons, and writes only reports plus non-active recommendations.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+
+## FASE 61 QA Notes
+
+Added Micro V2 consolidated risk, exposure, and market stability audit. New mode: `micro-v2-consolidated-risk-market-audit`. It combines exposure guard explainability, double-counting checks, market stability, risk decision context, and continue/repair decisioning in one offline report pack.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

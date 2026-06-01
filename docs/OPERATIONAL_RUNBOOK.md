@@ -715,3 +715,23 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-filter-analysis --v2-sqlite da
 ```
 
 The analysis separates market closed, stale tick, invalid snapshot, regime, liquidity, spread, score, cooldown, session, risk, and real symbol blocks. Any tuning output is a non-active research candidate only and requires a later explicit review phase before any profile/runtime change.
+
+## Phase 60 Micro V2 Risk Block Audit
+
+If Phase 59 shows `RISK_BLOCK` or `RISK_REJECTED` as the dominant real filter, audit the cause without changing runtime:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-risk-block-audit --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --base-sqlite data\sqlite\forward-shadow-stable.sqlite3 --base-log-dir data\logs\forward-shadow-stable --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --filter-analysis-dir data\reports\micro_v2_filter_analysis --checkpoint-dir data\reports\micro_v2_observation_checkpoint --output-dir data\reports\micro_v2_risk_block_audit
+```
+
+This audit separates cooldown, daily trade limit, max open trades, drawdown halt, daily ledger, profile limit, exposure, invalid risk distance, zero position size, invalid SL/TP, invalid paper state, and expected safety guards. It writes only reports and non-active recommendations; do not tune automatically while market-closed rejections dominate.
+
+## Phase 61 Micro V2 Consolidated Risk/Market Audit
+
+Use the consolidated audit to combine exposure explainability, risk decision review, and market stability in one offline pass:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-consolidated-risk-market-audit --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --base-sqlite data\sqlite\forward-shadow-stable.sqlite3 --base-log-dir data\logs\forward-shadow-stable --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --filter-analysis-dir data\reports\micro_v2_filter_analysis --risk-block-dir data\reports\micro_v2_risk_block_audit --checkpoint-dir data\reports\micro_v2_observation_checkpoint --readiness-dir data\reports\micro_v2_market_open_readiness --output-dir data\reports\micro_v2_consolidated_audit
+```
+
+This phase decides whether V2 should continue collecting market data, wait for a more stable market window, prepare a future tuning review, or require runtime repair review. It does not operate, change profiles, change ledgers, or approve demo/live.

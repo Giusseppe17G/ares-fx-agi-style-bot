@@ -37,10 +37,12 @@ from .micro_frequency_calibration import run_micro_frequency_calibration
 from .micro_frequency_proposal import run_micro_frequency_proposal
 from .micro_v2_clearance import run_micro_v2_clearance_runtime_check, run_micro_v2_paper_risk_clearance
 from .micro_v2_checkpoint_runner import run_micro_v2_observation_checkpoint
+from .micro_v2_consolidated_audit import run_micro_v2_consolidated_audit
 from .micro_v2_dry_run_monitor import run_micro_v2_dry_run_monitor
 from .micro_v2_dry_run_readiness import run_micro_v2_dry_run_readiness
 from .micro_v2_filter_analysis import run_micro_v2_filter_analysis
 from .micro_v2_market_open_readiness import run_micro_v2_market_open_readiness
+from .micro_v2_risk_block_audit import run_micro_v2_risk_block_audit
 from .micro_v2_observation_playbook import run_micro_v2_observation_playbook
 from .micro_v2_runtime_profile import MICRO_V2_SIGNAL_PROFILE, run_micro_v2_runtime_profile_check, signal_profile_choices, validate_micro_v2_forward_shadow_runtime
 from .micro_v2_review import run_micro_v2_proposed_review, run_micro_v2_review
@@ -194,6 +196,8 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-observation-playbook",
             "micro-v2-observation-checkpoint",
             "micro-v2-filter-analysis",
+            "micro-v2-risk-block-audit",
+            "micro-v2-consolidated-risk-market-audit",
             "micro-v2-symbol-rejection-audit",
             "rejection-labeling-audit",
             "micro-v2-runtime-profile-check",
@@ -325,6 +329,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rejection-labeling-dir", type=Path, default=Path("data/reports/rejection_labeling_audit"), help="Rejection labeling audit report directory.")
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("data/reports/micro_v2_observation_checkpoint"), help="Micro V2 observation checkpoint report directory.")
     parser.add_argument("--readiness-dir", type=Path, default=Path("data/reports/micro_v2_market_open_readiness"), help="Micro V2 market-open readiness report directory.")
+    parser.add_argument("--filter-analysis-dir", type=Path, default=Path("data/reports/micro_v2_filter_analysis"), help="Micro V2 filter analysis report directory.")
+    parser.add_argument("--risk-block-dir", type=Path, default=Path("data/reports/micro_v2_risk_block_audit"), help="Micro V2 risk block audit report directory.")
     parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
     parser.add_argument("--require-actionable-filter", default="false", help="Require edge-filtering to create an actionable BALANCED_FILTERED overlay.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
@@ -926,6 +932,40 @@ def main(argv: list[str] | None = None) -> int:
                 v2_profile_config=args.v2_profile_config,
                 checkpoint_dir=args.checkpoint_dir,
                 monitor_dir=args.monitor_dir,
+                readiness_dir=args.readiness_dir,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-risk-block-audit":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_risk_block_audit")
+            summary = run_micro_v2_risk_block_audit(
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                base_sqlite=args.base_sqlite,
+                base_log_dir=args.base_log_dir,
+                reports_root=args.reports_root,
+                v2_profile_config=args.v2_profile_config,
+                filter_analysis_dir=args.filter_analysis_dir,
+                checkpoint_dir=args.checkpoint_dir,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-consolidated-risk-market-audit":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_consolidated_audit")
+            summary = run_micro_v2_consolidated_audit(
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                base_sqlite=args.base_sqlite,
+                base_log_dir=args.base_log_dir,
+                reports_root=args.reports_root,
+                v2_profile_config=args.v2_profile_config,
+                filter_analysis_dir=args.filter_analysis_dir,
+                risk_block_dir=args.risk_block_dir,
+                checkpoint_dir=args.checkpoint_dir,
                 readiness_dir=args.readiness_dir,
                 output_dir=output_dir,
             )
