@@ -1735,3 +1735,15 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 62 QA Notes
+
+Added Micro V2 stable market window and trade readiness pack. New mode: `micro-v2-stable-market-window`. It reads V2/base SQLite and logs plus checkpoint, readiness, filter analysis, and consolidated audit reports to classify market stability, fresh tick coverage, symbol readiness, paper trade readiness, and the next offline decision gate.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.

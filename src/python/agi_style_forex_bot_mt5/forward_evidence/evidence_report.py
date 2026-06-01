@@ -62,6 +62,7 @@ def run_forward_evidence(
     micro_v2_filter_analysis = _load_json(Path(reports_root) / "micro_v2_filter_analysis" / "micro_v2_filter_analysis_summary.json")
     micro_v2_risk_block = _load_json(Path(reports_root) / "micro_v2_risk_block_audit" / "micro_v2_risk_block_summary.json")
     micro_v2_consolidated = _load_json(Path(reports_root) / "micro_v2_consolidated_audit" / "micro_v2_consolidated_audit_summary.json")
+    micro_v2_stable_window = _load_json(Path(reports_root) / "micro_v2_stable_market_window" / "micro_v2_stable_market_window_summary.json")
     paper_pnl_audit = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_pnl_audit_summary.json")
     paper_risk_recommendation = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_risk_recommendation.json")
     legacy_drawdown = _load_json(Path(reports_root) / "paper_daily_risk" / "legacy_drawdown_audit_summary.json")
@@ -248,6 +249,11 @@ def run_forward_evidence(
         "exposure_guard_diagnosis": micro_v2_consolidated.get("exposure_guard_diagnosis", ""),
         "market_stability_status": micro_v2_consolidated.get("market_stability_status", ""),
         "micro_v2_consolidated_recommended_next_action": micro_v2_consolidated.get("recommended_next_action", ""),
+        "micro_v2_stable_market_window_status": micro_v2_stable_window.get("micro_v2_stable_market_window_status", ""),
+        "stable_window_fresh_tick_coverage_ratio": micro_v2_stable_window.get("fresh_tick_coverage_ratio", 0.0),
+        "stable_window_market_closed_dominance_ratio": micro_v2_stable_window.get("market_closed_dominance_ratio", 0.0),
+        "stable_window_trade_readiness_status": micro_v2_stable_window.get("trade_readiness_status", ""),
+        "micro_v2_stable_window_recommended_next_action": micro_v2_stable_window.get("recommended_next_action", ""),
         "execution_attempted": False,
         "order_send_called": False,
         "order_check_called": False,

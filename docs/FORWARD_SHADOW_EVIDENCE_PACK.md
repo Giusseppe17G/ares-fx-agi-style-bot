@@ -552,3 +552,19 @@ Phase 61 adds `micro-v2-consolidated-risk-market-audit`, combining exposure expl
 - `report.html`
 
 Forward evidence may display `consolidated_v2_audit_status`, `exposure_guard_diagnosis`, `market_stability_status`, and `micro_v2_consolidated_recommended_next_action`. These fields are informational only and cannot activate tuning, runtime repair, acceptance, demo, or live trading.
+
+## Micro V2 Stable Market Window
+
+Phase 62 adds `micro-v2-stable-market-window`, an offline/read-only pack that decides whether V2 market evidence is stable enough for the next analysis step. Reports include:
+
+- `micro_v2_stable_market_window_summary.json`
+- `fresh_tick_coverage_audit.json`
+- `symbol_readiness.csv`
+- `market_closed_trend_audit.json`
+- `trade_readiness_audit.json`
+- `next_decision_gate.json`
+- `recommended_commands.md`
+- `recommendations.md`
+- `report.html`
+
+Forward evidence may display `micro_v2_stable_market_window_status`, `stable_window_fresh_tick_coverage_ratio`, `stable_window_market_closed_dominance_ratio`, `stable_window_trade_readiness_status`, and `micro_v2_stable_window_recommended_next_action`. These fields are informational only and never override risk gates, acceptance gates, or demo/live restrictions.

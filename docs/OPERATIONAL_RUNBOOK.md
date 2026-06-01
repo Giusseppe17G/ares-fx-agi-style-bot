@@ -735,3 +735,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-consolidated-risk-market-audit
 ```
 
 This phase decides whether V2 should continue collecting market data, wait for a more stable market window, prepare a future tuning review, or require runtime repair review. It does not operate, change profiles, change ledgers, or approve demo/live.
+
+## Phase 62 Micro V2 Stable Market Window
+
+Run the stable market window pack after the consolidated audit to decide whether V2 has enough fresh market coverage to interpret filters and trade frequency:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-stable-market-window --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --base-sqlite data\sqlite\forward-shadow-stable.sqlite3 --base-log-dir data\logs\forward-shadow-stable --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --checkpoint-dir data\reports\micro_v2_observation_checkpoint --readiness-dir data\reports\micro_v2_market_open_readiness --filter-analysis-dir data\reports\micro_v2_filter_analysis --consolidated-dir data\reports\micro_v2_consolidated_audit --output-dir data\reports\micro_v2_stable_market_window
+```
+
+The pack checks runtime heartbeat, MT5 connection, fresh tick coverage, market-closed dominance, symbol readiness, and paper trade readiness. It can recommend continuing observation, waiting for more fresh symbols, preparing filter tuning review, preparing trade frequency/lifecycle audit, or building a future acceptance evidence pack. It is offline/read-only and cannot launch V2, change profiles, change ledgers, open/close trades, or authorize demo/live.
