@@ -37,6 +37,7 @@ from .micro_frequency_calibration import run_micro_frequency_calibration
 from .micro_frequency_proposal import run_micro_frequency_proposal
 from .micro_v2_clearance import run_micro_v2_clearance_runtime_check, run_micro_v2_paper_risk_clearance
 from .micro_v2_checkpoint_runner import run_micro_v2_observation_checkpoint
+from .micro_v2_closed_loss_scope_decision import run_micro_v2_closed_loss_scope_decision
 from .micro_v2_consolidated_audit import run_micro_v2_consolidated_audit
 from .micro_v2_daily_drawdown_state_recovery import run_micro_v2_daily_drawdown_state_recovery
 from .micro_v2_dry_run_monitor import run_micro_v2_dry_run_monitor
@@ -216,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-papertrade-schema-repair",
             "micro-v2-daily-drawdown-state-recovery",
             "micro-v2-guarded-open-trade-integrity-repair",
+            "micro-v2-closed-loss-scope-decision",
             "micro-v2-symbol-rejection-audit",
             "rejection-labeling-audit",
             "micro-v2-runtime-profile-check",
@@ -357,6 +359,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resume-guard-dir", type=Path, default=Path("data/reports/micro_v2_post_repair_resume_guard"), help="Micro V2 post-repair resume guard report directory.")
     parser.add_argument("--schema-repair-dir", type=Path, default=Path("data/reports/micro_v2_papertrade_schema_repair"), help="Micro V2 PaperTrade schema repair report directory.")
     parser.add_argument("--drawdown-recovery-dir", type=Path, default=Path("data/reports/micro_v2_daily_drawdown_state_recovery"), help="Micro V2 daily drawdown recovery report directory.")
+    parser.add_argument("--open-trade-repair-dir", type=Path, default=Path("data/reports/micro_v2_guarded_open_trade_integrity_repair"), help="Micro V2 guarded open trade integrity repair report directory.")
     parser.add_argument("--previous-repair-dir", type=Path, default=Path("data/reports/micro_v2_guarded_paper_state_repair"), help="Previous Micro V2 guarded repair report directory.")
     parser.add_argument("--repair-plan", type=Path, default=Path("data/reports/micro_v2_invalid_trade_forensics/repair_plan.json"), help="Guarded paper-state repair plan JSON.")
     parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
@@ -1129,6 +1132,22 @@ def main(argv: list[str] | None = None) -> int:
                 previous_repair_dir=args.previous_repair_dir,
                 output_dir=output_dir,
                 apply_repair=bool(args.apply_repair),
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-closed-loss-scope-decision":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_closed_loss_scope_decision")
+            summary = run_micro_v2_closed_loss_scope_decision(
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                reports_root=args.reports_root,
+                v2_profile_config=args.v2_profile_config,
+                daily_risk_ledger=args.daily_risk_ledger,
+                drawdown_recovery_dir=args.drawdown_recovery_dir,
+                open_trade_repair_dir=args.open_trade_repair_dir,
+                schema_repair_dir=args.schema_repair_dir,
+                output_dir=output_dir,
             )
             print(_json_dumps(summary))
             return 0

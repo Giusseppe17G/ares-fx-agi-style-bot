@@ -688,3 +688,9 @@ Phase 69 adds `micro-v2-guarded-open-trade-integrity-repair`, a guarded V2-only 
 - `report.html`
 
 The only permitted applied action is paper-only quarantine of invalid open trades. It must not create normal close fields, realized PnL, closed paper trades, win/loss counts, or demo/live permissions.
+
+### FASE 70 - Micro V2 Closed Loss Evidence
+
+The evidence pack now includes a read-only Micro V2 closed-loss scope decision. Expected artifacts live in `data/reports/micro_v2_closed_loss_scope_decision/` and include the summary JSON, closed trade attribution CSV, quarantine exclusion audit, drawdown legitimacy audit, daily risk scope audit, next-action decision, recommended commands, and HTML report.
+
+The pack preserves historical evidence and does not rewrite SQLite, logs, ledgers, paper trades, raw PnL, or scaled PnL. It is intended to explain whether an active daily halt is caused by legitimate closed scaled paper losses rather than quarantined or repaired trades.

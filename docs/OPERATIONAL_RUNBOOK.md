@@ -821,3 +821,9 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-guarded-open-trade-integrity-r
 ```
 
 Apply only if the dry-run is ready and V2 runtime is stopped. The repair marks only validated invalid open paper trades as `QUARANTINED_INVALID_PAPER_TRADE`, creates a backup first, and validates that closed trade count and PnL do not change. After a successful apply, rerun Phase 68 daily drawdown recovery to confirm the open trade integrity issue is gone.
+
+### FASE 70 - Closed Loss Scope Decision
+
+Use `micro-v2-closed-loss-scope-decision` after guarded invalid open-trade repair and daily drawdown recovery. The report confirms whether Micro V2 closed paper losses are legitimate, whether quarantined trades contaminated drawdown, whether closed trades have valid risk distance and scaled PnL, and whether the daily risk ledger is scoped to BALANCED_STABLE_MICRO_V2.
+
+Do not clear a daily halt from this phase. If `closed_loss_legitimate=true`, keep the daily halt active until reset or a later explicit ledger-scope repair phase. `DAILY_RISK_SCOPE_MISMATCH_REPAIR_NEEDED` means the base ledger scope does not authorize V2 daily-risk restart decisions; it is not repaired automatically.
