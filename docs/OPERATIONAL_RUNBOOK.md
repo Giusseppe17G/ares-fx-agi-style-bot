@@ -811,3 +811,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-daily-drawdown-state-recovery 
 ```
 
 If the halt is backed by real closed paper losses, keep V2 blocked and review the losses; do not clear it. Only deterministic false positives, quarantine contamination, or V2 ledger scope issues may proceed to a separate guarded repair phase. Never touch stable SQLite/logs, profiles, stable gate, demo/live settings, or broker execution.
+
+## Phase 69 Micro V2 Guarded Open Trade Integrity Repair
+
+Use this phase only when Phase 68 reports invalid open V2 paper trades such as `ZERO_RISK_DISTANCE_ENTRY_EQUALS_SL`. Dry-run first:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-guarded-open-trade-integrity-repair --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --drawdown-recovery-dir data\reports\micro_v2_daily_drawdown_state_recovery --schema-repair-dir data\reports\micro_v2_papertrade_schema_repair --previous-repair-dir data\reports\micro_v2_guarded_paper_state_repair --output-dir data\reports\micro_v2_guarded_open_trade_integrity_repair
+```
+
+Apply only if the dry-run is ready and V2 runtime is stopped. The repair marks only validated invalid open paper trades as `QUARANTINED_INVALID_PAPER_TRADE`, creates a backup first, and validates that closed trade count and PnL do not change. After a successful apply, rerun Phase 68 daily drawdown recovery to confirm the open trade integrity issue is gone.

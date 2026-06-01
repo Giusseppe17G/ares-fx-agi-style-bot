@@ -671,3 +671,20 @@ Phase 68 adds `micro-v2-daily-drawdown-state-recovery`, an offline/read-only evi
 - `report.html`
 
 Legitimate drawdown from closed paper losses is not a false positive and must not be cleared automatically. Quarantined trades must not contribute PnL or closed-trade counts. The pack is advisory and cannot authorize demo/live or skip risk gates.
+
+## Micro V2 Guarded Open Trade Integrity Repair
+
+Phase 69 adds `micro-v2-guarded-open-trade-integrity-repair`, a guarded V2-only repair pack for invalid open paper trades. Reports include:
+
+- `micro_v2_guarded_open_trade_integrity_repair_summary.json`
+- `repair_before_snapshot.json`
+- `repair_after_snapshot.json`
+- `invalid_open_trades_targeted.csv`
+- `sqlite_backup_manifest.json`
+- `quarantine_events.json`
+- `repair_validation.json`
+- `recommended_commands.md`
+- `recommendations.md`
+- `report.html`
+
+The only permitted applied action is paper-only quarantine of invalid open trades. It must not create normal close fields, realized PnL, closed paper trades, win/loss counts, or demo/live permissions.

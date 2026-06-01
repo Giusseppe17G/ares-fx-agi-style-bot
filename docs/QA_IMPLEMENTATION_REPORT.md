@@ -1835,3 +1835,19 @@ Safety remains unchanged:
 - no new paper trades are opened.
 - no artificial paper PnL is created.
 - stable SQLite is not modified.
+
+## FASE 69 QA Notes
+
+Added Micro V2 guarded open trade integrity repair. New mode: `micro-v2-guarded-open-trade-integrity-repair`. It loads Phase 68 invalid open trade targets, validates zero-risk USDJPY open paper trades, blocks apply when runtime is active, creates a V2 SQLite backup before mutation, quarantines only validated open trades, and verifies no closed trade count or PnL change.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+- no real trades are opened or closed.
+- no normal paper close is created.
+- no artificial paper PnL is created.
+- stable SQLite is not modified.
