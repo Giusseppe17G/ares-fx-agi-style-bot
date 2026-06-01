@@ -588,3 +588,20 @@ Phase 63 adds `micro-v2-lifecycle-risk-comparison`, an offline/read-only pack fo
 - `report.html`
 
 Forward evidence may display `micro_v2_lifecycle_risk_comparison_status`, `v2_open_trade_count`, `v2_closed_trade_count`, `v2_acceptance_ready`, `v2_preliminary_comparison_status`, and `micro_v2_lifecycle_recommended_next_action`. These fields are advisory only and cannot close trades, bypass acceptance, or authorize demo/live.
+
+## Micro V2 Invalid Trade Forensics
+
+Phase 64 adds `micro-v2-invalid-trade-forensics`, an offline/read-only forensic pack for invalid open V2 paper trades. Reports include:
+
+- `micro_v2_invalid_trade_forensics_summary.json`
+- `invalid_open_trades.csv`
+- `invalid_trade_root_cause.json`
+- `risk_distance_forensics.json`
+- `sl_tp_forensics.json`
+- `repair_plan.json`
+- `repair_plan.md`
+- `recommended_commands.md`
+- `recommendations.md`
+- `report.html`
+
+Forward evidence may display `invalid_trade_forensics_status`, `invalid_trade_count`, `invalid_trade_root_cause`, `invalid_trade_repair_plan_available`, and `micro_v2_invalid_trade_recommended_next_action`. These fields are advisory only. The repair plan is always not applied in this phase and cannot modify SQLite or close paper trades.

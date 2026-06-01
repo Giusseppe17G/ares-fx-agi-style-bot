@@ -755,3 +755,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-lifecycle-risk-comparison --v2
 ```
 
 This pack audits open trade lifecycle, SL/TP and risk distance, exit readiness, PnL scaling, drawdown health, paper risk health, preliminary base-vs-V2 metrics, and pre-acceptance blockers. It does not close trades, approve acceptance, modify runtime state, or authorize demo/live.
+
+## Phase 64 Micro V2 Invalid Trade Forensics
+
+If Phase 63 reports an invalid open V2 paper trade, run the forensics pack before any repair:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-invalid-trade-forensics --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --base-sqlite data\sqlite\forward-shadow-stable.sqlite3 --base-log-dir data\logs\forward-shadow-stable --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --lifecycle-dir data\reports\micro_v2_lifecycle_risk_comparison --stable-window-dir data\reports\micro_v2_stable_market_window --checkpoint-dir data\reports\micro_v2_observation_checkpoint --output-dir data\reports\micro_v2_invalid_trade_forensics
+```
+
+This phase identifies the invalid trade, classifies root cause, and writes a guarded repair plan marked `NOT_APPLIED=true`. It does not close trades, modify SQLite, modify logs, apply repair, or authorize demo/live. Any repair requires a later explicit guarded paper-state repair phase.

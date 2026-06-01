@@ -41,6 +41,7 @@ from .micro_v2_consolidated_audit import run_micro_v2_consolidated_audit
 from .micro_v2_dry_run_monitor import run_micro_v2_dry_run_monitor
 from .micro_v2_dry_run_readiness import run_micro_v2_dry_run_readiness
 from .micro_v2_filter_analysis import run_micro_v2_filter_analysis
+from .micro_v2_invalid_trade_forensics import run_micro_v2_invalid_trade_forensics
 from .micro_v2_lifecycle_risk_comparison import run_micro_v2_lifecycle_risk_comparison
 from .micro_v2_market_open_readiness import run_micro_v2_market_open_readiness
 from .micro_v2_risk_block_audit import run_micro_v2_risk_block_audit
@@ -202,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-consolidated-risk-market-audit",
             "micro-v2-stable-market-window",
             "micro-v2-lifecycle-risk-comparison",
+            "micro-v2-invalid-trade-forensics",
             "micro-v2-symbol-rejection-audit",
             "rejection-labeling-audit",
             "micro-v2-runtime-profile-check",
@@ -337,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--risk-block-dir", type=Path, default=Path("data/reports/micro_v2_risk_block_audit"), help="Micro V2 risk block audit report directory.")
     parser.add_argument("--consolidated-dir", type=Path, default=Path("data/reports/micro_v2_consolidated_audit"), help="Micro V2 consolidated audit report directory.")
     parser.add_argument("--stable-window-dir", type=Path, default=Path("data/reports/micro_v2_stable_market_window"), help="Micro V2 stable market window report directory.")
+    parser.add_argument("--lifecycle-dir", type=Path, default=Path("data/reports/micro_v2_lifecycle_risk_comparison"), help="Micro V2 lifecycle/risk comparison report directory.")
     parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
     parser.add_argument("--require-actionable-filter", default="false", help="Require edge-filtering to create an actionable BALANCED_FILTERED overlay.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
@@ -1009,6 +1012,23 @@ def main(argv: list[str] | None = None) -> int:
                 checkpoint_dir=args.checkpoint_dir,
                 filter_analysis_dir=args.filter_analysis_dir,
                 consolidated_dir=args.consolidated_dir,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-invalid-trade-forensics":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_invalid_trade_forensics")
+            summary = run_micro_v2_invalid_trade_forensics(
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                base_sqlite=args.base_sqlite,
+                base_log_dir=args.base_log_dir,
+                reports_root=args.reports_root,
+                v2_profile_config=args.v2_profile_config,
+                lifecycle_dir=args.lifecycle_dir,
+                stable_window_dir=args.stable_window_dir,
+                checkpoint_dir=args.checkpoint_dir,
                 output_dir=output_dir,
             )
             print(_json_dumps(summary))

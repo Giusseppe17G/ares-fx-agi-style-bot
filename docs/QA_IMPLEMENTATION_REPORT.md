@@ -1760,3 +1760,17 @@ Safety remains unchanged:
 - `order_send was not called`.
 - `order_check was not called`.
 - no paper trades are opened or closed by this pack.
+
+## FASE 64 QA Notes
+
+Added Micro V2 invalid open trade forensics. New mode: `micro-v2-invalid-trade-forensics`. It identifies invalid open paper trades, classifies risk-distance and SL/TP root cause, and writes a guarded repair plan marked `NOT_APPLIED=true`.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+- no paper trades are opened or closed.
+- no SQLite repair is applied in this phase.
