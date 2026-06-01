@@ -605,3 +605,19 @@ Phase 64 adds `micro-v2-invalid-trade-forensics`, an offline/read-only forensic 
 - `report.html`
 
 Forward evidence may display `invalid_trade_forensics_status`, `invalid_trade_count`, `invalid_trade_root_cause`, `invalid_trade_repair_plan_available`, and `micro_v2_invalid_trade_recommended_next_action`. These fields are advisory only. The repair plan is always not applied in this phase and cannot modify SQLite or close paper trades.
+
+## Micro V2 Guarded Paper-State Repair
+
+Phase 65 adds `micro-v2-guarded-paper-state-repair`, a protected paper-only repair flow for quarantining a deterministic invalid V2 paper trade. Reports include:
+
+- `micro_v2_guarded_paper_state_repair_summary.json`
+- `repair_before_snapshot.json`
+- `repair_after_snapshot.json`
+- `sqlite_backup_manifest.json`
+- `quarantine_event.json`
+- `repair_validation.json`
+- `recommended_commands.md`
+- `recommendations.md`
+- `report.html`
+
+Forward evidence may display `micro_v2_guarded_repair_status`, repaired trade ids, quarantined trade count, backup status, repair applied status, and the recommended next action. The only permitted applied action is quarantine of the invalid V2 paper trade; it does not create a closed trade or realized PnL.

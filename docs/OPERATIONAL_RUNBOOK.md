@@ -765,3 +765,19 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-invalid-trade-forensics --v2-s
 ```
 
 This phase identifies the invalid trade, classifies root cause, and writes a guarded repair plan marked `NOT_APPLIED=true`. It does not close trades, modify SQLite, modify logs, apply repair, or authorize demo/live. Any repair requires a later explicit guarded paper-state repair phase.
+
+## Phase 65 Micro V2 Guarded Paper-State Repair
+
+Use the guarded repair mode only when Phase 64 produced a deterministic paper-only quarantine plan. Dry-run first:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-guarded-paper-state-repair --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --repair-plan data\reports\micro_v2_invalid_trade_forensics\repair_plan.json --forensics-dir data\reports\micro_v2_invalid_trade_forensics --lifecycle-dir data\reports\micro_v2_lifecycle_risk_comparison --output-dir data\reports\micro_v2_guarded_paper_state_repair
+```
+
+Apply only after confirming V2 runtime is stopped:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-guarded-paper-state-repair --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --repair-plan data\reports\micro_v2_invalid_trade_forensics\repair_plan.json --forensics-dir data\reports\micro_v2_invalid_trade_forensics --lifecycle-dir data\reports\micro_v2_lifecycle_risk_comparison --output-dir data\reports\micro_v2_guarded_paper_state_repair --apply-repair
+```
+
+This phase can modify only the isolated V2 SQLite and only to mark the invalid paper trade as `QUARANTINED_INVALID_PAPER_TRADE`. It creates a backup first, does not close a trade, does not create PnL, does not touch stable SQLite, and does not authorize demo/live.

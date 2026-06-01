@@ -41,6 +41,7 @@ from .micro_v2_consolidated_audit import run_micro_v2_consolidated_audit
 from .micro_v2_dry_run_monitor import run_micro_v2_dry_run_monitor
 from .micro_v2_dry_run_readiness import run_micro_v2_dry_run_readiness
 from .micro_v2_filter_analysis import run_micro_v2_filter_analysis
+from .micro_v2_guarded_paper_state_repair import run_micro_v2_guarded_paper_state_repair
 from .micro_v2_invalid_trade_forensics import run_micro_v2_invalid_trade_forensics
 from .micro_v2_lifecycle_risk_comparison import run_micro_v2_lifecycle_risk_comparison
 from .micro_v2_market_open_readiness import run_micro_v2_market_open_readiness
@@ -204,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-stable-market-window",
             "micro-v2-lifecycle-risk-comparison",
             "micro-v2-invalid-trade-forensics",
+            "micro-v2-guarded-paper-state-repair",
             "micro-v2-symbol-rejection-audit",
             "rejection-labeling-audit",
             "micro-v2-runtime-profile-check",
@@ -340,6 +342,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--consolidated-dir", type=Path, default=Path("data/reports/micro_v2_consolidated_audit"), help="Micro V2 consolidated audit report directory.")
     parser.add_argument("--stable-window-dir", type=Path, default=Path("data/reports/micro_v2_stable_market_window"), help="Micro V2 stable market window report directory.")
     parser.add_argument("--lifecycle-dir", type=Path, default=Path("data/reports/micro_v2_lifecycle_risk_comparison"), help="Micro V2 lifecycle/risk comparison report directory.")
+    parser.add_argument("--forensics-dir", type=Path, default=Path("data/reports/micro_v2_invalid_trade_forensics"), help="Micro V2 invalid trade forensics report directory.")
+    parser.add_argument("--repair-plan", type=Path, default=Path("data/reports/micro_v2_invalid_trade_forensics/repair_plan.json"), help="Guarded paper-state repair plan JSON.")
     parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
     parser.add_argument("--require-actionable-filter", default="false", help="Require edge-filtering to create an actionable BALANCED_FILTERED overlay.")
     parser.add_argument("--report-dir", type=Path, default=Path("data/reports/backtests"), help="Backtest report output directory.")
@@ -403,6 +407,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--issue-class", default="", help="Telemetry issue class filter for quarantine.")
     parser.add_argument("--status", default="QUARANTINED", help="Telemetry quarantine ledger status.")
     parser.add_argument("--confirm-paper-only", default="false", help="Set true to execute paper-only close commands.")
+    parser.add_argument("--apply-repair", action="store_true", help="Apply guarded paper-state repair after dry-run checks.")
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
@@ -1030,6 +1035,20 @@ def main(argv: list[str] | None = None) -> int:
                 stable_window_dir=args.stable_window_dir,
                 checkpoint_dir=args.checkpoint_dir,
                 output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-guarded-paper-state-repair":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_guarded_paper_state_repair")
+            summary = run_micro_v2_guarded_paper_state_repair(
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                repair_plan=args.repair_plan,
+                forensics_dir=args.forensics_dir,
+                lifecycle_dir=args.lifecycle_dir,
+                output_dir=output_dir,
+                apply_repair=bool(args.apply_repair),
             )
             print(_json_dumps(summary))
             return 0

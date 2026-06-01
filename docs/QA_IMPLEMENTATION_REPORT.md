@@ -1774,3 +1774,18 @@ Safety remains unchanged:
 - `order_check was not called`.
 - no paper trades are opened or closed.
 - no SQLite repair is applied in this phase.
+
+## FASE 65 QA Notes
+
+Added Micro V2 guarded paper-state repair. New mode: `micro-v2-guarded-paper-state-repair` with dry-run by default and explicit `--apply-repair` for guarded application. The only permitted action is paper-only quarantine of a deterministic invalid V2 paper trade after backup and runtime-stop guard.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+- no real trades are opened or closed.
+- no paper PnL or closed paper trade is created by quarantine.
+- stable SQLite is not modified.
