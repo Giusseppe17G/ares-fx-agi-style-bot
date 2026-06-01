@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Mapping
 from uuid import uuid4
+
+
+EXTRA_FIELDS_METADATA_KEY = "paper_trade_extra_fields"
 
 
 @dataclass(frozen=True)
@@ -63,20 +66,53 @@ class PaperTrade:
     @staticmethod
     def from_json(payload: str) -> "PaperTrade":
         data = json.loads(payload)
-        if isinstance(data.get("reasons"), list):
-            data["reasons"] = tuple(data["reasons"])
-        return PaperTrade(**data)
+        return PaperTrade.from_mapping(data)
 
     @staticmethod
     def from_mapping(payload: Mapping[str, Any]) -> "PaperTrade":
-        data = dict(payload)
-        if isinstance(data.get("reasons"), list):
-            data["reasons"] = tuple(data["reasons"])
+        data = _normalize_paper_trade_payload(payload)
         return PaperTrade(**data)
 
     def replace(self, **updates: Any) -> "PaperTrade":
         data = self.to_dict()
         data.update(updates)
-        if isinstance(data.get("reasons"), list):
-            data["reasons"] = tuple(data["reasons"])
-        return PaperTrade(**data)
+        return PaperTrade.from_mapping(data)
+
+
+def sanitize_paper_trade_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Return constructor-safe paper-trade payload while preserving unknown fields.
+
+    SQLite/log payloads are intentionally append-only across phases. Recovery and
+    quarantine phases may add fields that older constructors do not know yet; those
+    fields must not break runtime loading.
+    """
+
+    return _normalize_paper_trade_payload(payload)
+
+
+def paper_trade_constructor_fields() -> set[str]:
+    return {item.name for item in fields(PaperTrade)}
+
+
+def paper_trade_extra_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
+    allowed = paper_trade_constructor_fields()
+    return {str(key): value for key, value in dict(payload).items() if str(key) not in allowed}
+
+
+def _normalize_paper_trade_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    raw = dict(payload)
+    allowed = paper_trade_constructor_fields()
+    data = {key: value for key, value in raw.items() if key in allowed}
+    extras = {str(key): value for key, value in raw.items() if key not in allowed}
+    metadata = data.get("metadata") if isinstance(data.get("metadata"), Mapping) else {}
+    data["metadata"] = dict(metadata)
+    if extras:
+        existing = data["metadata"].get(EXTRA_FIELDS_METADATA_KEY)
+        merged = dict(existing) if isinstance(existing, Mapping) else {}
+        merged.update(extras)
+        data["metadata"][EXTRA_FIELDS_METADATA_KEY] = merged
+    if isinstance(data.get("reasons"), list):
+        data["reasons"] = tuple(data["reasons"])
+    elif data.get("reasons") is None:
+        data["reasons"] = tuple()
+    return data

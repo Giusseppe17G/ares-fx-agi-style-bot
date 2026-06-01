@@ -47,6 +47,7 @@ from .micro_v2_lifecycle_risk_comparison import run_micro_v2_lifecycle_risk_comp
 from .micro_v2_market_open_readiness import run_micro_v2_market_open_readiness
 from .micro_v2_risk_block_audit import run_micro_v2_risk_block_audit
 from .micro_v2_observation_playbook import run_micro_v2_observation_playbook
+from .micro_v2_papertrade_schema_repair import run_micro_v2_papertrade_schema_repair
 from .micro_v2_post_repair_resume_guard import evaluate_post_repair_resume_guard, run_micro_v2_post_repair_resume_guard
 from .micro_v2_post_repair_resume_guard.lifecycle_recheck import recheck_lifecycle, safety_flags as post_repair_safety_flags
 from .micro_v2_post_repair_resume_guard.post_repair_loader import load_post_repair_inputs
@@ -210,6 +211,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-invalid-trade-forensics",
             "micro-v2-guarded-paper-state-repair",
             "micro-v2-post-repair-resume-guard",
+            "micro-v2-papertrade-schema-repair",
             "micro-v2-symbol-rejection-audit",
             "rejection-labeling-audit",
             "micro-v2-runtime-profile-check",
@@ -348,6 +350,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lifecycle-dir", type=Path, default=Path("data/reports/micro_v2_lifecycle_risk_comparison"), help="Micro V2 lifecycle/risk comparison report directory.")
     parser.add_argument("--forensics-dir", type=Path, default=Path("data/reports/micro_v2_invalid_trade_forensics"), help="Micro V2 invalid trade forensics report directory.")
     parser.add_argument("--repair-dir", type=Path, default=Path("data/reports/micro_v2_guarded_paper_state_repair"), help="Micro V2 guarded paper-state repair report directory.")
+    parser.add_argument("--resume-guard-dir", type=Path, default=Path("data/reports/micro_v2_post_repair_resume_guard"), help="Micro V2 post-repair resume guard report directory.")
     parser.add_argument("--repair-plan", type=Path, default=Path("data/reports/micro_v2_invalid_trade_forensics/repair_plan.json"), help="Guarded paper-state repair plan JSON.")
     parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
     parser.add_argument("--require-actionable-filter", default="false", help="Require edge-filtering to create an actionable BALANCED_FILTERED overlay.")
@@ -1071,6 +1074,21 @@ def main(argv: list[str] | None = None) -> int:
                 lifecycle_dir=args.lifecycle_dir,
                 daily_risk_ledger=args.daily_risk_ledger,
                 output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-papertrade-schema-repair":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_papertrade_schema_repair")
+            summary = run_micro_v2_papertrade_schema_repair(
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                reports_root=args.reports_root,
+                v2_profile_config=args.v2_profile_config,
+                resume_guard_dir=args.resume_guard_dir,
+                repair_dir=args.repair_dir,
+                output_dir=output_dir,
+                apply_repair=bool(args.apply_repair),
             )
             print(_json_dumps(summary))
             return 0

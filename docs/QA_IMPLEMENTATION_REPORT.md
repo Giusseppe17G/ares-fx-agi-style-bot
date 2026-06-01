@@ -1804,3 +1804,18 @@ Safety remains unchanged:
 - new entries and new paper trades are blocked in manage-only mode.
 - paper exit evaluation for existing paper trades is allowed.
 - stable SQLite is not modified.
+
+## FASE 67 QA Notes
+
+Added Micro V2 PaperTrade schema compatibility repair. New mode: `micro-v2-papertrade-schema-repair`. The `PaperTrade` loader now filters unknown payload fields before constructor calls and preserves them under `metadata.paper_trade_extra_fields`, preventing repair/quarantine fields such as `invalid_close` from breaking runtime loading.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+- no real trades are opened or closed.
+- no artificial paper PnL is created.
+- stable SQLite is not modified.

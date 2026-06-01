@@ -636,3 +636,20 @@ Phase 66 adds `micro-v2-post-repair-resume-guard`, an offline/read-only pack and
 - `report.html`
 
 Forward evidence may display the post-repair resume status, open/invalid trade counts, whether manage-open-trades-only is enabled, whether new entries are blocked, whether paper exit evaluation is allowed, and the recommended next action. The policy is V2-only and does not permit new paper entries or demo/live execution.
+
+## Micro V2 PaperTrade Schema Repair
+
+Phase 67 adds `micro-v2-papertrade-schema-repair`, a dry-run-first report pack for PaperTrade schema compatibility. Reports include:
+
+- `micro_v2_papertrade_schema_repair_summary.json`
+- `schema_field_audit.json`
+- `papertrade_loader_audit.json`
+- `extra_fields_detected.json`
+- `post_exit_state_audit.json`
+- `sqlite_backup_manifest.json` when apply is used
+- `repair_validation.json`
+- `recommended_commands.md`
+- `recommendations.md`
+- `report.html`
+
+Forward-compatible fields such as `invalid_close`, `quarantine_reason`, `repair_id`, and audit flags are preserved as metadata during loading. They do not authorize execution, do not create paper PnL, and do not change risk/acceptance gates.

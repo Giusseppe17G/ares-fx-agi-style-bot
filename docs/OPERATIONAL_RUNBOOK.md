@@ -791,3 +791,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-post-repair-resume-guard --v2-
 ```
 
 If it returns `MICRO_V2_POST_REPAIR_MANAGE_OPEN_TRADES_ONLY_ENABLED`, the V2 runtime may resume only to manage existing open paper trades. New entries and new paper trades remain blocked until open trades reach zero and daily risk clearing can run normally. This mode is V2-only and never applies to stable/base.
+
+## Phase 67 Micro V2 PaperTrade Schema Compatibility
+
+Run the schema repair dry-run when V2 reports `PaperTrade.__init__() got an unexpected keyword argument 'invalid_close'`:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-papertrade-schema-repair --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --resume-guard-dir data\reports\micro_v2_post_repair_resume_guard --repair-dir data\reports\micro_v2_guarded_paper_state_repair --output-dir data\reports\micro_v2_papertrade_schema_repair
+```
+
+Dry-run is the default. It audits extra fields, validates the safe loader, and checks post-exit state without modifying SQLite. Use `--apply-repair` only if the dry-run explicitly requires V2 SQLite payload normalization. The phase does not create PnL, does not close/open trades, does not touch stable SQLite/logs, and does not authorize demo/live.
