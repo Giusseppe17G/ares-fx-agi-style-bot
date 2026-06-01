@@ -835,3 +835,9 @@ Run `micro-v2-daily-risk-scope-repair` after FASE 70 confirms legitimate Micro V
 Allowed repair: add V2-specific ledger scope metadata while keeping `daily_halt_active=true`, preserving `closed_scaled_pnl_total=-9.996`, preserving the 2 closed paper trades, and leaving BALANCED_STABLE_MICRO entries untouched. This phase never clears a legitimate daily halt; if apply succeeds, wait for daily reset before relaunching V2.
 
 Blocked cases include unsafe reset, PnL mismatch, missing backup, safety flags, or inability to validate that the V2 scope exists after apply.
+
+### FASE 72 - Micro V2 Daily Reset Readiness
+
+Use `micro-v2-daily-reset-readiness` after FASE 71 reports `DAILY_RISK_SCOPE_OK_FOR_V2`. The check is read-only and determines whether the latest V2 daily drawdown halt belongs to the current operational day or a prior day.
+
+If status is `MICRO_V2_DAILY_RESET_READY_FOR_RELAUNCH`, the report writes the exact BALANCED_STABLE_MICRO_V2 paper dry-run launch command. If status is not ready, keep V2 stopped and rerun the readiness check later. Never manually clear the halt from this phase.

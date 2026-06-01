@@ -698,3 +698,7 @@ The pack preserves historical evidence and does not rewrite SQLite, logs, ledger
 ### FASE 71 - Daily Risk Scope Evidence
 
 The evidence pack includes `data/reports/micro_v2_daily_risk_scope_repair/` with the repair summary, ledger scope audit, repair plan, backup manifest, validation report, recommended commands, recommendations, and HTML report. This evidence proves whether BALANCED_STABLE_MICRO_V2 has isolated daily-risk ledger scope without modifying paper trades or clearing legitimate drawdown halts.
+
+### FASE 72 - Daily Reset Readiness Evidence
+
+The evidence pack includes `data/reports/micro_v2_daily_reset_readiness/` with `micro_v2_daily_reset_readiness_summary.json`, halt status audit, ledger date audit, relaunch gate, recommended commands, recommendations, and HTML report. These artifacts document whether V2 can be relaunched after daily reset without changing ledger, SQLite, logs, profiles, or paper trades.

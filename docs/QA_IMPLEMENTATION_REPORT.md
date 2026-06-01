@@ -1859,3 +1859,7 @@ Implemented `micro_v2_closed_loss_scope_decision` with unit coverage for legitim
 ### FASE 71 - QA Implementation Note
 
 Implemented `micro_v2_daily_risk_scope_repair` with dry-run/apply paths, backup-before-apply, V2 ledger scope append, validation that daily halt remains active, PnL/closed trade counts remain unchanged, base scope remains present, and safety flags stay false. Tests cover dry-run, apply, no-repair-needed, unsafe reset, PnL mismatch, backup failure, CLI registration, no SQLite/profile mutation, and config safety invariants.
+
+### FASE 72 - QA Implementation Note
+
+Implemented `micro_v2_daily_reset_readiness` with read-only loader, halt date audit, V2 ledger date/scope audit, relaunch gate, CLI mode, reports, and tests. Coverage includes same-day halt not ready, prior-day halt ready, scope invalid, open/invalid trades, paper-state block, safety flags, CLI registration, no SQLite/ledger mutation, and config safety invariants.
