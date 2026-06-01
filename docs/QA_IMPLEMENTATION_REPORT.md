@@ -1747,3 +1747,16 @@ Safety remains unchanged:
 - `execution_attempted=false`.
 - `order_send was not called`.
 - `order_check was not called`.
+
+## FASE 63 QA Notes
+
+Added Micro V2 lifecycle, risk/PnL, and preliminary comparison pack. New mode: `micro-v2-lifecycle-risk-comparison`. It audits open paper trades, risk distance, SL/TP, exit readiness, PnL scaling, drawdown health, paper risk health, base-vs-V2 preliminary metrics, and pre-acceptance blockers without changing runtime state.
+
+Safety remains unchanged:
+
+- `DEMO_ONLY=True`.
+- `LIVE_TRADING_APPROVED=False`.
+- `execution_attempted=false`.
+- `order_send was not called`.
+- `order_check was not called`.
+- no paper trades are opened or closed by this pack.

@@ -568,3 +568,23 @@ Phase 62 adds `micro-v2-stable-market-window`, an offline/read-only pack that de
 - `report.html`
 
 Forward evidence may display `micro_v2_stable_market_window_status`, `stable_window_fresh_tick_coverage_ratio`, `stable_window_market_closed_dominance_ratio`, `stable_window_trade_readiness_status`, and `micro_v2_stable_window_recommended_next_action`. These fields are informational only and never override risk gates, acceptance gates, or demo/live restrictions.
+
+## Micro V2 Lifecycle/Risk Comparison
+
+Phase 63 adds `micro-v2-lifecycle-risk-comparison`, an offline/read-only pack for V2 open trade lifecycle, exit/PnL readiness, drawdown/risk health, preliminary stable comparison, and pre-acceptance blockers. Reports include:
+
+- `micro_v2_lifecycle_risk_comparison_summary.json`
+- `open_trades.csv`
+- `open_trade_lifecycle_audit.json`
+- `exit_readiness_audit.json`
+- `pnl_readiness_audit.json`
+- `drawdown_health_audit.json`
+- `risk_health_audit.json`
+- `base_vs_v2_preliminary_comparison.json`
+- `frequency_pre_acceptance_audit.json`
+- `acceptance_blockers.json`
+- `recommended_commands.md`
+- `recommendations.md`
+- `report.html`
+
+Forward evidence may display `micro_v2_lifecycle_risk_comparison_status`, `v2_open_trade_count`, `v2_closed_trade_count`, `v2_acceptance_ready`, `v2_preliminary_comparison_status`, and `micro_v2_lifecycle_recommended_next_action`. These fields are advisory only and cannot close trades, bypass acceptance, or authorize demo/live.

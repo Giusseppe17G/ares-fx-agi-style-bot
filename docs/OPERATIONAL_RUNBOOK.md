@@ -745,3 +745,13 @@ py -m agi_style_forex_bot_mt5.cli --mode micro-v2-stable-market-window --v2-sqli
 ```
 
 The pack checks runtime heartbeat, MT5 connection, fresh tick coverage, market-closed dominance, symbol readiness, and paper trade readiness. It can recommend continuing observation, waiting for more fresh symbols, preparing filter tuning review, preparing trade frequency/lifecycle audit, or building a future acceptance evidence pack. It is offline/read-only and cannot launch V2, change profiles, change ledgers, open/close trades, or authorize demo/live.
+
+## Phase 63 Micro V2 Lifecycle/Risk Comparison
+
+When V2 has open paper trades, run the lifecycle/risk comparison pack before any final acceptance discussion:
+
+```powershell
+py -m agi_style_forex_bot_mt5.cli --mode micro-v2-lifecycle-risk-comparison --v2-sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3 --v2-log-dir data\logs\forward-shadow-v2-dryrun --base-sqlite data\sqlite\forward-shadow-stable.sqlite3 --base-log-dir data\logs\forward-shadow-stable --reports-root data\reports --v2-profile-config data\reports\paper_risk\balanced_stable_micro_v2.ini --stable-window-dir data\reports\micro_v2_stable_market_window --checkpoint-dir data\reports\micro_v2_observation_checkpoint --filter-analysis-dir data\reports\micro_v2_filter_analysis --consolidated-dir data\reports\micro_v2_consolidated_audit --output-dir data\reports\micro_v2_lifecycle_risk_comparison
+```
+
+This pack audits open trade lifecycle, SL/TP and risk distance, exit readiness, PnL scaling, drawdown health, paper risk health, preliminary base-vs-V2 metrics, and pre-acceptance blockers. It does not close trades, approve acceptance, modify runtime state, or authorize demo/live.
