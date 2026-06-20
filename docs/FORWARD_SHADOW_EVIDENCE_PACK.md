@@ -710,3 +710,21 @@ Forward evidence can expose `zero_risk_guard_enabled`, `invalid_paper_trade_prev
 ### FASE 74 - Post-Reset Relaunch Evidence
 
 The evidence pack can include `micro_v2_post_reset_relaunch_pack_status`, `post_reset_relaunch_allowed`, `zero_risk_guard_verified`, `daily_risk_scope_verified`, `paper_state_clean_for_relaunch`, and the recommended next action from `data/reports/micro_v2_post_reset_relaunch_pack/`. These fields are advisory evidence only and do not bypass acceptance or risk gates.
+
+### FASE 75 - Reset Watcher Evidence
+
+The reset watcher writes `micro_v2_reset_watcher_summary.json`, `reset_gate_recheck.json`, `relaunch_notification.json`, `recommended_commands.md`, `recommendations.md`, and `report.html` under `data/reports/micro_v2_reset_watcher/`.
+
+Forward evidence may surface `micro_v2_reset_watcher_status`, `daily_halt_active`, `daily_reset_occurred`, `post_reset_relaunch_allowed`, `relaunch_command_available`, and `recommended_next_action`. These fields only document readiness for a manual V2 paper dry-run relaunch and must not bypass acceptance, execution, daily risk, or zero-risk guards.
+
+### FASE 76 - Relaunch Orchestrator Evidence
+
+The post-reset relaunch orchestrator writes `relaunch_summary.json`, `relaunch_decision.json`, `relaunch_gates.json`, `relaunch_recommendations.md`, `relaunch_commands.ps1`, and `relaunch_report.html` under `data/reports/micro_v2_post_reset_relaunch/`.
+
+Forward evidence may surface `micro_v2_relaunch_status`, `micro_v2_relaunch_allowed`, `micro_v2_relaunch_safe_to_observe`, `micro_v2_relaunch_blocking_gate_count`, and the recommended next action. These fields are advisory only; they do not authorize demo/live, do not execute forward-shadow, and do not override risk or acceptance gates.
+
+### FASE 78 - SQLite Halt Forensics Evidence
+
+The SQLite halt forensics pack writes `sqlite_halt_forensics_summary.json`, `schema_inventory.json`, `halt_detector_diagnostics.json`, `sqlite_vs_jsonl_comparison.json`, `halt_events.csv`, `queries_used.sql`, and `report.html` under `data/reports/micro_v2_sqlite_halt_forensics/`.
+
+The pack documents real SQLite schemas, halt event locations, timestamps/timezone quality, duplicate/gap indicators, and detector miss reasons. It is evidence only and must not be used to bypass risk gates or relaunch V2.

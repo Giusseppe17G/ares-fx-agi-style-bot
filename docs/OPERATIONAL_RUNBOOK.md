@@ -853,3 +853,21 @@ Run `micro-v2-pre-relaunch-safety-pack` while V2 is stopped. It does not relaunc
 Run `micro-v2-post-reset-relaunch-pack` after daily reset readiness and pre-relaunch safety hardening. It reads existing reports, validates that the daily halt has reset, confirms V2 ledger scope and zero-risk guard evidence, checks paper state, and writes a post-relaunch observation plan.
 
 This phase never launches V2. If it reports ready, relaunch is still a manual operator action using the generated command. If it reports keep-halted, leave V2 stopped and rerun this pack later.
+
+### FASE 75 - Micro V2 Reset Watcher
+
+Run `micro-v2-reset-watcher` while V2 remains stopped after a legitimate daily halt. It rechecks the post-reset relaunch pack, pre-relaunch safety pack, and V2 daily risk scope repair evidence, then writes a notification pack under `data/reports/micro_v2_reset_watcher/`.
+
+Use one-shot mode for a manual check, or `--watch --interval-seconds 300 --max-checks 12` for repeated offline checks. The watcher never launches `forward-shadow`; it only publishes the manual relaunch command when `post_reset_relaunch_allowed=true`, the daily halt is no longer active, the reset occurred, the daily risk scope is valid, the zero-risk guard is verified, and the paper state is clean.
+
+### FASE 76 - Micro V2 Post-Reset Relaunch Orchestrator
+
+Run `micro-v2-post-reset-relaunch` after the reset watcher indicates readiness, or whenever the operator wants a consolidated fail-closed relaunch decision. It reads V2 SQLite in read-only mode plus the reset watcher, post-reset pack, daily risk scope repair, clearance runtime check, profile config, telemetry, execution evidence, market readiness, symbol rejection, and paper risk summaries.
+
+The orchestrator never launches V2. It generates an auditable gate list and a commented `relaunch_commands.ps1`. Relaunch is blocked if reset has not really occurred, daily halt remains active, cooldown is active, open/invalid paper trades exist, V2 profile/clearance is stale or mismatched, timestamps/evidence are unsafe, MT5 is disconnected, symbols are actively rejected, `CONFIG_ERROR`/`PAPER_STATE_ERROR` is active, or `block_new_entries=true`.
+
+### FASE 78 - SQLite Halt Event Forensics
+
+Run `micro-v2-sqlite-halt-forensics --sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3` when reset readiness or daily halt logic appears to miss valid halt events. The mode opens SQLite read-only, discovers real tables/columns/schemas, scans halt-like records across all tables, compares them with JSONL logs, and explains why the current `_is_halt_event()` detector would or would not match them.
+
+This phase is diagnostic only. It does not repair detector logic, clear halts, mutate SQLite/logs, call MT5, or launch V2.

@@ -57,9 +57,12 @@ from .micro_v2_pre_relaunch_safety_pack import run_micro_v2_pre_relaunch_safety_
 from .micro_v2_post_repair_resume_guard import evaluate_post_repair_resume_guard, run_micro_v2_post_repair_resume_guard
 from .micro_v2_post_repair_resume_guard.lifecycle_recheck import recheck_lifecycle, safety_flags as post_repair_safety_flags
 from .micro_v2_post_repair_resume_guard.post_repair_loader import load_post_repair_inputs
+from .micro_v2_post_reset_relaunch import run_micro_v2_post_reset_relaunch
 from .micro_v2_post_reset_relaunch_pack import run_micro_v2_post_reset_relaunch_pack
+from .micro_v2_reset_watcher import run_micro_v2_reset_watcher
 from .micro_v2_runtime_profile import MICRO_V2_SIGNAL_PROFILE, run_micro_v2_runtime_profile_check, signal_profile_choices, validate_micro_v2_forward_shadow_runtime
 from .micro_v2_review import run_micro_v2_proposed_review, run_micro_v2_review
+from .micro_v2_sqlite_halt_forensics import run_micro_v2_sqlite_halt_forensics
 from .micro_v2_stable_market_window import run_micro_v2_stable_market_window
 from .micro_v2_symbol_rejection_audit import run_micro_v2_symbol_rejection_audit
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS, MT5DataOnlyBot, MT5DiagnoseBot, summary_to_json
@@ -225,7 +228,10 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-daily-risk-scope-repair",
             "micro-v2-daily-reset-readiness",
             "micro-v2-pre-relaunch-safety-pack",
+            "micro-v2-post-reset-relaunch",
             "micro-v2-post-reset-relaunch-pack",
+            "micro-v2-reset-watcher",
+            "micro-v2-sqlite-halt-forensics",
             "micro-v2-symbol-rejection-audit",
             "rejection-labeling-audit",
             "micro-v2-runtime-profile-check",
@@ -372,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--daily-risk-scope-repair-dir", type=Path, default=Path("data/reports/micro_v2_daily_risk_scope_repair"), help="Micro V2 daily risk scope repair report directory.")
     parser.add_argument("--daily-reset-readiness-dir", type=Path, default=Path("data/reports/micro_v2_daily_reset_readiness"), help="Micro V2 daily reset readiness report directory.")
     parser.add_argument("--pre-relaunch-safety-dir", type=Path, default=Path("data/reports/micro_v2_pre_relaunch_safety_pack"), help="Micro V2 pre-relaunch safety pack report directory.")
+    parser.add_argument("--post-reset-relaunch-dir", type=Path, default=Path("data/reports/micro_v2_post_reset_relaunch_pack"), help="Micro V2 post-reset relaunch pack report directory.")
     parser.add_argument("--previous-repair-dir", type=Path, default=Path("data/reports/micro_v2_guarded_paper_state_repair"), help="Previous Micro V2 guarded repair report directory.")
     parser.add_argument("--repair-plan", type=Path, default=Path("data/reports/micro_v2_invalid_trade_forensics/repair_plan.json"), help="Guarded paper-state repair plan JSON.")
     parser.add_argument("--stable-gate", type=Path, default=Path("data/reports/stable_gate/stable_gate_summary.json"), help="BALANCED_STABLE gate summary JSON.")
@@ -421,6 +428,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profiles", default="", help="Comma-separated signal profiles for threshold-sweep.")
     parser.add_argument("--compare-profiles", default="", help="Comma-separated profiles for profile-comparison-run.")
     parser.add_argument("--profile", default="BALANCED", help="Signal profile for apply-signal-profile.")
+    parser.add_argument("--watch", action="store_true", help="Run supported watcher modes until ready or max checks is reached.")
+    parser.add_argument("--interval-seconds", type=int, default=300, help="Watcher interval in seconds.")
+    parser.add_argument("--max-checks", type=int, default=12, help="Maximum watcher checks.")
     parser.add_argument(
         "--signal-profile",
         choices=signal_profile_choices(),
@@ -479,6 +489,7 @@ def main(argv: list[str] | None = None) -> int:
         "micro-v2-runtime-profile-check",
         "micro-v2-paper-risk-clearance",
         "micro-v2-clearance-runtime-check",
+        "micro-v2-sqlite-halt-forensics",
         "execution-evidence-audit",
         "telemetry-timestamp-audit",
         "quarantine-telemetry-issues",
@@ -524,7 +535,7 @@ def main(argv: list[str] | None = None) -> int:
         "full-validation",
     } and args.sqlite is None:
         parser.error(f"--mode {args.mode} requires --sqlite for durable audit")
-    direct_persistence_modes = {"db-migrate", "db-health", "backup", "compact-logs", "weekend-readiness", "dry-run-market-open"}
+    direct_persistence_modes = {"db-migrate", "db-health", "backup", "compact-logs", "weekend-readiness", "dry-run-market-open", "micro-v2-sqlite-halt-forensics"}
     database = None if args.mode in direct_persistence_modes else (TelemetryDatabase(args.sqlite) if args.sqlite else None)
     try:
         selected_symbols = _selected_symbols(args.symbol, args.symbols)
@@ -1224,6 +1235,51 @@ def main(argv: list[str] | None = None) -> int:
                 pre_relaunch_safety_dir=args.pre_relaunch_safety_dir,
                 daily_risk_scope_repair_dir=args.daily_risk_scope_repair_dir,
                 closed_loss_scope_dir=args.closed_loss_scope_dir,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-post-reset-relaunch":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_post_reset_relaunch")
+            summary = run_micro_v2_post_reset_relaunch(
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                reports_root=args.reports_root,
+                v2_profile_config=args.v2_profile_config,
+                daily_risk_ledger=args.daily_risk_ledger,
+                post_reset_relaunch_dir=args.post_reset_relaunch_dir,
+                output_dir=output_dir,
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-reset-watcher":
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_reset_watcher")
+            summary = run_micro_v2_reset_watcher(
+                v2_sqlite=args.v2_sqlite,
+                v2_log_dir=args.v2_log_dir,
+                reports_root=args.reports_root,
+                v2_profile_config=args.v2_profile_config,
+                daily_risk_ledger=args.daily_risk_ledger,
+                post_reset_relaunch_dir=args.post_reset_relaunch_dir,
+                pre_relaunch_safety_dir=args.pre_relaunch_safety_dir,
+                daily_risk_scope_repair_dir=args.daily_risk_scope_repair_dir,
+                output_dir=output_dir,
+                watch=bool(args.watch),
+                interval_seconds=int(args.interval_seconds),
+                max_checks=int(args.max_checks),
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "micro-v2-sqlite-halt-forensics":
+            if args.sqlite is None:
+                parser.error("--mode micro-v2-sqlite-halt-forensics requires --sqlite")
+            output_dir = args.output_dir if args.output_dir != Path("data/historical") else Path("data/reports/micro_v2_sqlite_halt_forensics")
+            summary = run_micro_v2_sqlite_halt_forensics(
+                sqlite_path=args.sqlite,
+                log_dir=args.log_dir,
                 output_dir=output_dir,
             )
             print(_json_dumps(summary))

@@ -69,6 +69,8 @@ def run_forward_evidence(
     micro_v2_post_repair_resume = _load_json(Path(reports_root) / "micro_v2_post_repair_resume_guard" / "micro_v2_post_repair_resume_guard_summary.json")
     micro_v2_pre_relaunch_safety = _load_json(Path(reports_root) / "micro_v2_pre_relaunch_safety_pack" / "micro_v2_pre_relaunch_safety_pack_summary.json")
     micro_v2_post_reset_relaunch = _load_json(Path(reports_root) / "micro_v2_post_reset_relaunch_pack" / "micro_v2_post_reset_relaunch_pack_summary.json")
+    micro_v2_reset_watcher = _load_json(Path(reports_root) / "micro_v2_reset_watcher" / "micro_v2_reset_watcher_summary.json")
+    micro_v2_relaunch_orchestrator = _load_json(Path(reports_root) / "micro_v2_post_reset_relaunch" / "relaunch_summary.json")
     paper_pnl_audit = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_pnl_audit_summary.json")
     paper_risk_recommendation = _load_json(Path(reports_root) / "paper_pnl_audit" / "paper_risk_recommendation.json")
     legacy_drawdown = _load_json(Path(reports_root) / "paper_daily_risk" / "legacy_drawdown_audit_summary.json")
@@ -253,6 +255,16 @@ def run_forward_evidence(
         "daily_risk_scope_verified": bool(micro_v2_post_reset_relaunch.get("daily_risk_scope_verified", False)),
         "post_reset_paper_state_clean_for_relaunch": bool(micro_v2_post_reset_relaunch.get("paper_state_clean_for_relaunch", False)),
         "post_reset_relaunch_recommended_next_action": micro_v2_post_reset_relaunch.get("recommended_next_action", ""),
+        "micro_v2_reset_watcher_status": micro_v2_reset_watcher.get("micro_v2_reset_watcher_status", ""),
+        "reset_watcher_daily_halt_active": bool(micro_v2_reset_watcher.get("daily_halt_active", False)),
+        "reset_watcher_daily_reset_occurred": bool(micro_v2_reset_watcher.get("daily_reset_occurred", False)),
+        "reset_watcher_relaunch_command_available": bool(micro_v2_reset_watcher.get("relaunch_command_available", False)),
+        "reset_watcher_recommended_next_action": micro_v2_reset_watcher.get("recommended_next_action", ""),
+        "micro_v2_relaunch_status": micro_v2_relaunch_orchestrator.get("micro_v2_relaunch_status", ""),
+        "micro_v2_relaunch_allowed": bool(micro_v2_relaunch_orchestrator.get("relaunch_allowed", False)),
+        "micro_v2_relaunch_safe_to_observe": bool(micro_v2_relaunch_orchestrator.get("safe_to_observe", False)),
+        "micro_v2_relaunch_blocking_gate_count": int(micro_v2_relaunch_orchestrator.get("blocking_gate_count", 0) or 0),
+        "micro_v2_relaunch_recommended_next_action": micro_v2_relaunch_orchestrator.get("recommended_next_action", ""),
         "micro_v2_checkpoint_status": micro_v2_checkpoint.get("micro_v2_checkpoint_status", ""),
         "v2_checkpoint_available": bool(micro_v2_checkpoint),
         "v2_checkpoint_recommended_next_action": micro_v2_checkpoint.get("recommended_next_action", ""),

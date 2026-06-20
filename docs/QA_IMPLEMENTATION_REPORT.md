@@ -1871,3 +1871,15 @@ Implemented preventive paper trade creation guards for zero risk distance, SL/TP
 ### FASE 74 - QA Implementation Note
 
 Implemented `micro_v2_post_reset_relaunch_pack` with daily reset recheck, zero-risk guard verification, ledger scope verification, paper-state relaunch gate, command pack generation, observation plan, acceptance blocker tracker, forward-evidence fields, and tests for keep-halted, ready, scope invalid, guard missing, open/invalid trades, paper-state block, safety flags, no mutation, and safety invariants.
+
+### FASE 75 - QA Implementation Note
+
+Implemented `micro_v2_reset_watcher` with one-shot and bounded watch modes, post-reset gate recheck, relaunch notification generation, recommended command pack, reports, CLI registration, and tests for keep-waiting, ready-for-manual-relaunch, scope invalid, zero-risk guard missing, paper-state block, safety flags, watch mode, CLI registration, read-only inputs, and safety invariants.
+
+### FASE 76 - QA Implementation Note
+
+Implemented `micro_v2_post_reset_relaunch` with read-only SQLite state inspection, profile/clearance/ledger/evidence/MT5/symbol/telemetry gates, deterministic relaunch decision policy, commented command pack, forward-evidence fields, CLI registration, and tests covering reset not occurred, cooldown active, config error, MT5 disconnected, stale clearance, ready, safe observe, active drawdown/reset wait, corrupted evidence, rejected symbols, no SQLite mutation, and safety invariants.
+
+### FASE 78 - QA Implementation Note
+
+Implemented `micro_v2_sqlite_halt_forensics` with read-only SQLite schema discovery, halt-event scanning across real tables, JSONL comparison, current `_is_halt_event()` miss diagnostics, query manifest, CSV/JSON/HTML reports, CLI registration without `TelemetryDatabase` migration, and tests for schema discovery, halt detection, detector misses, SQLite-vs-JSONL comparison, invalid timestamps, read-only CLI behavior, and safety invariants.
