@@ -43,6 +43,10 @@ def run_micro_v2_sqlite_halt_forensics(
         "total_halt_event_count": len(all_events),
         "current_detector_match_count": detector.get("current_detector_match_count", 0),
         "current_detector_miss_count": detector.get("current_detector_miss_count", 0),
+        "halt_token_event_count": detector.get("halt_token_event_count", 0),
+        "halt_state_field_event_count": detector.get("halt_state_field_event_count", 0),
+        "in_scope_detector_miss_count": detector.get("in_scope_detector_miss_count", 0),
+        "out_of_scope_detector_miss_count": detector.get("out_of_scope_detector_miss_count", 0),
         "likely_root_causes": detector.get("likely_root_causes", []),
         "sqlite_vs_jsonl_status": comparison.get("comparison_status", ""),
         "invalid_timestamp_count": summarize_events(all_events).get("invalid_timestamp_count", 0),
@@ -73,8 +77,10 @@ def _status(sqlite_payload: Mapping[str, Any], events: list[Mapping[str, Any]], 
         return "SQLITE_HALT_FORENSICS_SQLITE_READ_ERROR"
     if not events:
         return "SQLITE_HALT_FORENSICS_NO_HALT_EVENTS_FOUND"
-    if int(detector.get("current_detector_miss_count", 0) or 0) > 0:
+    if int(detector.get("in_scope_detector_miss_count", 0) or 0) > 0:
         return "SQLITE_HALT_FORENSICS_DETECTOR_MISS_CONFIRMED"
+    if int(detector.get("out_of_scope_detector_miss_count", 0) or 0) > 0:
+        return "SQLITE_HALT_FORENSICS_DETECTOR_SCOPE_GAP"
     return "SQLITE_HALT_FORENSICS_HALT_EVENTS_DETECTED"
 
 
@@ -142,6 +148,7 @@ def _event_rows(events: list[Mapping[str, Any]], storage: str) -> list[dict[str,
                 "event_type": event.get("event_type", ""),
                 "event_code": event.get("event_code", ""),
                 "halt_code": event.get("halt_code", ""),
+                "halt_evidence_class": event.get("halt_evidence_class", ""),
                 "halt_reason": event.get("halt_reason", ""),
                 "shadow_paused": event.get("shadow_paused", ""),
                 "latest_exit_reason": event.get("latest_exit_reason", ""),
@@ -171,6 +178,7 @@ def _write_csv(path: Path, rows: list[Mapping[str, Any]]) -> None:
         "event_type",
         "event_code",
         "halt_code",
+        "halt_evidence_class",
         "halt_reason",
         "shadow_paused",
         "latest_exit_reason",

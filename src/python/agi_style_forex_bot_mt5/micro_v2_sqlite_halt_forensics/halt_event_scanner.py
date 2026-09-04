@@ -10,6 +10,9 @@ from typing import Any, Iterable, Mapping
 
 HALT_TERMS = ("PAPER_DAILY_DRAWDOWN_HALT", "PAPER_DAILY_DRAWDOWN", "PAPER_SHADOW_HALTED")
 STATE_TERMS = ("shadow_paused", "halt_reason", "latest_exit_reason", "paused_reason")
+# Values that make an exit/pause reason halt evidence. A normal exit reason such as
+# TAKE_PROFIT or STOP_LOSS is not halt evidence and must never be scanned as a halt event.
+HALT_STATE_VALUE_TERMS = ("HALT", "DRAWDOWN", "PAUSED", "PAPER_STATE_ERROR", "CONFIG_ERROR")
 
 
 def scan_sqlite_halt_events(sqlite_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -109,6 +112,7 @@ def _event_from_row(*, source: str, table: str, row: Mapping[str, Any], hit: Map
         "event_name": str(row.get("event_name") or payload.get("event_name") or ""),
         "event_code": str(row.get("event_code") or payload.get("event_code") or row.get("alert_code") or payload.get("alert_code") or ""),
         "halt_code": str(hit.get("halt_code") or ""),
+        "halt_evidence_class": str(hit.get("halt_evidence_class") or ""),
         "timestamp_utc": _timestamp(row, payload),
         "message": str(row.get("message") or payload.get("message") or ""),
         "payload": dict(payload),
@@ -127,10 +131,18 @@ def _event_from_row(*, source: str, table: str, row: Mapping[str, Any], hit: Map
 
 
 def _row_hit(row: Mapping[str, Any]) -> dict[str, Any]:
-    haystack = " ".join(str(value) for value in _string_values(row)).upper()
+    # Only row VALUES are searched for halt tokens. Scanning column names too made any
+    # table with a `halt_reason`/`latest_exit_reason` column look like halt evidence.
+    haystack = " ".join(str(value) for value in _value_strings(row)).upper()
     matched = [term for term in HALT_TERMS if term in haystack]
     state_matches = _state_hits(row)
-    return {"matched": bool(matched or state_matches), "matched_terms": matched + state_matches, "halt_code": matched[0] if matched else ""}
+    evidence_class = "HALT_TOKEN" if matched else ("HALT_STATE_FIELD" if state_matches else "")
+    return {
+        "matched": bool(matched or state_matches),
+        "matched_terms": matched + state_matches,
+        "halt_code": matched[0] if matched else "",
+        "halt_evidence_class": evidence_class,
+    }
 
 
 def _state_hits(value: Any) -> list[str]:
@@ -146,7 +158,9 @@ def _state_hits(value: Any) -> list[str]:
                 continue
             if key_text == "shadow_paused" and _truthy(item):
                 hits.append("shadow_paused")
-            elif key_text in {"halt_reason", "latest_exit_reason", "paused_reason"} and str(item or "").strip():
+            elif key_text in {"halt_reason", "paused_reason"} and str(item or "").strip():
+                hits.append(key_text)
+            elif key_text == "latest_exit_reason" and _halt_state_value(item):
                 hits.append(key_text)
             else:
                 hits.extend(_state_hits(item))
@@ -156,8 +170,32 @@ def _state_hits(value: Any) -> list[str]:
     return sorted(set(hits))
 
 
+def _halt_state_value(value: Any) -> bool:
+    text = str(value or "").strip().upper()
+    return bool(text) and any(term in text for term in HALT_STATE_VALUE_TERMS)
+
+
 def _truthy(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _value_strings(value: Any) -> Iterable[str]:
+    """Yield only the values of a row (recursing into payload_json), never the keys."""
+
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if str(key) == "payload_json":
+                try:
+                    yield from _value_strings(json.loads(str(item or "")))
+                except Exception:
+                    yield str(item)
+            else:
+                yield from _value_strings(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _value_strings(item)
+    else:
+        yield str(value)
 
 
 def _string_values(value: Any) -> Iterable[str]:

@@ -9,7 +9,14 @@ from typing import Any, Mapping
 def audit_daily_halt_status(dataset: Mapping[str, Any], *, current_utc: datetime | None = None) -> dict[str, Any]:
     now = current_utc or datetime.now(timezone.utc)
     halts = [_halt_event(event) for event in dataset.get("events", []) if _is_halt_event(event)]
-    latest = halts[-1] if halts else {}
+    # The dataset concatenates SQLite events and JSONL events, so list order is not
+    # chronological. The latest halt must be selected by timestamp, otherwise an older
+    # halt can mask an active same-day halt and wrongly report a completed daily reset.
+    latest = max(
+        (halt for halt in halts if _parse_ts(halt.get("timestamp_utc"))),
+        key=lambda halt: _parse_ts(halt.get("timestamp_utc")),
+        default={},
+    )
     latest_ts = _parse_ts(latest.get("timestamp_utc"))
     latest_day = latest_ts.date().isoformat() if latest_ts else ""
     current_day = now.date().isoformat()
@@ -29,17 +36,29 @@ def audit_daily_halt_status(dataset: Mapping[str, Any], *, current_utc: datetime
     }
 
 
+HALT_TOKENS = ("PAPER_DAILY_DRAWDOWN", "PAPER_DAILY_DRAWDOWN_HALT", "PAPER_SHADOW_HALTED")
+
+
 def _is_halt_event(event: Mapping[str, Any]) -> bool:
     payload = event.get("payload") if isinstance(event.get("payload"), Mapping) else {}
-    text = " ".join(str(item) for item in (event.get("event_type"), event.get("message"), payload.get("halt_reason"), payload.get("alert_code")))
-    return "PAPER_DAILY_DRAWDOWN" in text or "PAPER_DAILY_DRAWDOWN_HALT" in text
+    fields = (
+        event.get("event_type"),
+        event.get("message"),
+        event.get("halt_reason"),
+        event.get("alert_code"),
+        payload.get("halt_reason"),
+        payload.get("alert_code"),
+        payload.get("paused_reason"),
+    )
+    text = " ".join(str(item) for item in fields if item not in (None, "")).upper()
+    return any(token in text for token in HALT_TOKENS)
 
 
 def _halt_event(event: Mapping[str, Any]) -> dict[str, Any]:
     payload = event.get("payload") if isinstance(event.get("payload"), Mapping) else {}
     return {
         "timestamp_utc": str(event.get("timestamp_utc") or payload.get("timestamp_utc") or ""),
-        "halt_reason": str(payload.get("halt_reason") or payload.get("alert_code") or event.get("message") or ""),
+        "halt_reason": str(payload.get("halt_reason") or payload.get("alert_code") or event.get("halt_reason") or event.get("alert_code") or event.get("message") or ""),
         "event_type": str(event.get("event_type") or ""),
     }
 

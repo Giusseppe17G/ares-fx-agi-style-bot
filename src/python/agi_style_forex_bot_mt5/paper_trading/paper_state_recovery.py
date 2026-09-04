@@ -607,13 +607,25 @@ def _config_fix(root: str) -> str:
     return fixes.get(root, "No config repair required.")
 
 
+# Root causes inferred only from a missing report directory are weak: an absent report
+# folder means "this audit has not run yet", not "this is why forward-shadow halted".
+# The evidence-backed FASE 42f audit must be able to override them.
+WEAK_ROOT_CAUSES = {
+    "missing_paper_risk_dir",
+    "missing_daily_risk_dir",
+    "missing_pnl_audit_dir",
+    "unknown_config_error",
+}
+
+
 def _merge_root_cause_audit(config: Mapping[str, Any], audit_path: Path) -> dict[str, Any]:
     merged = dict(config)
     if not merged.get("config_error_detected"):
         merged["config_error_resolved"] = True
         merged["can_rerun_forward_shadow_after_fix"] = True
         return merged
-    if merged.get("config_error_root_cause") and merged.get("config_error_root_cause") != "unknown_config_error":
+    current_root = str(merged.get("config_error_root_cause") or "")
+    if current_root and current_root not in WEAK_ROOT_CAUSES:
         return merged
     audit = _load_json(audit_path)
     root = str(audit.get("config_error_root_cause") or audit.get("primary_root_cause") or "")

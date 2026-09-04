@@ -8,6 +8,9 @@ from typing import Any, Mapping
 def diagnose_current_detector(events: list[Mapping[str, Any]]) -> dict[str, Any]:
     matched = [event for event in events if event.get("current_is_halt_event_match")]
     missed = [event for event in events if not event.get("current_is_halt_event_match")]
+    in_scope = [event for event in missed if event.get("detector_miss_reason") != "SOURCE_NOT_IN_CURRENT_EVENTS_DATASET"]
+    token_events = [event for event in events if event.get("halt_evidence_class") == "HALT_TOKEN"]
+    state_events = [event for event in events if event.get("halt_evidence_class") == "HALT_STATE_FIELD"]
     reasons: dict[str, int] = {}
     for event in missed:
         reason = str(event.get("detector_miss_reason", "UNKNOWN"))
@@ -29,6 +32,10 @@ def diagnose_current_detector(events: list[Mapping[str, Any]]) -> dict[str, Any]
         "events_seen_by_forensics": len(events),
         "current_detector_match_count": len(matched),
         "current_detector_miss_count": len(missed),
+        "halt_token_event_count": len(token_events),
+        "halt_state_field_event_count": len(state_events),
+        "in_scope_detector_miss_count": len(in_scope),
+        "out_of_scope_detector_miss_count": len(missed) - len(in_scope),
         "miss_reasons": dict(sorted(reasons.items(), key=lambda item: (-item[1], item[0]))),
         "likely_root_causes": likely_causes,
         "recommended_next_action": "Review detector field coverage before any repair; do not auto-repair in FASE 78.",
