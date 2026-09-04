@@ -1907,3 +1907,16 @@ Adjudicated differences. Three are `LEGACY_BEHAVIOR_BUG` in the forensics scanne
 Delegated without deleting anything: `daily_halt_status_audit.audit_daily_halt_status` returns the canonical verdict, the two drawdown loaders delegate token matching, and three hardcoded `<= -3.0` thresholds read the canonical constant. The primary relaunch gate was left intact: its `_paper_state_block` cutoff rule is not represented in the canonical gate, so delegating it is not yet demonstrably safe.
 
 `tests/python/test_phase81_unified_operational_state.py` adds 52 tests covering halt precedence, timestamp ordering, SQLite/JSONL merge, stale and active halts, malformed evidence, field and token coverage, paper state, the relaunch gate, the error hierarchy, legacy equivalence and the no-production-writes invariant. Full suite: 928 passed, identical from the repository root and from an alternative working directory, repository `data/` fingerprint unchanged.
+
+
+### FASE 82 - QA Implementation Note
+
+Audited both pipelines stage by stage from the running code and recorded the map in `core.parity.pipeline_stages`: 16 stages, 8 shared, 8 not. Six run only in forward-shadow (risk engine, ML filter, signal ranker, portfolio guard, dynamic risk allocator, paper trade limits) and two only in backtest (profile thresholds, stable filters). Every gap carries its reason in the stage map.
+
+Implemented `core.instruments` (InstrumentRegistry, InstrumentSpec, MT5 and dataset providers, fail-closed validation, declared placeholder specs), `core.execution.SharedFillModel`, `core.parity` (deterministic fixture and decision comparison) and `core.validation.baselines` (buy-and-hold, random entry, permuted signal), plus the `backtest-live-parity` CLI mode.
+
+Removed the invented instrument metadata from the backtester. Before delegating the execution model, both implementations were measured on identical inputs across BUY/SELL entry and exit: prices were identical to the instrument's digits, and the full suite stayed green after the change, so no historical backtest result moved.
+
+Found and worked around a defect in `execution_simulation.SpreadModel`: its estimator falls back to `max_spread_points` when every input is falsy, so a zero-spread bar is classified EXTREME. The backtest replay path feeds the model the bar's observed spread instead of relying on that fallback. The defect itself was left alone because fixing it changes paper-trading behaviour and there is no real-data evidence yet.
+
+`tests/python/test_phase82_backtest_live_parity.py` adds 43 tests covering the registry, missing and invalid metadata, MT5 and dataset providers, rounding, resolution order and strict mode, execution-model equivalence across spreads and directions, the replay context, the stage map, parity on a deterministic fixture, reproducibility, the CLI, baselines and the no-production-writes invariant. Full suite: 971 passed, identical from the repository root and from an alternative working directory, repository `data/` fingerprint unchanged.

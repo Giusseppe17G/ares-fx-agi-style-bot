@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import math
 from hashlib import sha256
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -24,6 +24,9 @@ from ..contracts import Direction, MarketSnapshot, SignalAction
 from ..data import add_indicators, add_regime_labels, normalize_ohlcv_bars
 from ..data_pipeline.historical_csv_loader import load_historical_csv_contract
 from ..data_pipeline.historical_data_resolver import resolve_historical_data
+from ..core.execution import SharedFillModel
+from ..core.operational_state.errors import ExecutionSimulationError
+from ..core.instruments import ASSUMED_SOURCE, InstrumentRegistry, InstrumentSpec, assumed_fx_spec, resolve_registry
 from ..strategy import evaluate_ensemble
 from ..strategy.strategy_ensemble import EnsembleConfig
 
@@ -55,6 +58,19 @@ class CostModel:
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), sort_keys=True)
+
+    def with_instrument(self, spec: "InstrumentSpec") -> "CostModel":
+        """Take point/tick geometry from the instrument registry, keep the cost assumptions."""
+
+        return CostModel(
+            spread_points=self.spread_points,
+            slippage_points=self.slippage_points,
+            commission_per_lot_round_turn=self.commission_per_lot_round_turn,
+            point=spec.point,
+            tick_value=spec.tick_value,
+            tick_size=spec.tick_size,
+            max_spread_points=self.max_spread_points,
+        )
 
 
 @dataclass(frozen=True)
@@ -606,6 +622,7 @@ def run_strategy_backtest(
     settings: BacktestSettings | None = None,
     config: BotConfig | None = None,
     timeframe: str = "M5",
+    instrument: InstrumentSpec | None = None,
 ) -> BacktestOutcome:
     """Generate ensemble candidates from bars and simulate them offline."""
 
@@ -619,13 +636,18 @@ def run_strategy_backtest(
         trailing_distance_points=80,
         max_bars_in_trade=96,
     )
+    spec = instrument or assumed_fx_spec(symbol)
+    # One instrument source drives both candidate geometry and the cost model, so a
+    # backtest can no longer size trades against different metadata than it prices them with.
+    run_settings = replace(run_settings, cost_model=run_settings.cost_model.with_instrument(spec))
     bars = _normalize_candles(candles)
     candidates = generate_strategy_candidates(
         bars,
         symbol=symbol,
         timeframe=timeframe,
         config=cfg,
-        point=run_settings.cost_model.point,
+        point=spec.point,
+        instrument=spec,
     )
     return Backtester(run_settings).run(bars, candidates)
 
@@ -637,6 +659,7 @@ def generate_strategy_candidates(
     timeframe: str,
     config: BotConfig,
     point: float,
+    instrument: InstrumentSpec | None = None,
 ) -> tuple[TradeCandidate, ...]:
     """Create deterministic offline trade candidates from the current ensemble."""
 
@@ -671,7 +694,7 @@ def generate_strategy_candidates(
             continue
         if idx - last_candidate_idx < 3:
             continue
-        snapshot = _snapshot_from_row(row, symbol=symbol, timeframe=timeframe, point=point, config=config)
+        snapshot = _snapshot_from_row(row, symbol=symbol, timeframe=timeframe, point=point, config=config, instrument=instrument)
         features = _features_from_row(enriched, idx, snapshot, config)
         signal = evaluate_ensemble(
             snapshot,
@@ -878,6 +901,8 @@ def run_backtest_for_symbols(
     settings: BacktestSettings | None = None,
     config: BotConfig | None = None,
     timeframe: str = "M5",
+    instruments: InstrumentRegistry | None = None,
+    allow_assumed_instruments: bool = True,
 ) -> BacktestBatchResult:
     """Run a reproducible multi-symbol backtest from local CSV history."""
 
@@ -898,6 +923,13 @@ def run_backtest_for_symbols(
         },
     )
     profile = _signal_profile_settings(cfg.signal_profile)
+    resolved_symbols = [item.strip().upper() for item in symbols if item.strip()]
+    registry, instrument_metadata_source = resolve_registry(
+        registry=instruments,
+        data_dir=data_dir,
+        symbols=resolved_symbols,
+        allow_assumptions=allow_assumed_instruments,
+    )
     all_trades: list[pd.DataFrame] = []
     all_equity: list[pd.DataFrame] = []
     all_rejections: list[dict[str, Any]] = []
@@ -905,12 +937,13 @@ def run_backtest_for_symbols(
     promotions: dict[str, PromotionGateResult] = {}
     data_valid_symbols: list[str] = []
     signals_generated = 0
-    for symbol in [item.strip().upper() for item in symbols if item.strip()]:
+    for symbol in resolved_symbols:
         path = _find_history_csv(Path(data_dir), symbol, timeframe)
         candles, quality = load_historical_csv(path, symbol=symbol, timeframe=timeframe)
         qualities.append(quality)
         data_valid_symbols.append(symbol)
-        outcome = run_strategy_backtest(candles, symbol=symbol, settings=run_settings, config=cfg, timeframe=timeframe)
+        spec = registry.get(symbol) if registry.has(symbol) else assumed_fx_spec(symbol)
+        outcome = run_strategy_backtest(candles, symbol=symbol, settings=run_settings, config=cfg, timeframe=timeframe, instrument=spec)
         signals_generated += len(outcome.trades) + len(outcome.rejected_candidates)
         all_rejections.extend(dict(item) | {"symbol": symbol} for item in outcome.rejected_candidates)
         trades = outcome.trades_frame()
@@ -939,6 +972,8 @@ def run_backtest_for_symbols(
         classification = "WARNING_NO_TRADES"
     summary: dict[str, Any] = {
         "mode": "backtest",
+        "instrument_metadata_source": instrument_metadata_source,
+        "instrument_metadata_assumed": instrument_metadata_source == ASSUMED_SOURCE,
         "signal_profile_used": profile["name"],
         "thresholds_used": dict(profile),
         "profile_hash": profile["profile_hash"],
@@ -1241,8 +1276,76 @@ def _apply_entry_cost(
     slippage_points: float,
     point: float,
 ) -> float:
-    cost = ((spread_points / 2.0) + slippage_points) * point
-    return base_price + cost if direction == Direction.BUY.value else base_price - cost
+    """Entry price under the shared execution model.
+
+    Delegates to `execution_simulation.FillModel` via SharedFillModel, the same
+    model paper trading uses. Verified to reproduce the previous arithmetic
+    exactly (see test_phase82 execution-model parity).
+    """
+
+    return _shared_fill_price(
+        base_price,
+        direction=direction,
+        spread_points=spread_points,
+        slippage_points=slippage_points,
+        point=point,
+        is_entry=True,
+    )
+
+
+def _shared_fill_price(
+    base_price: float,
+    *,
+    direction: str,
+    spread_points: float,
+    slippage_points: float,
+    point: float,
+    is_entry: bool,
+) -> float:
+    snapshot = _replay_snapshot(base_price, spread_points=spread_points, point=point)
+    model = SharedFillModel(max_spread_points=spread_points + 10.0, slippage_points=slippage_points)
+    # Two things this call must not do. The spread gate was already applied upstream
+    # by `_simulate_candidate` against the run's own `cost_model.max_spread_points`,
+    # so the limit here is deliberately slack: this bar was already accepted. And
+    # SpreadModel's estimator falls back to `max_spread_points` when every input is
+    # falsy, which classifies a zero-spread bar as EXTREME; feeding it the bar's own
+    # observed spread keeps the estimate on real data instead of that fallback.
+    context = {"forward_spreads": (max(spread_points, 0.1),)}
+    if is_entry:
+        result = model.entry(direction=direction, snapshot=snapshot, replay=True, context=context)
+    else:
+        result = model.exit(direction=direction, snapshot=snapshot, replay=True, context=context)
+    if not result.accepted or result.fill_price is None:
+        raise ExecutionSimulationError(
+            f"replay fill rejected: {result.reject_reason or result.reject_code}",
+            source="backtester",
+            detail={"reject_code": result.reject_code, "spread_points": spread_points},
+        )
+    return float(result.fill_price)
+
+
+def _replay_snapshot(base_price: float, *, spread_points: float, point: float) -> MarketSnapshot:
+    """A snapshot for a replayed bar: mid price plus the bar's own spread."""
+
+    half = spread_points * point / 2.0
+    digits = max(0, int(round(-math.log10(point)))) if point > 0 else 5
+    return MarketSnapshot(
+        symbol="REPLAY",
+        timeframe="REPLAY",
+        timestamp_utc=datetime.now(timezone.utc),
+        bid=max(point, base_price - half),
+        ask=base_price + half,
+        spread_points=spread_points,
+        digits=digits,
+        point=point,
+        tick_value=1.0,
+        tick_size=point,
+        volume_min=0.01,
+        volume_max=100.0,
+        volume_step=0.01,
+        stops_level_points=0,
+        freeze_level_points=0,
+    )
 
 
 def _apply_exit_cost(
@@ -1433,28 +1536,38 @@ def _snapshot_from_row(
     timeframe: str,
     point: float,
     config: BotConfig,
+    instrument: InstrumentSpec | None = None,
 ) -> MarketSnapshot:
+    """Build the backtest snapshot from real instrument metadata.
+
+    FASE 82: every instrument field now comes from the InstrumentRegistry, the
+    same source forward-shadow fills from MT5 `symbol_info`. The old inline
+    guesses (digits from a JPY substring, tick_value=1.0, volume_min=0.01,
+    stops_level=10, freeze_level=5) are gone from this function.
+    """
+
+    spec = instrument or assumed_fx_spec(symbol)
     spread_points = float(row.get("spread_points", config.max_spread_points_default))
     if math.isnan(spread_points):
         spread_points = config.max_spread_points_default
     close = float(row["close"])
-    half_spread = spread_points * point / 2.0
+    half_spread = spread_points * spec.point / 2.0
     return MarketSnapshot(
         symbol=symbol,
         timeframe=timeframe,
         timestamp_utc=pd.Timestamp(row["timestamp_utc"]).to_pydatetime(),
-        bid=max(point, close - half_spread),
+        bid=max(spec.point, close - half_spread),
         ask=close + half_spread,
         spread_points=spread_points,
-        digits=3 if "JPY" in symbol else 5,
-        point=point,
-        tick_value=1.0,
-        tick_size=point,
-        volume_min=0.01,
-        volume_max=100.0,
-        volume_step=0.01,
-        stops_level_points=10,
-        freeze_level_points=5,
+        digits=spec.digits,
+        point=spec.point,
+        tick_value=spec.tick_value,
+        tick_size=spec.tick_size,
+        volume_min=spec.min_volume,
+        volume_max=spec.max_volume,
+        volume_step=spec.volume_step,
+        stops_level_points=spec.stops_level_points,
+        freeze_level_points=spec.freeze_level_points,
     )
 
 

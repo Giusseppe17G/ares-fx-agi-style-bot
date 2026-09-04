@@ -746,3 +746,12 @@ Halt evidence now carries the canonical vocabulary alongside the legacy fields: 
 `evidence_quality` is the field to read when a verdict looks surprising. `EVIDENCE_OK` means every halt record had a usable timestamp; `EVIDENCE_PARTIAL` means some did not and the verdict rests on the ones that did; `EVIDENCE_MALFORMED` means halt evidence exists but nothing can be dated, in which case the halt is reported as active and relaunch is blocked by the `evidence_quality` gate.
 
 Relaunch evidence records `relaunch_decision`, `relaunch_allowed`, `blocking_gate_ids`, per-gate reasons, and `evidence_references` pointing at the halt timestamp, operational day and source behind the decision. This is evidence only: it authorizes nothing, and a blocked verdict may never be overridden by a downstream report.
+
+
+### FASE 82 - Parity and Instrument Provenance Evidence
+
+Backtest summaries now carry `instrument_metadata_source` and `instrument_metadata_assumed`. Evidence produced with `instrument_metadata_assumed = true` rests on placeholder instrument metadata and must not be used to support an acceptance decision.
+
+The parity report records `decision_parity_pct` and `equivalent_decision_count` over the shared stages, `stage_parity_pct` and `parity_gap_stage_ids` over the pipeline as a whole, the instrument spec used, the seed and the reference time. It is reproducible: the same fixture, clock and seed produce the same report and the same `run_id`.
+
+Baseline comparisons record the candidate alongside all three baselines and a `baseline_verdict`. `CANDIDATE_BEATS_ALL_BASELINES` is a necessary condition only; it does not establish out-of-sample validity and grants no promotion.

@@ -905,3 +905,14 @@ Read the reports this way. `same_decision` is the headline. Every disagreement c
 Detectors are compared only against the question they actually answer -- `EVIDENCE_PRESENT` (is there halt evidence?) or `HALT_ACTIVE_TODAY` (is a halt in force now?) -- and only on scenarios carrying the input they read (`EVENT_SCAN` or `METRIC_THRESHOLD`). Comparing a drawdown-threshold rule against an event-only dataset would manufacture a disagreement that says nothing about either rule.
 
 Legacy entry points keep working and keep their output vocabulary. `audit_daily_halt_status` now returns the canonical verdict plus `halt_kind`, `halt_age` and `evidence_quality`; the two drawdown recovery loaders delegate their token rule while keeping their deliberate drawdown-only scope; the three hardcoded `<= -3.0` thresholds read `DEFAULT_DAILY_DRAWDOWN_LIMIT`. No legacy module, report or history was deleted.
+
+
+### FASE 82 - Instrument Metadata and Parity Reporting
+
+Give a historical dataset its instrument metadata by placing `instruments.json` beside the CSVs, keyed by canonical symbol, with every field the registry requires. Without it a backtest still runs but reports `instrument_metadata_source = LEGACY_ASSUMED_FX_DEFAULT`; treat any result carrying that flag as provisional. Pass `allow_assumed_instruments=False` to `run_backtest_for_symbols` to make the missing sidecar an error instead.
+
+`--mode backtest-live-parity` writes `pipeline_parity.json` and `pipeline_stages.json` under `data/reports/backtest_live_parity/`. Read two numbers, not one. `decision_parity_pct` is agreement on the stages both pipelines run; `stage_parity_pct` is how much of the pipeline they share at all. A high decision parity with a low stage parity means the shared parts agree and the rest is simply not compared -- which is the current state.
+
+The eight stages the pipelines do not share are listed in `parity_gap_stage_ids`, each with the reason. Six run only in forward-shadow (risk engine, ML filter, signal ranker, portfolio guard, dynamic risk, paper limits) and two only in backtest (profile thresholds, stable filters). A backtest therefore counts trades that the live stack would reject, and its results are an upper bound on live behaviour, not a prediction of it.
+
+Before treating any strategy change as an improvement, run it through `core.validation.compare_to_baselines`. A candidate that does not beat buy-and-hold, random entry and the permuted signal is not distinguishable from drift, exposure or trade count, whatever its win rate.

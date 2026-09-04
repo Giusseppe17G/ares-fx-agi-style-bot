@@ -23,6 +23,7 @@ from .calibration import apply_signal_profile, bot_config_with_signal_profile, p
 from .broker_quality import build_readiness_report, run_broker_quality
 from .config import load_config
 from .core_invariants_report import run_core_invariants_report
+from .parity_report import run_backtest_live_parity_report
 from .unified_operational_state_report import run_unified_operational_state_report
 from .contracts import AccountState, Environment, Event, MarketSnapshot, Severity, utc_now
 from .data_pipeline import audit_historical_data, audit_timestamps, build_broker_cost_profile, build_dataset_manifest, build_feature_availability_report, build_live_feature_contract_report, build_strategy_data_contract_report, cost_for_symbol
@@ -236,6 +237,7 @@ def main(argv: list[str] | None = None) -> int:
             "micro-v2-sqlite-halt-forensics",
             "core-invariants",
             "unified-operational-state",
+            "backtest-live-parity",
             "micro-v2-symbol-rejection-audit",
             "rejection-labeling-audit",
             "micro-v2-runtime-profile-check",
@@ -540,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
         "full-validation",
     } and args.sqlite is None:
         parser.error(f"--mode {args.mode} requires --sqlite for durable audit")
-    direct_persistence_modes = {"db-migrate", "db-health", "backup", "compact-logs", "weekend-readiness", "dry-run-market-open", "micro-v2-sqlite-halt-forensics", "core-invariants", "unified-operational-state"}
+    direct_persistence_modes = {"db-migrate", "db-health", "backup", "compact-logs", "weekend-readiness", "dry-run-market-open", "micro-v2-sqlite-halt-forensics", "core-invariants", "unified-operational-state", "backtest-live-parity"}
     database = None if args.mode in direct_persistence_modes else (TelemetryDatabase(args.sqlite) if args.sqlite else None)
     try:
         selected_symbols = _selected_symbols(args.symbol, args.symbols)
@@ -1274,6 +1276,14 @@ def main(argv: list[str] | None = None) -> int:
                 watch=bool(args.watch),
                 interval_seconds=int(args.interval_seconds),
                 max_checks=int(args.max_checks),
+            )
+            print(_json_dumps(summary))
+            return 0
+
+        if args.mode == "backtest-live-parity":
+            summary = run_backtest_live_parity_report(
+                output_dir=args.output_dir if args.output_dir != Path("data/historical") else None,
+                reference_time_utc=args.reference_time_utc,
             )
             print(_json_dumps(summary))
             return 0
