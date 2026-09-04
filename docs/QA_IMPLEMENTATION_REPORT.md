@@ -1883,3 +1883,14 @@ Implemented `micro_v2_post_reset_relaunch` with read-only SQLite state inspectio
 ### FASE 78 - QA Implementation Note
 
 Implemented `micro_v2_sqlite_halt_forensics` with read-only SQLite schema discovery, halt-event scanning across real tables, JSONL comparison, current `_is_halt_event()` miss diagnostics, query manifest, CSV/JSON/HTML reports, CLI registration without `TelemetryDatabase` migration, and tests for schema discovery, halt detection, detector misses, SQLite-vs-JSONL comparison, invalid timestamps, read-only CLI behavior, and safety invariants.
+
+
+### FASE 80 - QA Implementation Note
+
+Implemented `agi_style_forex_bot_mt5.core` with `SafetyEnvelope` (contradiction-rejecting safety contract, `seal_report`, `assert_safety_flags`), `WorkspacePaths` (project/data roots, environment overrides, `resolve_path`), `Clock` (`SystemClock`, `FrozenClock`, `resolve_clock`) and `RunManifest` (input-derived `run_id`, git/config/dataset hashes, secret redaction), plus the `core-invariants` CLI mode.
+
+Repaired the CWD coupling found by the FASE 79 architectural audit: `operator_drill.py` resolved its EC2 script checks against the process working directory, so a readiness verdict changed with the launch directory. `create_backup` and the Telegram `/backup` command now resolve the rotation destination through the workspace instead of a CWD-relative default.
+
+Added `tests/python/conftest.py`, which runs the whole session from a temporary directory with a sandboxed `AGI_FX_DATA_ROOT`. This stops the suite writing into production evidence (it previously overwrote `data/backups/backup_report.json` and created backup files in the repository) and exposes any remaining CWD coupling instead of hiding it.
+
+`tests/python/test_phase80_core_invariants.py` covers the four contracts, CWD independence of the operator drill and CLI, backtest plus manifest reproducibility under a frozen clock, secret redaction, and the no-production-writes invariant. Full suite: 876 passed, identical from the repository root and from an alternative working directory, with the repository `data/` fingerprint unchanged.

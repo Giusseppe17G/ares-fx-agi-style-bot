@@ -871,3 +871,26 @@ The orchestrator never launches V2. It generates an auditable gate list and a co
 Run `micro-v2-sqlite-halt-forensics --sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3` when reset readiness or daily halt logic appears to miss valid halt events. The mode opens SQLite read-only, discovers real tables/columns/schemas, scans halt-like records across all tables, compares them with JSONL logs, and explains why the current `_is_halt_event()` detector would or would not match them.
 
 This phase is diagnostic only. It does not repair detector logic, clear halts, mutate SQLite/logs, call MT5, or launch V2.
+
+
+### FASE 80 - Core Invariants and Running From Any Directory
+
+Readiness verdicts no longer depend on where Python was launched from. `operational_readiness/operator_drill.py` resolves the EC2 script checks from the project root instead of `Path("scripts")` relative to the process CWD, so `dry-run-market-open` returns the same classification from any directory. `run_operator_drill` and `run_dry_run_market_open` accept an optional `workspace=` argument for operators who need to point at a different checkout.
+
+To run any CLI mode from an arbitrary directory, set `PYTHONPATH` to the checkout's `src/python` and invoke the module; the workspace roots are discovered from the package, not from the CWD:
+
+```powershell
+$env:PYTHONPATH = "C:\\ares-fx-agi-style-bot\\src\\python"
+python -m agi_style_forex_bot_mt5.cli --mode core-invariants
+```
+
+To point the writable evidence tree somewhere else (a sandbox, a drill, a second machine) without touching production evidence, set `AGI_FX_DATA_ROOT`. `project_root` stays where the code is; only `data_root` moves:
+
+```powershell
+$env:AGI_FX_DATA_ROOT = "D:\\evidence_sandbox\\data"
+python -m agi_style_forex_bot_mt5.cli --mode core-invariants
+```
+
+`create_backup` resolves its destination through the workspace. This matters because backup rotation deletes files: a caller that keeps the default `data/backups` would otherwise rotate away whichever backup directory happened to sit next to the working directory.
+
+To reproduce a run, record its `run_manifest` and re-run with the same config, dataset and `--reference-time-utc`. Identical inputs yield an identical `run_id`.

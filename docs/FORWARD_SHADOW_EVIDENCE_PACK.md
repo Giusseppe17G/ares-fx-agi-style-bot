@@ -728,3 +728,12 @@ Forward evidence may surface `micro_v2_relaunch_status`, `micro_v2_relaunch_allo
 The SQLite halt forensics pack writes `sqlite_halt_forensics_summary.json`, `schema_inventory.json`, `halt_detector_diagnostics.json`, `sqlite_vs_jsonl_comparison.json`, `halt_events.csv`, `queries_used.sql`, and `report.html` under `data/reports/micro_v2_sqlite_halt_forensics/`.
 
 The pack documents real SQLite schemas, halt event locations, timestamps/timezone quality, duplicate/gap indicators, and detector miss reasons. It is evidence only and must not be used to bypass risk gates or relaunch V2.
+
+
+### FASE 80 - Run Manifest and Sealed Safety Evidence
+
+Reports built through `RunManifest.attach()` carry a `run_manifest` block alongside the sealed safety flags. The manifest records `manifest_version`, `mode`, `run_id`, `git_commit_sha`, `git_dirty`, `project_root`, `data_root`, `config_hash`, `dataset_hash`, `reference_time_utc`, `python_version`, `package_versions`, `symbols`, `timeframe`, `seed` and the safety envelope.
+
+`run_id` is a digest of the run's own inputs, not a timestamp, so two runs with the same mode, config, dataset, reference time and seed are provably the same run. `dataset_hash` is a content hash over the input files, so a changed dataset changes the run identity. Credentials are redacted before the config digest is computed and never appear in the manifest.
+
+Evidence sealed with `seal_report()` cannot contradict the envelope: a stale copied `execution_attempted: true` literal is overwritten with the envelope's value rather than trusted. This is evidence provenance only; it grants no execution authority and does not override any risk or acceptance gate.

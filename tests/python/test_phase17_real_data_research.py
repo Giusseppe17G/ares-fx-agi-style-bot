@@ -9,6 +9,9 @@ from agi_style_forex_bot_mt5 import cli
 from agi_style_forex_bot_mt5.benchmarks import build_competitive_scorecard, run_benchmarks
 from agi_style_forex_bot_mt5.real_data_research import RealDataResearchConfig, RealDataResearchRunner
 from agi_style_forex_bot_mt5.validation_pipeline import MasterDecisionEngine
+from agi_style_forex_bot_mt5.core import workspace_paths
+
+PROJECT_SCRIPTS = workspace_paths().scripts_dir
 
 
 STAGE_NAMES = (
@@ -44,7 +47,7 @@ def _override(name: str):
 
 
 def test_run_real_data_research_script_exists() -> None:
-    assert Path("scripts/run_real_data_research.ps1").exists()
+    assert (PROJECT_SCRIPTS / "run_real_data_research.ps1").exists()
 
 
 def test_cli_accepts_real_data_research(monkeypatch, tmp_path: Path, capsys) -> None:

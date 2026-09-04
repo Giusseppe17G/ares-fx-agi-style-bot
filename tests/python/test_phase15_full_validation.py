@@ -9,6 +9,9 @@ from agi_style_forex_bot_mt5 import cli
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 from agi_style_forex_bot_mt5.telegram_command_center import TelegramCommandCenter
 from agi_style_forex_bot_mt5.validation_pipeline import MasterDecisionEngine, PipelineConfig, PipelineLock, PipelineRunner
+from agi_style_forex_bot_mt5.core import workspace_paths
+
+PROJECT_SCRIPTS = workspace_paths().scripts_dir
 
 
 def test_pipeline_config_serializes(tmp_path: Path) -> None:
@@ -168,7 +171,7 @@ def test_cli_full_validation_and_telegram(monkeypatch, tmp_path: Path, capsys) -
 
 
 def test_run_full_validation_script_exists() -> None:
-    assert Path("scripts/run_full_validation.ps1").exists()
+    assert (PROJECT_SCRIPTS / "run_full_validation.ps1").exists()
 
 
 def _write(path: Path, payload: dict[str, object]) -> None:

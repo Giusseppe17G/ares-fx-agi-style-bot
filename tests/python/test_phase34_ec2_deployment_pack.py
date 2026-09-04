@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from agi_style_forex_bot_mt5.operational_readiness import run_ec2_deployment_pack
+from agi_style_forex_bot_mt5.core import workspace_paths
+
+PROJECT_SCRIPTS = workspace_paths().scripts_dir
 
 
 def test_ec2_deployment_pack_generates_all_files(tmp_path: Path) -> None:
@@ -59,7 +62,7 @@ def test_ec2_scripts_use_relative_project_paths() -> None:
         "ec2_collect_evidence.ps1",
         "ec2_backup_and_health.ps1",
     ):
-        text = Path("scripts", script).read_text(encoding="utf-8")
+        text = (PROJECT_SCRIPTS / script).read_text(encoding="utf-8")
         assert 'Join-Path $PSScriptRoot ".."' in text
         assert '$env:PYTHONPATH = "src/python"' in text
         assert "C:\\\\" not in text

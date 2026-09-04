@@ -9,6 +9,9 @@ from agi_style_forex_bot_mt5.observability import AlertRuleEngine, DailySummary,
 from agi_style_forex_bot_mt5.paper_trading import ForwardShadowBot
 from agi_style_forex_bot_mt5.telegram_command_center import TelegramCommandCenter
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase
+from agi_style_forex_bot_mt5.core import workspace_paths
+
+PROJECT_SCRIPTS = workspace_paths().scripts_dir
 
 
 def _db(tmp_path: Path) -> TelemetryDatabase:
@@ -158,7 +161,7 @@ def test_cli_status_health_daily_summary(tmp_path: Path, capsys) -> None:
 
 
 def test_forward_shadow_scripts_exist() -> None:
-    assert Path("scripts/run_forward_shadow.ps1").exists()
-    assert Path("scripts/watchdog_forward_shadow.ps1").exists()
-    assert Path("scripts/status.ps1").exists()
+    assert (PROJECT_SCRIPTS / "run_forward_shadow.ps1").exists()
+    assert (PROJECT_SCRIPTS / "watchdog_forward_shadow.ps1").exists()
+    assert (PROJECT_SCRIPTS / "status.ps1").exists()
 

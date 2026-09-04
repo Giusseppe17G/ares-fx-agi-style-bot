@@ -8,6 +8,9 @@ import pandas as pd
 from agi_style_forex_bot_mt5 import cli
 from agi_style_forex_bot_mt5.real_data_research import load_latest_run_summary
 from agi_style_forex_bot_mt5.robustness_validation import run_robustness_fast, run_stable_robustness_gate
+from agi_style_forex_bot_mt5.core import workspace_paths
+
+PROJECT_SCRIPTS = workspace_paths().scripts_dir
 
 
 def test_robustness_fast_accepts_balanced_stable(tmp_path: Path) -> None:
@@ -97,8 +100,8 @@ def test_cli_accepts_stable_robustness_gate(tmp_path: Path, capsys) -> None:
 
 
 def test_scripts_are_balanced_stable_shadow_only() -> None:
-    run_script = Path("scripts/run_forward_shadow_balanced_stable.ps1").read_text(encoding="utf-8")
-    watchdog = Path("scripts/watchdog_forward_shadow_balanced_stable.ps1").read_text(encoding="utf-8")
+    run_script = (PROJECT_SCRIPTS / "run_forward_shadow_balanced_stable.ps1").read_text(encoding="utf-8")
+    watchdog = (PROJECT_SCRIPTS / "watchdog_forward_shadow_balanced_stable.ps1").read_text(encoding="utf-8")
 
     assert "--signal-profile\", \"BALANCED_STABLE" in run_script
     assert "LIVE_TRADING_APPROVED=False" in run_script
