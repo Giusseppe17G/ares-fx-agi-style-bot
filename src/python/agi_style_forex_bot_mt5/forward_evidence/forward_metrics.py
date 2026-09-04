@@ -9,6 +9,7 @@ import pandas as pd
 
 from agi_style_forex_bot_mt5.paper_trading.paper_performance import group_metrics, paper_metrics
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
+from agi_style_forex_bot_mt5.core.operational_state import DEFAULT_DAILY_DRAWDOWN_LIMIT
 
 
 def calculate_forward_metrics(*, database: TelemetryDatabase, hours_observed: float = 0.0, signals_detected: int = 0, signals_rejected: int = 0) -> dict[str, Any]:
@@ -36,7 +37,7 @@ def calculate_forward_metrics(*, database: TelemetryDatabase, hours_observed: fl
         "closed_trades": closed,
         "classification": "FORWARD_SAMPLE_TOO_SMALL" if closed < 10 else "FORWARD_SAMPLE_USABLE",
         "paper_state_status": _paper_state_status(rows, metrics),
-        "paper_drawdown_status": "PAPER_DAILY_DRAWDOWN" if float(metrics.get("daily_drawdown_shadow", 0.0) or 0.0) <= -3.0 else "OK",
+        "paper_drawdown_status": "PAPER_DAILY_DRAWDOWN" if float(metrics.get("daily_drawdown_shadow", 0.0) or 0.0) <= DEFAULT_DAILY_DRAWDOWN_LIMIT else "OK",
         "raw_drawdown": metrics.get("raw_drawdown_shadow", metrics.get("daily_drawdown_shadow", 0.0)),
         "scaled_drawdown": metrics.get("scaled_drawdown_shadow", metrics.get("daily_drawdown_shadow", 0.0)),
         "drawdown_basis": metrics.get("drawdown_basis", "SCALED_PAPER_PNL"),

@@ -1894,3 +1894,16 @@ Repaired the CWD coupling found by the FASE 79 architectural audit: `operator_dr
 Added `tests/python/conftest.py`, which runs the whole session from a temporary directory with a sandboxed `AGI_FX_DATA_ROOT`. This stops the suite writing into production evidence (it previously overwrote `data/backups/backup_report.json` and created backup files in the repository) and exposes any remaining CWD coupling instead of hiding it.
 
 `tests/python/test_phase80_core_invariants.py` covers the four contracts, CWD independence of the operator drill and CLI, backtest plus manifest reproducibility under a frozen clock, secret redaction, and the no-production-writes invariant. Full suite: 876 passed, identical from the repository root and from an alternative working directory, with the repository `data/` fingerprint unchanged.
+
+
+### FASE 81 - QA Implementation Note
+
+Implemented `core.operational_state` with `states.py` (halt kind/age, evidence quality, paper state status, relaunch decision), `halt_detector.py` (the single halt authority), `paper_state.py` (canonical paper model), `relaunch_gate.py` (the single `relaunch_allowed` decision), `errors.py` (structured error hierarchy) and `equivalence.py` (the legacy-versus-canonical harness), plus the `unified-operational-state` CLI mode.
+
+Audited the 22 modules referencing halt tokens and the 6 relaunch-gate implementations. Seven legacy halt rules are callable as functions and were compared against the canonical detector on 11 scenarios: 53 comparisons, 48 identical, 5 differences, 0 unexplained. Four legacy relaunch gates were compared on 7 scenarios: 28 comparisons, 28 identical, 0 differences.
+
+Adjudicated differences. Three are `LEGACY_BEHAVIOR_BUG` in the forensics scanner, which deliberately models the pre-FASE-79 detector for diagnostic purposes and is therefore not delegated. Two are `CANONICAL_WIDER_SCOPE` in the drawdown recovery loaders, which keep a drawdown-only scope by design. Before delegation the harness reported ten differences, including a case-sensitivity bug in both recovery loaders and a `payload.error` coverage gap in the FASE 79 reset detector; delegating those three modules to the canonical detector removed five of them.
+
+Delegated without deleting anything: `daily_halt_status_audit.audit_daily_halt_status` returns the canonical verdict, the two drawdown loaders delegate token matching, and three hardcoded `<= -3.0` thresholds read the canonical constant. The primary relaunch gate was left intact: its `_paper_state_block` cutoff rule is not represented in the canonical gate, so delegating it is not yet demonstrably safe.
+
+`tests/python/test_phase81_unified_operational_state.py` adds 52 tests covering halt precedence, timestamp ordering, SQLite/JSONL merge, stale and active halts, malformed evidence, field and token coverage, paper state, the relaunch gate, the error hierarchy, legacy equivalence and the no-production-writes invariant. Full suite: 928 passed, identical from the repository root and from an alternative working directory, repository `data/` fingerprint unchanged.

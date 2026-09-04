@@ -737,3 +737,12 @@ Reports built through `RunManifest.attach()` carry a `run_manifest` block alongs
 `run_id` is a digest of the run's own inputs, not a timestamp, so two runs with the same mode, config, dataset, reference time and seed are provably the same run. `dataset_hash` is a content hash over the input files, so a changed dataset changes the run identity. Credentials are redacted before the config digest is computed and never appear in the manifest.
 
 Evidence sealed with `seal_report()` cannot contradict the envelope: a stale copied `execution_attempted: true` literal is overwritten with the envelope's value rather than trusted. This is evidence provenance only; it grants no execution authority and does not override any risk or acceptance gate.
+
+
+### FASE 81 - Canonical Halt and Relaunch Evidence
+
+Halt evidence now carries the canonical vocabulary alongside the legacy fields: `halt_kind`, `halt_age`, `evidence_quality`, `halt_source`, `severity` and `halt_operational_day`, in addition to `daily_halt_active`, `latest_halt_utc` and `daily_reset_occurred`.
+
+`evidence_quality` is the field to read when a verdict looks surprising. `EVIDENCE_OK` means every halt record had a usable timestamp; `EVIDENCE_PARTIAL` means some did not and the verdict rests on the ones that did; `EVIDENCE_MALFORMED` means halt evidence exists but nothing can be dated, in which case the halt is reported as active and relaunch is blocked by the `evidence_quality` gate.
+
+Relaunch evidence records `relaunch_decision`, `relaunch_allowed`, `blocking_gate_ids`, per-gate reasons, and `evidence_references` pointing at the halt timestamp, operational day and source behind the decision. This is evidence only: it authorizes nothing, and a blocked verdict may never be overridden by a downstream report.

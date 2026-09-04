@@ -894,3 +894,14 @@ python -m agi_style_forex_bot_mt5.cli --mode core-invariants
 `create_backup` resolves its destination through the workspace. This matters because backup rotation deletes files: a caller that keeps the default `data/backups` would otherwise rotate away whichever backup directory happened to sit next to the working directory.
 
 To reproduce a run, record its `run_manifest` and re-run with the same config, dataset and `--reference-time-utc`. Identical inputs yield an identical `run_id`.
+
+
+### FASE 81 - Unified Operational State and Migration Evidence
+
+`--mode unified-operational-state` runs every legacy halt detector and relaunch gate side by side with the canonical core on a fixed set of representative scenarios, and writes `halt_migration_diff.json` and `relaunch_gate_migration_diff.json` under `data/reports/micro_v2_unified_operational_state/`. Use `--reference-time-utc` to pin the clock; the default reference instant makes the report reproducible.
+
+Read the reports this way. `same_decision` is the headline. Every disagreement carries a `verdict`: `LEGACY_BEHAVIOR_BUG` means the legacy rule was wrong and the canonical detector is right; `CANONICAL_WIDER_SCOPE` and `CANONICAL_FAIL_CLOSED` mean the canonical detector deliberately differs and the reason is stated; `UNEXPLAINED` fails the run and means a difference has not been adjudicated yet.
+
+Detectors are compared only against the question they actually answer -- `EVIDENCE_PRESENT` (is there halt evidence?) or `HALT_ACTIVE_TODAY` (is a halt in force now?) -- and only on scenarios carrying the input they read (`EVENT_SCAN` or `METRIC_THRESHOLD`). Comparing a drawdown-threshold rule against an event-only dataset would manufacture a disagreement that says nothing about either rule.
+
+Legacy entry points keep working and keep their output vocabulary. `audit_daily_halt_status` now returns the canonical verdict plus `halt_kind`, `halt_age` and `evidence_quality`; the two drawdown recovery loaders delegate their token rule while keeping their deliberate drawdown-only scope; the three hardcoded `<= -3.0` thresholds read `DEFAULT_DAILY_DRAWDOWN_LIMIT`. No legacy module, report or history was deleted.
