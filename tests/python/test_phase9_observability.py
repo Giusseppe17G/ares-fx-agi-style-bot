@@ -93,7 +93,9 @@ def test_daily_summary_generates_json(tmp_path: Path) -> None:
 
 
 def test_forward_shadow_respects_paused_state_and_writes_heartbeat(tmp_path: Path) -> None:
-    class FakeMT5:
+    from test_mt5_data_mode import MockMT5DataClient
+
+    class FakeMT5(MockMT5DataClient):
         def __init__(self) -> None:
             self.calls: list[str] = []
 
@@ -112,9 +114,8 @@ def test_forward_shadow_respects_paused_state_and_writes_heartbeat(tmp_path: Pat
                 trade_allowed=True,
             )
 
-        def symbol_info(self, symbol):
-            self.calls.append("symbol_info")
-            return None
+        def terminal_info(self):
+            return SimpleNamespace(connected=True)
 
         def order_send(self, request):
             self.calls.append("order_send")

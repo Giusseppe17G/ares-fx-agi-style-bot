@@ -21,10 +21,21 @@ anteriores. Se conserva ese historial y se distingue de la evidencia nueva.
 - Replay de decisiones registradas y nuevo replay cronologico con quotes
   explicitos. Este ultimo mantiene posiciones y patrimonio mediante los mismos
   componentes de forward; no fabrica caminos intrabar desde OHLC.
+- Ciclo economico unico para el `.run` real del forward y replay: cuenta/conexion
+  por ciclo, cotizaciones completas antes de gestionar el libro, evidencia broker
+  fechada y estado de riesgo actualizado entre candidatos. Auditoria incompleta
+  deja bloqueo durable que se conserva al reiniciar, incluso si falla el propio
+  evento de bloqueo. Pausas manuales no se convierten en pausas autoexpirables.
+- Stops dinamicos conservadores sobre tick_size y spread decimal compartido.
+  Timestamps Python futuros no se convierten en frescos mediante offset inferido.
 - Metadata inmutable de instrumentos y manifests con configuracion, datos,
   fuentes, commit y costes. Hashes verifican integridad, no origen autentico.
 - Walk-forward con ventanas test disjuntas, calentamiento y purga; sin optimizar
   supuestos de costes para mejorar el resultado.
+- Monte Carlo conserva la secuencia realmente mezclada y separa su indice
+  sintetico del calendario. Stress declara aproximaciones posteriores al trade;
+  retrasos, sesiones, fill rate y barras ausentes siguen NOT_MODELED. Reportes v2
+  guardan entradas normalizadas, configuracion, runtime y hashes reproducibles.
 - Auditoria JSON valida, redaccion tipada, idempotencia y metricas de drawdown
   porcentuales verificadas. UNKNOWN no se sustituye por cero.
 - Bloqueo de capacidad broker en esta release: cambiar flags, presentar una
@@ -53,6 +64,13 @@ La ampliacion posterior, guardada en `7abf90e4cc1cc35c9c66ce8d7f215cf7145ae1d3`
 **1.940 tests Python** desde la raiz en 71,20 segundos. Log:
 `docs/testing/evidence/2026-10-05-shared-pipeline/tests-final-root-1940.txt`.
 Los tests no acreditan una ventaja financiera ni ejecucion nativa en terminal.
+
+La ampliacion de lifecycle, precision, reloj UTC y evidencia sintetica pasa
+**2.101 tests Python** en 97,89 segundos. Log:
+`docs/testing/evidence/2026-10-05-shared-pipeline/tests-lifecycle-root-final.txt`.
+La primera integracion detecto un consumidor de stress que no admitia resultados
+NOT_MODELED; se corrigio y se conserva el log fallido anterior. `git diff --check`
+pasa. Los tests siguen aislados de MT5 real y del directorio original de datos.
 
 El diagnostico del commit `7abf90e` (motor 0.3.1, con tick grid y metricas
 corregidas), ejecutado desde un directorio externo, produjo:
@@ -88,6 +106,16 @@ legacy comparte 7/16 contratos de etapas y conserva nueve brechas. El nuevo
 replay se etiqueta `STATEFUL_EXPLICIT_QUOTE_REPLAY`; no se usa para convertir
 ese inventario parcial en una certificacion integral o de fills del broker.
 
+La ampliacion del lifecycle verifica episodios controlados a traves de
+`ForwardShadowBot.run`, adquisicion con cliente falso, features/estrategia/riesgo
+reales, ledger SQLite, gestion y replay con los mismos inputs. Compara trazas,
+trades, equity, riesgo, pausas y rechazos en gaps de stop, TP, BE/trailing,
+reintento de vela, evidencia caducada y quotes ausentes. La evidencia positiva
+de esos episodios corresponde al perfil ACTIVE; los tests de gates micro/stable
+no certifican por si solos paridad economica completa de cada perfil. Se
+conserva `full_pipeline_verified=False`. Ver
+`docs/testing/forward-replay-lifecycle.md`.
+
 La revision local encontro MetaTrader 5 y MetaEditor instalados. Se sustituyo
 el EA vacio por una base de observacion y se compilaron EA y harness con
 MetaEditor 5.0.0.5833: **0 errores y 0 advertencias** en ambos. Los hashes del
@@ -110,8 +138,14 @@ Python verifican restricciones estaticas, no comportamiento runtime.
 5. Verificacion runtime del observador y posterior implementacion/verificacion
    de estrategia/riesgo nativos si se entrega el EA completo contemplado en la
    vision. Compilar el observador no acredita esos modulos ni paridad Python.
+6. Sustituir la comparacion aparente del runner legacy de investigacion: sus
+   etiquetas de candidatos no aplican parametros distintos al backtest y el
+   assessment reutiliza la misma muestra como train/test. Ahora lo declara
+   `OOS_NOT_EVALUATED`, limita resultados a diagnostico y no aprueba candidatos.
+   Ese runner no sirve aun para seleccionar una estrategia validada.
 
 Uso offline: `docs/testing/stateful-replay-input.md`. Fuentes publicas y decisiones
 de metodologia: `docs/EXTERNAL_TRADING_BENCHMARK_2026-10-05.md`.
 Proximo paquete de evidencia: `docs/testing/next-evidence-protocol.md`.
 Compilacion y limitaciones nativas: `docs/testing/native-observation.md`.
+Recalculo de secuencias: `docs/testing/sequence-diagnostic-replay.md`.

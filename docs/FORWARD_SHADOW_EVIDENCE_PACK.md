@@ -792,3 +792,18 @@ An observation-only native EA now compiles cleanly; it cannot place orders and
 does not implement the Python strategies or prove runtime/parity. Native harness
 assertions were compiled, not executed. This evidence pack does not satisfy the
 Strategy Promotion Gate. Current details: `IMPLEMENTATION_STATUS_2026-10-05.md`.
+
+### 2026-10-05 — Shared lifecycle integration
+
+The corrected run loop and explicit quote replay share account/quote validation,
+book management, audited decisions, paper fills, valuations and pause ownership.
+Required audit failures survive restart as incomplete evidence and block further
+entries. Full Python suite: **2101 passed**. Controlled ACTIVE episodes compare
+traces and economics through actual forward acquisition; this is not broker or
+all-profile parity. See `testing/forward-replay-lifecycle.md`.
+
+UTC freshness no longer accepts inferred offsets, and managed stops remain on
+the broker tick grid. Synthetic risk reports preserve their actual sequence and
+declare unmodeled operational stress. These corrections leave the execution lock
+and Strategy Promotion Gate intact. Negative preserved development results still
+do not supply a statistical edge or a final holdout.

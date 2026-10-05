@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from agi_style_forex_bot_mt5.contracts import Environment, Event, MarketSnapshot, TradeSignal, RiskDecision, Severity
 from agi_style_forex_bot_mt5.execution_simulation.fill_model import FillResult
+from agi_style_forex_bot_mt5.core.price_grid import snap_price_to_tick
 from agi_style_forex_bot_mt5.micro_v2_pre_relaunch_safety_pack import PaperTradeGuardInput, validate_paper_trade_creation
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 from agi_style_forex_bot_mt5.risk.position_sizer import normalize_lot_down, price_risk_per_lot
@@ -348,15 +349,38 @@ class PaperPositionManager:
     def update_with_snapshot(self, trade: PaperTrade, snapshot: MarketSnapshot) -> PaperTrade:
         if trade.status != "OPEN":
             return trade
+        snapshot.validate()
+        if not all(_finite(value) and value > 0 for value in
+                   (snapshot.point, snapshot.tick_value, snapshot.tick_size,
+                    snapshot.volume_min, snapshot.volume_max, snapshot.volume_step)):
+            raise ValueError("paper management requires finite positive broker metadata")
+        if (isinstance(snapshot.digits, bool) or not isinstance(snapshot.digits, int)
+                or not 0 <= snapshot.digits <= 323
+                or Decimal(str(snapshot.point)) != Decimal(1).scaleb(-snapshot.digits)
+                or Decimal(str(snapshot.tick_size)) % Decimal(str(snapshot.point)) != 0):
+            raise ValueError("paper management broker price metadata is inconsistent")
+        if not all(isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                   for value in (snapshot.stops_level_points, snapshot.freeze_level_points)):
+            raise ValueError("paper management requires valid broker protection metadata")
+        if trade.symbol != snapshot.symbol or trade.direction not in {"BUY", "SELL"}:
+            raise ValueError("paper management requires matching symbol and valid direction")
+        if not all(_on_tick_grid(price, snapshot.tick_size) for price in
+                   (trade.entry_price, trade.sl_price, trade.tp_price, snapshot.bid, snapshot.ask)):
+            raise ValueError("paper management price/protection violates broker tick grid")
         now = snapshot.timestamp_utc.astimezone(timezone.utc)
         risk_distance = float(trade.metadata.get("initial_risk_distance", abs(trade.entry_price - trade.sl_price)))
-        if risk_distance <= 0:
+        if not _finite(risk_distance) or risk_distance <= 0:
             raise ValueError("paper trade has invalid risk distance")
         favorable, adverse = self._excursions(trade, snapshot)
         mae = min(trade.mae, adverse)
         mfe = max(trade.mfe, favorable)
         updated = trade.replace(mae=mae, mfe=mfe)
-        new_sl = self._managed_stop(updated, risk_distance)
+        proposed_sl = self._managed_stop(updated, risk_distance)
+        new_sl = snap_price_to_tick(proposed_sl, snapshot.tick_size,
+            rounding="down" if trade.direction == "BUY" else "up")
+        # Rounding cannot loosen the already executable protection or move a
+        # break-even stop back across entry. Existing grid values are exact.
+        new_sl = max(trade.sl_price, new_sl) if trade.direction == "BUY" else min(trade.sl_price, new_sl)
         if new_sl != updated.sl_price:
             updated = updated.replace(sl_price=new_sl)
             self.database.update_paper_trade(updated.to_dict())
@@ -434,16 +458,20 @@ class PaperPositionManager:
         self.database.insert_paper_trade_event(closed.paper_trade_id, "PAPER_TRADE_CLOSED", closed.to_dict(), timestamp_utc=snapshot.timestamp_utc)
         return closed
 
-    def _managed_stop(self, trade: PaperTrade, risk_distance: float) -> float:
-        stop = trade.sl_price
+    def _managed_stop(self, trade: PaperTrade, risk_distance: float) -> Decimal:
+        stop = Decimal(str(trade.sl_price))
+        entry = Decimal(str(trade.entry_price))
         if trade.mfe >= self.break_even_trigger_r * risk_distance:
-            stop = max(stop, trade.entry_price) if trade.direction == "BUY" else min(stop, trade.entry_price)
+            stop = max(stop, entry) if trade.direction == "BUY" else min(stop, entry)
         if trade.mfe >= self.trailing_start_r * risk_distance:
-            trail_distance = self.trailing_distance_r * risk_distance
+            initial_sl = trade.metadata.get("initial_sl_price")
+            distance = abs(entry - Decimal(str(initial_sl))) if _finite(initial_sl) and initial_sl > 0 else Decimal(str(risk_distance))
+            trail_distance = Decimal(str(self.trailing_distance_r)) * distance
+            excursion = Decimal(str(trade.mfe))
             if trade.direction == "BUY":
-                stop = max(stop, trade.entry_price + trade.mfe - trail_distance)
+                stop = max(stop, entry + excursion - trail_distance)
             else:
-                stop = min(stop, trade.entry_price - trade.mfe + trail_distance)
+                stop = min(stop, entry - excursion + trail_distance)
         return stop
 
     def _close_condition(self, trade: PaperTrade, snapshot: MarketSnapshot) -> tuple[str | None, float]:
@@ -461,12 +489,10 @@ class PaperPositionManager:
 
     def _excursions(self, trade: PaperTrade, snapshot: MarketSnapshot) -> tuple[float, float]:
         if trade.direction == "BUY":
-            favorable = snapshot.bid - trade.entry_price
-            adverse = snapshot.bid - trade.entry_price
+            favorable = float(Decimal(str(snapshot.bid)) - Decimal(str(trade.entry_price)))
         else:
-            favorable = trade.entry_price - snapshot.ask
-            adverse = trade.entry_price - snapshot.ask
-        return favorable, adverse
+            favorable = float(Decimal(str(trade.entry_price)) - Decimal(str(snapshot.ask)))
+        return favorable, favorable
 
     def _profit(self, trade: PaperTrade, exit_price: float, snapshot: MarketSnapshot) -> float:
         move = exit_price - trade.entry_price

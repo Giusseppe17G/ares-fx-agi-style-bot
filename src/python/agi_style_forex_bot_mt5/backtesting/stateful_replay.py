@@ -33,7 +33,8 @@ from ..calibration.decision_policy import resolve_signal_profile
 from ..data.strategy_features import build_strategy_features
 from ..ml import MLFilter
 from ..paper_trading import ForwardShadowBot, PaperFillModel
-from ..paper_trading.decision_state import capture_paper_daily_reference
+from ..paper_trading.lifecycle import (PaperAccountObservation, PaperCandidate, PaperCycleInput,
+    PaperEvidence, PaperCycleRejected, PaperCycleAuditError, halt_paper_cycle, validate_evidence, validate_quotes)
 from ..paper_trading.paper_position_manager import PaperAuditError
 from ..telemetry import JsonlAuditLogger, TelemetryDatabase
 
@@ -45,11 +46,8 @@ class ClosedBarInput:
     bars: pd.DataFrame
 
 
-@dataclass(frozen=True)
-class ReplayEvidence:
-    observed_at_utc: datetime
-    broker_readiness_score: float
-    correlation: float | None
+# Public transport name retained; temporal semantics are owned by the lifecycle.
+ReplayEvidence = PaperEvidence
 
 
 @dataclass(frozen=True)
@@ -163,105 +161,30 @@ def run_stateful_replay(
                 bot._audit("STATEFUL_EVENT_RECEIVED", Severity.INFO,
                            {"event_id": record.event_id, "input_event_digest": _digest(payload), "timestamp_utc": now.isoformat()})
                 _validate_market_event(record, config, instrument_snapshot, bot)
-                # Snapshot lifecycle is exactly the same method used by forward.
-                for trade in bot.manager.load_open_trades():
-                    updated = bot.manager.update_with_snapshot(trade, record.quotes[trade.symbol])
-                    if updated.status == "CLOSED":
-                        bot._audit("PAPER_TRADE_CLOSED", Severity.INFO, updated.to_dict(), symbol=updated.symbol)
-                if now.time() == datetime.min.time():
-                    capture_paper_daily_reference(database=database, trades=bot.manager.load_all_trades(),
-                        snapshots_by_symbol=record.quotes, account_template=initial_account, now_utc=now,
-                        max_snapshot_age_seconds=config.max_market_snapshot_age_seconds,
-                        max_daily_drawdown_pct=config.max_daily_drawdown_pct)
-                bot._refresh_paper_risk_state(initial_account, snapshots=record.quotes)
-                candidate_ids: set[tuple[str, str]] = set()
-                for candidate in record.decisions:
-                    key = (candidate.symbol, candidate.timeframe)
-                    if key in candidate_ids:
-                        raise ReplayRejected("DUPLICATE_EVENT_CANDIDATE", "a symbol/timeframe may be evaluated once per event")
-                    candidate_ids.add(key)
-                    try:
-                        quote = record.quotes.get(candidate.symbol)
-                        if quote is None:
-                            raise ReplayRejected("CANDIDATE_QUOTE_MISSING", "candidate has no explicit quote")
-                        snapshot = replace(quote, timeframe=candidate.timeframe)
-                        evidence = _evidence(record.evidence.get(candidate.symbol), now, config,
-                                             has_exposure=bool(bot.manager.load_open_trades()))
-                        features = build_strategy_features(candidate.bars, snapshot,
-                                                           max_spread_points=config.max_spread_points_default)
-                        features.update(broker_readiness_score=evidence.broker_readiness_score,
-                                        correlation=evidence.correlation)
-                        spec = instrument_snapshot.registry.get(candidate.symbol)
-                        context = bot._paper_decision_context(snapshot, features, initial_account,
-                                                              spec.broker_symbol, snapshots=record.quotes)
-                        if bot._paper_signal_already_traded(context.decision_id, candidate.symbol):
-                            rejections.append({"event_id": record.event_id, "symbol": candidate.symbol,
-                                "reject_code": "CANDIDATE_ALREADY_TRADED", "fatal": False})
-                            continue
-                        decision = bot._evaluate_paper_decision(context)
-                        decisions.append(decision)
-                        if any(stage.stage_id == "signal_audit" and stage.status in {"error", "rejected"} for stage in decision.trace):
-                            audit_complete = False
-                            raise ReplayAuditError("signal persistence was not confirmed")
-                        if not decision.accepted:
-                            rejections.append({"event_id": record.event_id, "symbol": candidate.symbol,
-                                "reject_code": decision.reject_code, "fatal": False})
-                            continue
-                        assert decision.trade_signal is not None and decision.risk_decision is not None and decision.strategy_signal is not None
-                        before = database.count_rows("paper_trades")
-                        strategy = decision.strategy_signal
-                        trade = bot.manager.open_trade(signal=decision.trade_signal,
-                            risk_decision=decision.risk_decision, snapshot=snapshot,
-                            broker_symbol=spec.broker_symbol, score=strategy.score,
-                            reasons=strategy.reasons, strategy_name=strategy.strategy_name,
-                            strategy_version=decision.trade_signal.strategy_version,
-                            regime=str(features["regime"]), session=str(features["session"]))
-                        trade = bot._decorate_stable_trade(trade, strategy, features)
-                        if database.count_rows("paper_trades") > before:
-                            bot._audit("PAPER_TRADE_OPENED", Severity.INFO, trade.to_dict(), symbol=trade.symbol)
-                        bot._refresh_paper_risk_state(initial_account, snapshots=record.quotes)
-                    except ReplayRejected as exc:
-                        rejected = {"event_id": record.event_id, "symbol": candidate.symbol,
-                                    "reject_code": exc.code, "reason": exc.reason, "fatal": False}
-                        bot._audit("STATEFUL_CANDIDATE_REJECTED", Severity.WARNING, rejected, symbol=candidate.symbol)
-                        rejections.append(rejected)
-                    # Unexpected/data/storage failures abort rather than skip an
-                    # unknown lifecycle or carry an unconfirmed acceptance.
-                state = bot._refresh_paper_risk_state(initial_account, snapshots=record.quotes)
-                valuation = {"event_id": record.event_id, "timestamp_utc": now.isoformat(),
-                    "balance": state.account.balance, "equity": state.account.equity,
-                    "realized_pnl": state.realized_pnl, "floating_pnl": state.floating_pnl,
-                    "open_positions": len(state.risk_state.open_positions),
-                    "open_risk_amount": sum(state.risk_state.open_position_risk_amounts.values()),
-                    "daily_reference": state.risk_state.daily_equity_reference,
-                    "daily_halted": state.risk_state.kill_switch.active}
-                bot._audit("STATEFUL_EVENT_COMPLETED", Severity.INFO, valuation)
+                cycle = PaperCycleInput(record.event_id, now,
+                    PaperAccountObservation(initial_account, now, True), record.quotes,
+                    tuple(PaperCandidate(item.symbol, item.timeframe,
+                        instrument_snapshot.registry.get(item.symbol).broker_symbol, item.bars)
+                        for item in record.decisions), record.evidence)
+                result = bot.process_paper_cycle(cycle)
+                decisions.extend(result.decisions)
+                rejections.extend(result.rejections)
+                audit_complete = audit_complete and result.audit_complete
+                if result.halted:
+                    halted = True
+                    break
+                valuation = result.valuation
+                bot._audit("STATEFUL_EVENT_COMPLETED", Severity.INFO, dict(valuation))
                 valuations.append(valuation)
                 completed += 1
             except Exception as exc:
-                code = getattr(exc, "code", None) or getattr(exc, "detail", {}).get("reject_code") or "STATEFUL_EVENT_ERROR"
-                rejection = {"event_id": record.event_id, "reject_code": code,
-                             "error_type": type(exc).__name__, "fatal": True}
-                rejections.append(rejection)
+                failure = halt_paper_cycle(bot, record.event_id, exc,
+                    decisions=decisions[event_decision_start:])
+                decisions[event_decision_start:] = failure.decisions
+                rejections.extend(failure.rejections)
+                audit_complete = audit_complete and failure.audit_complete
                 halted = True
-                if isinstance(exc, (OSError, sqlite3.Error, ReplayAuditError, PaperAuditError)) or getattr(bot, "audit_failed", False):
-                    audit_complete = False
-                try:
-                    bot._audit("STATEFUL_REPLAY_HALTED", Severity.ERROR, rejection)
-                except Exception:
-                    audit_complete = False
-                # A decision whose storage/fill lifecycle failed must not remain
-                # usable as approval in the returned replay result.
-                for index in range(event_decision_start, len(decisions)):
-                    last = decisions[index]
-                    if not last.accepted:
-                        continue
-                    risk = last.risk_decision
-                    if risk is not None:
-                        risk = replace(risk, accepted=False, approved_lot=0.0, risk_amount_account_currency=0.0,
-                                       reject_code="REPLAY_EVENT_ABORTED", reject_reason="replay event did not complete")
-                    decisions[index] = replace(last, accepted=False, reject_code="REPLAY_EVENT_ABORTED",
-                                           reject_reason="replay event did not complete", risk_decision=risk)
+                bot.paper_cycle_results.append(failure)
                 break
         trades = tuple(_economic_trade(trade.to_dict()) for trade in bot.manager.load_all_trades())
         body = {"decisions": [decision.to_dict() for decision in decisions], "valuations": valuations,
@@ -273,14 +196,8 @@ def run_stateful_replay(
         return result
 
 
-class ReplayRejected(ValueError):
-    def __init__(self, code: str, reason: str) -> None:
-        super().__init__(reason)
-        self.code, self.reason = code, reason
-
-
-class ReplayAuditError(RuntimeError):
-    code = "DECISION_AUDIT_FAILED"
+ReplayRejected = PaperCycleRejected
+ReplayAuditError = PaperCycleAuditError
 
 
 def _validate_initial_account(account: AccountState) -> None:
@@ -294,22 +211,8 @@ def _validate_market_event(event, config, instrument_snapshot, bot) -> None:
     now = _utc(event.timestamp_utc)
     if instrument_snapshot.captured_at_utc > now:
         raise ReplayRejected("INSTRUMENT_METADATA_FROM_FUTURE", "instrument metadata was unavailable at event time")
-    if not event.quotes:
-        raise ReplayRejected("EVENT_QUOTES_MISSING", "every market event needs explicit quotes")
+    validate_quotes(event.quotes, bot.manager.load_open_trades(), bot.clock.now_utc(), config)
     for symbol, quote in event.quotes.items():
-        if not isinstance(quote, MarketSnapshot) or quote.symbol != symbol:
-            raise ReplayRejected("QUOTE_SYMBOL_MISMATCH", "quote does not match its symbol key")
-        quote.validate()
-        age = (now - _utc(quote.timestamp_utc)).total_seconds()
-        if not 0 <= age <= min(config.max_tick_age_seconds, config.max_market_snapshot_age_seconds):
-            raise ReplayRejected("QUOTE_TIME_INVALID", "quote is stale or from the future")
-        if not all(_finite(getattr(quote, field)) for field in ("bid", "ask", "spread_points")):
-            raise ReplayRejected("QUOTE_INVALID", "quote values must be finite")
-        if not all(is_price_on_tick_grid(getattr(quote, field), quote.tick_size) for field in ("bid", "ask")):
-            raise ReplayRejected("QUOTE_GRID_INVALID", "observed quote is outside the instrument tick grid")
-        actual_spread = (quote.ask - quote.bid) / quote.point
-        if not math.isclose(actual_spread, quote.spread_points, rel_tol=0, abs_tol=1e-6):
-            raise ReplayRejected("QUOTE_SPREAD_MISMATCH", "quote spread must agree with bid/ask")
         spec = instrument_snapshot.registry.get(symbol)
         for quote_field, spec_field in (("digits", "digits"), ("point", "point"),
             ("tick_size", "tick_size"), ("tick_value", "tick_value"), ("volume_min", "min_volume"),
@@ -323,17 +226,7 @@ def _validate_market_event(event, config, instrument_snapshot, bot) -> None:
 
 
 def _evidence(value, now, config, *, has_exposure):
-    if not isinstance(value, ReplayEvidence):
-        raise ReplayRejected("BROKER_EVIDENCE_MISSING", "candidate requires explicit broker quality evidence")
-    age = (now - _utc(value.observed_at_utc)).total_seconds()
-    if not 0 <= age <= config.max_market_snapshot_age_seconds:
-        raise ReplayRejected("BROKER_EVIDENCE_TIME_INVALID", "quality evidence is stale or from the future")
-    if not _finite(value.broker_readiness_score) or not 0 < value.broker_readiness_score <= 100:
-        raise ReplayRejected("BROKER_QUALITY_UNVERIFIED", "broker readiness score is invalid")
-    if (has_exposure and value.correlation is None) or (value.correlation is not None and
-            (not _finite(value.correlation) or not -1 <= value.correlation <= 1)):
-        raise ReplayRejected("CORRELATION_UNVERIFIED", "exposed book requires measured finite correlation")
-    return value
+    return validate_evidence(value, now, config, has_exposure=has_exposure)
 
 
 def _manifest(config, initial, instruments, model, fill, input_digest, clock):

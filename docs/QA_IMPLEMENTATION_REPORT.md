@@ -1974,3 +1974,24 @@ remain net negative (PF approximately 0.866/0.721/0.806). These are development
 data with assumed broker metadata and unverified spread/cost provenance, not
 OOS or full-state portfolio evidence. See the central implementation status and
 `testing/evidence/2026-10-05-shared-pipeline/diagnostic-7abf90e/`.
+
+### 2026-10-05 — Shared paper lifecycle and honest synthetic evidence
+
+Full suite: **2101 passed in 97.89 seconds**, with isolated temporary data.
+The real forward run and quote replay now share one economic cycle. Independent
+regressions cover account/connection changes, incomplete book marks, stale dated
+quality evidence, required audit failure and durable restart blocking. Controlled
+positive economic parity is exercised for ACTIVE, not all profile combinations.
+
+Managed protection respects tick size, derived spreads use decimal price units,
+and inferred hour offsets cannot turn a future Python timestamp into fresh data.
+Monte Carlo evaluates the actual permuted sequence; post-trade stress labels
+unsupported operational scenarios NOT_MODELED and records reproducible inputs.
+Research consumers now handle these explicit absences and cannot approve labels
+whose parameters were not applied or whose train/test samples are identical.
+
+An initial full run found one incompatible legacy consumer (2086 passed, one
+failed); the corrected final run and initial log are preserved under
+`testing/evidence/2026-10-05-shared-pipeline/tests-lifecycle-root*.txt`.
+No broker calls, native runtime verification, financial edge or promotion follow
+from these software checks. The original checkout remains unmodified.

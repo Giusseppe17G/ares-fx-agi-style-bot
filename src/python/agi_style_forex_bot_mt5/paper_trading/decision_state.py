@@ -162,6 +162,8 @@ def build_paper_decision_state(
             snapshot = snapshots_by_symbol.get(trade.symbol)
             _validate_snapshot(snapshot, trade.symbol, now, max_age)
             assert snapshot is not None
+            if not all(is_price_on_tick_grid(price, snapshot.tick_size) for price in (entry, sl, tp)):
+                _fail("paper position price/protection violates observed broker tick grid", "PAPER_PROTECTION_GRID_INVALID")
             if not snapshot.volume_min <= lot <= snapshot.volume_max or not math.isclose(lot, normalize_lot_down(lot, snapshot), rel_tol=0, abs_tol=1e-8):
                 _fail("paper position volume is incompatible with observed instrument metadata")
             mark = snapshot.bid if trade.direction == "BUY" else snapshot.ask

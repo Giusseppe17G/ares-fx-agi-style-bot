@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from agi_style_forex_bot_mt5.config import BotConfig
+from agi_style_forex_bot_mt5.core.price_grid import spread_points_from_prices
 from agi_style_forex_bot_mt5.execution.release_policy import execution_block_reason
 from agi_style_forex_bot_mt5.contracts import (
     Direction,
@@ -443,10 +444,11 @@ class MT5Connector:
                 ),
                 None,
             )
-        bid = float(getattr(tick, "bid", 0.0))
-        ask = float(getattr(tick, "ask", 0.0))
-        point = float(getattr(symbol_info, "point", 0.0))
-        if bid <= 0 or ask <= 0 or ask < bid or point <= 0:
+        try:
+            raw_bid, raw_ask, raw_point = getattr(tick, "bid", None), getattr(tick, "ask", None), getattr(symbol_info, "point", None)
+            spread_points = spread_points_from_prices(raw_bid, raw_ask, raw_point)
+            bid, ask, point = float(raw_bid), float(raw_ask), float(raw_point)
+        except (TypeError, ValueError, ArithmeticError):
             return (
                 AdapterCheck.reject(
                     "MARKET_DATA_INVALID",
@@ -454,9 +456,6 @@ class MT5Connector:
                     symbol=canonical,
                     canonical_symbol=canonical,
                     broker_symbol=symbol,
-                    bid=bid,
-                    ask=ask,
-                    point=point,
                 ),
                 None,
             )
@@ -469,7 +468,7 @@ class MT5Connector:
             "broker_symbol": symbol,
             "bid": bid,
             "ask": ask,
-            "spread_points": (ask - bid) / point,
+            "spread_points": spread_points,
             "mt5_last_error": self.last_error_payload(),
             "market_is_probably_closed": is_market_probably_closed(now, canonical),
             "max_tick_age_seconds": self.config.max_tick_age_seconds,
@@ -515,7 +514,7 @@ class MT5Connector:
             timestamp_utc=freshness.selected_time_utc,
             bid=bid,
             ask=ask,
-            spread_points=(ask - bid) / point,
+            spread_points=spread_points,
             digits=int(getattr(symbol_info, "digits", 0)),
             point=point,
             tick_value=float(getattr(symbol_info, "trade_tick_value", 0.0)),

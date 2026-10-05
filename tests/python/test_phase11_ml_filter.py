@@ -144,6 +144,9 @@ def test_forward_shadow_audits_ml_prediction(monkeypatch, tmp_path: Path) -> Non
         def initialize(self):
             return True
 
+        def terminal_info(self):
+            return SimpleNamespace(connected=True)
+
         def account_info(self):
             return SimpleNamespace(login=1, trade_mode=0, balance=10000, equity=10000, margin_free=9000, currency="USD", trade_allowed=True)
 
@@ -166,7 +169,8 @@ def test_forward_shadow_audits_ml_prediction(monkeypatch, tmp_path: Path) -> Non
     monkeypatch.setattr(fsb.MLFilter, "load_latest_model", staticmethod(lambda: SimpleNamespace(approve_or_reject=lambda signal, features: MLFilterDecision("ML_DISABLED", None, None, None, None, None, 0.58, ("no model",)))))
     db = TelemetryDatabase(tmp_path / "fwd.sqlite3")
     try:
-        bot = ForwardShadowBot(config=BotConfig(paper_allow_disabled_ml=True), symbols=("EURUSD",), audit_logger=JsonlAuditLogger(tmp_path / "logs"), database=db, mt5_client=FakeMT5(), max_cycles=1, cycle_seconds=0)
+        bot = ForwardShadowBot(config=BotConfig(paper_allow_disabled_ml=True), symbols=("EURUSD",), audit_logger=JsonlAuditLogger(tmp_path / "logs"), database=db, mt5_client=FakeMT5(), max_cycles=1, cycle_seconds=0,
+            decision_evidence_provider=lambda snapshot, features, book: {"observed_at_utc": snapshot.timestamp_utc, "broker_readiness_score": 80., "correlation": 0.})
         summary = bot.run()
         assert summary.execution_attempted is False
         assert db.count_rows("model_predictions") >= 1

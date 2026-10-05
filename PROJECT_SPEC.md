@@ -974,3 +974,129 @@ incluye APIs de trading, red o DLL. No existe flag que active operaciones.
 - Compilacion se realiza en staging separado; no instala el EA ni inicia el
   terminal. Compilar un harness no implica haberlo ejecutado. Runtime, Telegram,
   estrategia nativa y validacion broker quedan pendientes de evidencia propia.
+
+### 17.3 Ciclo Economico Compartido Forward/Replay
+
+`paper_trading.lifecycle.process_paper_cycle(bot, cycle)` es el unico procesador
+del ciclo economico paper para `ForwardShadowBot.run` y el replay estatal. Los
+callers adquieren datos; el procesador valida, gestiona posiciones, decide,
+persiste y valora el libro. No obtiene cotizaciones faltantes por su cuenta.
+
+- Contratos de entrada: `PaperAccountObservation(account, observed_at_utc,
+  connected)`, `PaperCandidate(symbol, timeframe, broker_symbol, bars)`,
+  `PaperEvidence(observed_at_utc, broker_readiness_score, correlation)` y
+  `PaperCycleInput(event_id, observed_at_utc, account_observation, quotes,
+  candidates, evidence)`. Se conserva el transporte publico del replay mediante
+  conversion a estos contratos; no cambia el significado de sus timestamps.
+- `PaperCycleResult` conserva decisiones, rechazos, valuation, trades,
+  opened/closed, paused/halted y audit_complete. El metodo publico
+  `ForwardShadowBot.process_paper_cycle` delega en el mismo procesador. Las
+  pruebas de paridad deben pasar tambien por el `.run` real de forward; llamar
+  dos veces al helper no acredita integracion de ambos callers.
+- `ForwardShadowSummary` agrega audit_complete, lifecycle_halted y
+  paper_state_available. Un almacenamiento ilegible produce open_trades=null,
+  nunca cero como sustituto de un libro desconocido; consumidores deben
+  comprobar disponibilidad antes de interpretar el contador.
+- Cada ciclo exige cuenta demo conocida, conectada, permiso de trading
+  explicitamente conocido y datos finitos de capital. Ausencia de moneda,
+  identidad o timestamp no se sustituye por valores por defecto. Cambios de
+  identidad/moneda observables durante la sesion bloquean; no se registran IDs
+  reales ni se atribuye verificacion de servidor a un contrato que no lo expone.
+- Se valida el conjunto completo de cotizaciones, incluida toda exposicion
+  abierta, antes de mutaciones economicas. La frescura se revalida con el reloj
+  operativo antes de cada mutacion/apertura; no se congela el reloj del forward
+  para hacer pasar datos caducados. Evidencia de calidad broker exige fecha
+  explicita no futura y vigente. Nunca se inventa la fecha de una medicion.
+- Se persiste intencion de ciclo antes de mutar y se elimina solo tras auditoria
+  completa. Fallo de almacenamiento, auditoria obligatoria o gestion detiene los
+  candidatos restantes y deja un latch durable. Un reinicio con ciclo incompleto
+  bloquea hasta reconciliacion; la integridad fisica de SQLite no demuestra
+  integridad semantica del libro. Los fills ya persistidos siguen visibles aunque
+  se revoquen las aprobaciones del ciclo incompleto.
+- Los rechazos normales de estrategia no impiden evaluar el siguiente candidato
+  con exposicion actualizada. Se conservan gates de recuperacion, microforward,
+  estabilidad, riesgo y limites paper. Solo una pausa propia por drawdown diario
+  puede expirar, en nuevo dia con ledger/referencia verificados y configuracion
+  que permita reanudacion automatica. Una pausa manual o desconocida se conserva.
+- Se mantiene la referencia overnight de medianoche UTC exacta del apartado
+  anterior. La paridad controlada con fixtures no verifica timing, fills,
+  disponibilidad ni procedencia del broker: `full_pipeline_verified=False` y
+  `execution_authorized=False` permanecen vigentes.
+- Spread derivado de bid/ask/point usa aritmetica decimal de sus representaciones
+  declaradas (`spread_points_from_prices`). Se conservan fracciones reales y
+  limites; no se redondea al entero ni al umbral. Precios/point invalidos o
+  resultados no representables bloquean. El adapter de lectura, normalizacion
+  de ticks y validacion de replay comparten esta conversion para evitar que ruido
+  binario altere percentiles de spread o decisiones en un limite.
+- SL dinamico paper se alinea a tick_size hacia abajo para BUY y hacia arriba
+  para SELL, conservador respecto al beneficio simulado y sin aflojar el stop
+  existente. Break-even conserva el precio ejecutable de entrada y el riesgo
+  inicial no se sustituye por la distancia del stop modificado. Gestion y
+  valuation rechazan posiciones OPEN con entrada, SL o TP fuera de la rejilla;
+  no reescriben retrospectivamente cierres historicos.
+
+### 17.4 Evidencia Sintetica Monte Carlo Y Stress
+
+Una permutacion o bootstrap de resultados define una secuencia sintetica. No se
+puede ordenar despues por los timestamps originales: eso deshace la permutacion
+y falsea drawdown y rachas. Tampoco se atribuye un calendario observado a ella.
+
+- `shuffled_metrics` conserva argumentos y devuelve `SequenceMetrics`, con indice
+  entero de trade y capital inicial incluido. Conserva metricas economicas de
+  resultado, drawdown, profit factor, R y rachas usadas por sus consumidores.
+  Metricas dependientes del calendario (Sharpe, Sortino, retornos por periodo)
+  permanecen null o mapas vacios. Este cambio de tipo es intencional; callers
+  que requieran calendario deben usar trades observados y `calculate_metrics`.
+- Monte Carlo exige capital finito positivo, seed entero no negativo,
+  iteraciones enteras positivas, metodo admitido y umbral finito en (0, 100].
+  Booleanos, NaN, infinito y desbordamientos no producen reportes aprobatorios.
+- El campo legacy `risk_of_ruin_pct` conserva su nombre por compatibilidad, pero
+  declara su evento como `MAX_PEAK_DRAWDOWN_AT_LEAST_THRESHOLD`: probabilidad
+  simulada de alcanzar el umbral de drawdown. Un drawdown del 30% no equivale a
+  insolvencia. No se modifica el umbral de clasificacion ni se autoriza ejecucion.
+- Stress de costes/concentracion es `POST_TRADE_APPROXIMATION`. Una racha de
+  perdidas artificial se agrega al final de la secuencia, sin que fechas
+  originales reordenen sus resultados. Omision periodica e haircut fijo se
+  denominan `periodic_trade_omission` y `fixed_profit_haircut` respectivamente.
+- `entry_delay_one_bar`, `session_shift`, `fill_rate` y `missing_bars` requieren
+  replay con quotes explicitos. Sin esa evidencia se reportan `NOT_MODELED`,
+  metrics=null y motivo `REQUIRED_EXPLICIT_QUOTE_REPLAY`; no cuentan como pruebas
+  ejecutadas ni verificadas. Un haircut no demuestra retraso real de entrada.
+- Penalizaciones exigen unidades/costes finitos y coherencia de R. La eliminacion
+  de mejores trades usa posiciones de la secuencia, no identidad de objetos.
+  Las clasificaciones legacy de costes y concentracion quedan acotadas al
+  diagnostico; no sustituyen el Strategy Promotion Gate.
+- Reportes v2 conservan entradas normalizadas y hashes de datos/configuracion,
+  RunManifest, commit, fuentes, runtime y seed. Configuracion identifica capital,
+  umbral y supuestos de costes. Procedencia upstream permanece UNKNOWN salvo
+  evidencia explicita. Si se entregan trades y trades_path, trades es la entrada
+  efectiva; el hash del archivo es referencia adicional, no prueba de igualdad.
+- Consumidores de `StressResult` comprueban status y metrics antes de leer
+  resultados. Ausencia de escenarios completos o escenarios no modelados no
+  constituye evidencia suficiente. El runner legacy de investigacion declara
+  que no ha aplicado parametros diferenciados ni realizado una separacion OOS;
+  etiquetar candidatos no demuestra que se hayan probado estrategias distintas.
+  Ninguno de esos resultados puede autorizar promocion o ejecucion.
+
+### 17.5 Timestamps Python Sin Frescura Inferida
+
+El adapter Python interpreta timestamps MT5 como UTC conforme a su contrato
+publicado. Una diferencia proxima a una hora no demuestra zona horaria ni
+frescura: un tick viejo con otro offset produce la misma observacion.
+
+- `normalize_tick_time` conserva firma y diagnosticos, pero ninguna inferencia
+  de offset convierte un timestamp futuro en aceptable. Solo una edad observada
+  entre cero y max_tick_age_seconds, inclusive, permite status FRESH. Timestamps
+  invalidos, ambiguos, futuros o caducados bloquean.
+- Las banderas legacy de normalizacion/deteccion y lista de offsets pueden
+  proporcionar hints de diagnostico, nunca autorizacion de datos. No se
+  persiste una inferencia como offset confirmado ni se altera el timestamp usado
+  por riesgo. El antiguo resultado NORMALIZED_FRESH inferido deja de aceptarse
+  intencionalmente; la compatibilidad de argumentos no conserva ese fallo.
+- Un proveedor que realmente entregue otra base temporal requerira adaptador
+  explicitamente verificado, evidencia independiente e intervalo de validez.
+  Esta release no lo implementa. El contrato del observador MQL5 es distinto y
+  su configuracion no demuestra procedencia temporal de datos Python.
+- La frescura contra reloj local no autentica ese reloj ni el origen del tick.
+  Datos aparentemente UTC deben seguir pasando coherencia, calidad, auditoria
+  y gates de promocion. No se agrega una ruta de ejecucion broker.

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from agi_style_forex_bot_mt5 import cli
 from agi_style_forex_bot_mt5.research import (
@@ -16,6 +19,8 @@ from agi_style_forex_bot_mt5.research import (
     run_research,
     select_for_regime,
 )
+from agi_style_forex_bot_mt5.backtesting.stress_tester import StressResult, UNMODELED_SCOPE
+from agi_style_forex_bot_mt5.research.research_runner import _stress_evidence_summary
 
 
 def _history(path: Path, rows: int = 260) -> None:
@@ -113,6 +118,12 @@ def test_research_runner_produces_reports(tmp_path: Path) -> None:
     assert summary["execution_attempted"] is False
     assert (output_dir / "candidate_registry.json").exists()
     assert (output_dir / "recommended_strategy_mix.json").exists()
+    assert summary["stress_evidence_status"] == "INCOMPLETE"
+    assert summary["stress_scenario_counts"]["not_modeled_scenario_count"] == 16
+    assert summary["approved_for_shadow_observation"] == 0
+    assert summary["promotion_eligible"] is False
+    assert summary["oos_status"] == "OOS_NOT_EVALUATED"
+    assert summary["candidate_parameter_application"] is False
 
 
 def test_research_cli_accepts_mode(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -132,3 +143,80 @@ def test_research_cli_accepts_mode(monkeypatch, tmp_path: Path, capsys) -> None:
     code = cli.main(["--mode", "research", "--symbol", "EURUSD", "--data-dir", str(tmp_path), "--reports-root", str(tmp_path), "--output-dir", str(tmp_path)])
     assert code == 0
     assert '"execution_attempted": false' in capsys.readouterr().out
+
+
+def test_research_stress_summary_keeps_unsupported_scenarios_incomplete():
+    rows = [StressResult("cost", {}, SimpleNamespace(net_profit=100)),
+        StressResult("entry_delay_one_bar", {}, None, status="NOT_MODELED", evidence_scope=UNMODELED_SCOPE)]
+    result = _stress_evidence_summary(rows)
+    assert result["classification"] == "WATCHLIST"
+    assert result["evidence_status"] == "INCOMPLETE"
+    assert result["completed_scenario_count"] == result["not_modeled_scenario_count"] == 1
+    assert result["scenarios"][1]["net_profit"] is None
+    assert result["promotion_eligible"] is False
+
+
+@pytest.mark.parametrize("status", ["NOT_MODELED", "NO_INPUT", "INSUFFICIENT_INPUT"])
+def test_research_stress_summary_cannot_approve_without_completed_evidence(status):
+    result = _stress_evidence_summary([StressResult("unavailable", {}, None, status=status)])
+    assert result["classification"] == "REJECTED"
+    assert result["evidence_status"] == "NO_COMPLETED_EVIDENCE"
+    assert result["completed_scenario_count"] == 0
+
+
+@pytest.mark.parametrize("row", [
+    StressResult("missing", {}, None),
+    StressResult("nan", {}, SimpleNamespace(net_profit=float("nan"))),
+    StressResult("inf", {}, SimpleNamespace(net_profit=float("inf"))),
+    StressResult("boolean", {}, SimpleNamespace(net_profit=True)),
+    StressResult("unknown", {}, SimpleNamespace(net_profit=1), status="UNKNOWN"),
+    StressResult("unsupported_with_metrics", {}, SimpleNamespace(net_profit=1), status="NOT_MODELED"),
+    StressResult("unknown_scope", {}, SimpleNamespace(net_profit=1), evidence_scope="UNKNOWN"),
+    SimpleNamespace(status="COMPLETED", metrics=SimpleNamespace(net_profit=1)),
+])
+def test_research_stress_summary_rejects_invalid_typed_results(row):
+    result = _stress_evidence_summary([row])
+    assert result["classification"] == "REJECTED"
+    assert result["evidence_status"] == "INVALID"
+    assert result["invalid_scenario_count"] == 1
+    assert result["completed_scenario_count"] == 0
+
+
+def test_research_stress_negative_completed_result_preserves_rejection():
+    result = _stress_evidence_summary([StressResult("cost", {}, SimpleNamespace(net_profit=-1))])
+    assert result["classification"] == "REJECTED"
+    assert result["negative_completed_scenario_count"] == 1
+
+
+def test_profitable_research_fixture_does_not_claim_parameter_or_oos_validation(tmp_path, monkeypatch):
+    from test_backtesting import _trade
+    from agi_style_forex_bot_mt5.backtesting import BacktestOutcome, BacktestSettings, calculate_metrics
+    import agi_style_forex_bot_mt5.research.research_runner as runner
+
+    data = tmp_path / "historical"
+    data.mkdir()
+    _history(data / "EURUSD_M5.csv")
+    # A deterministic, deliberately favorable supplied outcome tests only the
+    # consumer contract. It is not evidence of any strategy's performance.
+    trades = tuple(replace(_trade(1000 if i % 4 else -100, signal_id=str(i)),
+        entry_time=f"2026-01-{i % 10 + 1:02d}T00:00:00Z",
+        exit_time=f"2026-01-{i % 10 + 1:02d}T01:00:00Z",
+        metadata={"session": "LONDON" if i % 2 else "NEW_YORK"}) for i in range(300))
+    outcome = BacktestOutcome(BacktestSettings(), calculate_metrics(trades), trades, (), pd.DataFrame())
+    monkeypatch.setattr(runner, "run_strategy_backtest", lambda *args, **kwargs: outcome)
+    summary = run_research(symbols=("EURUSD",), data_dir=data, reports_root=tmp_path / "reports",
+        output_dir=tmp_path / "output", max_candidates=1)
+    assert summary["approved_for_shadow_observation"] == 0
+    assert summary["classification"] == "WATCHLIST"
+    candidate, = summary["best_candidates"]
+    artifacts = candidate["validation_artifacts"]
+    assert artifacts["stress_summary"]["completed_scenario_count"] == 20
+    assert artifacts["stress_summary"]["not_modeled_scenario_count"] == 4
+    assert artifacts["stress_summary"]["evidence_status"] == "INCOMPLETE"
+    assert artifacts["candidate_parameter_application"] is False
+    assert artifacts["oos_status"] == "OOS_NOT_EVALUATED"
+    assert artifacts["promotion_eligible"] is False
+    registry = json.loads((tmp_path / "output" / "candidate_registry.json").read_text())
+    assert registry[0]["validation_artifacts"]["stress_summary"] == artifacts["stress_summary"]
+    mix = json.loads((tmp_path / "output" / "recommended_strategy_mix.json").read_text())
+    assert mix[0]["approved_strategies"] == []

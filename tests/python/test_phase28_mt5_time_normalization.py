@@ -119,22 +119,26 @@ class OffsetMT5:
         raise AssertionError("order_check must not be called")
 
 
-def test_tick_plus_three_hours_normalizes_to_fresh() -> None:
+def test_tick_plus_three_hours_is_an_unverified_diagnostic_hint() -> None:
     now = datetime(2026, 5, 18, 4, 10, 49, tzinfo=timezone.utc)
     raw = int((now + timedelta(hours=3, seconds=2)).timestamp())
     diagnostic = normalize_tick_time(raw, raw * 1000, now, config=BotConfig())
-    assert diagnostic["timestamp_normalized"] is True
-    assert diagnostic["broker_time_offset_seconds"] == 10800
-    assert diagnostic["tick_time_status"] == "NORMALIZED_FRESH"
+    assert diagnostic["timestamp_normalized"] is False
+    assert diagnostic["broker_time_offset_seconds"] == 0
+    assert diagnostic["suggested_broker_time_offset_seconds"] == 10800
+    assert diagnostic["tick_time_status"] == "FUTURE_TOO_FAR"
+    assert diagnostic["reject_reason"] == "BROKER_TIME_OFFSET_UNVERIFIED"
 
 
-def test_tick_plus_two_and_plus_one_hours_normalize_to_fresh() -> None:
+def test_tick_plus_two_and_plus_one_hours_fail_closed() -> None:
     now = datetime(2026, 5, 18, 4, 10, 49, tzinfo=timezone.utc)
     for hours, offset in ((2, 7200), (1, 3600)):
         raw = int((now + timedelta(hours=hours)).timestamp())
         diagnostic = normalize_tick_time(raw, raw * 1000, now, config=BotConfig())
-        assert diagnostic["broker_time_offset_seconds"] == offset
-        assert diagnostic["tick_time_status"] == "NORMALIZED_FRESH"
+        assert diagnostic["suggested_broker_time_offset_seconds"] == offset
+        assert diagnostic["broker_time_offset_seconds"] == 0
+        assert diagnostic["tick_time_status"] == "FUTURE_TOO_FAR"
+        assert diagnostic["reject_code"] == "MARKET_DATA_INVALID"
 
 
 def test_tick_plus_ten_hours_rejects_future_too_far() -> None:
@@ -158,7 +162,8 @@ def test_tick_without_time_msc_uses_time_fallback() -> None:
     raw = int((now + timedelta(hours=3)).timestamp())
     diagnostic = normalize_tick_time(raw, None, now, config=BotConfig())
     assert diagnostic["selected_tick_time_source"] == "time"
-    assert diagnostic["tick_time_status"] == "NORMALIZED_FRESH"
+    assert diagnostic["tick_time_status"] == "FUTURE_TOO_FAR"
+    assert diagnostic["selected_tick_time_utc"] == datetime.fromtimestamp(raw, timezone.utc).isoformat()
 
 
 def test_invalid_bid_ask_still_rejected_after_time_normalization(tmp_path: Path, monkeypatch) -> None:
@@ -184,7 +189,7 @@ def test_normalize_tick_time_does_not_depend_on_local_timezone(monkeypatch) -> N
     assert first["broker_time_offset_seconds"] == second["broker_time_offset_seconds"]
 
 
-def test_mt5_diagnose_normalized_tick_is_not_rejected(tmp_path: Path, monkeypatch) -> None:
+def test_mt5_diagnose_unverified_future_tick_is_rejected(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     db = TelemetryDatabase(tmp_path / "diag.sqlite3")
     try:
@@ -197,17 +202,17 @@ def test_mt5_diagnose_normalized_tick_is_not_rejected(tmp_path: Path, monkeypatc
         )
         summary = bot.run()
         diagnostic = summary.diagnostics[0]
-        assert summary.symbols_rejected == 0
-        assert diagnostic["timestamp_normalized"] is True
-        assert diagnostic["broker_time_offset_seconds"] == 10800
-        assert diagnostic["tick_time_status"] == "NORMALIZED_FRESH"
-        assert diagnostic["status"] == "PASSED"
-        assert diagnostic["reject_code"] is None
+        assert summary.symbols_rejected == 1
+        assert diagnostic["timestamp_normalized"] is False
+        assert diagnostic["broker_time_offset_seconds"] == 0
+        assert diagnostic["tick_time_status"] == "FUTURE_TOO_FAR"
+        assert diagnostic["status"] == "REJECTED"
+        assert diagnostic["reject_code"] == "MARKET_DATA_INVALID"
     finally:
         db.close()
 
 
-def test_forward_shadow_audits_normalized_tick(tmp_path: Path, monkeypatch) -> None:
+def test_forward_shadow_audits_rejected_unverified_future_tick(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     db = TelemetryDatabase(tmp_path / "forward.sqlite3")
     try:
@@ -224,20 +229,20 @@ def test_forward_shadow_audits_normalized_tick(tmp_path: Path, monkeypatch) -> N
         summary = bot.run()
         events = [row["event_type"] for row in db.fetch_all("events")]
         assert summary.execution_attempted is False
-        assert "TICK_TIME_NORMALIZED" in events
+        assert "TICK_TIME_NORMALIZED" not in events
+        assert "FUTURE_SIGNAL_REJECTION" in events
+        assert summary.paper_trades_opened == 0
     finally:
         db.close()
 
 
-def test_broker_time_offset_file_is_written_without_secrets(tmp_path: Path, monkeypatch) -> None:
+def test_inferred_offset_is_not_persisted_as_confirmed_evidence(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     client = OffsetMT5(offset_seconds=10800)
     connector = MT5Connector(config=BotConfig(), mt5_client=client)
     check, snapshot = connector.ensure_symbol_snapshot("EURUSD")
-    assert check.accepted is True
-    assert snapshot is not None
-    payload = (tmp_path / "data/runtime/broker_time_offset.json").read_text(encoding="utf-8")
-    assert "12345678" not in payload
-    assert "12***78" in payload
+    assert check.accepted is False
+    assert snapshot is None
+    assert not (tmp_path / "data/runtime/broker_time_offset.json").exists()
     assert "order_send" not in client.calls
     assert "order_check" not in client.calls

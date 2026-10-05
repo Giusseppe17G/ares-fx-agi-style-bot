@@ -13,6 +13,27 @@ def _decimal(value: float | Decimal, name: str) -> Decimal:
     return number
 
 
+def spread_points_from_prices(bid: float, ask: float, point: float) -> float:
+    """Derive point units from declared decimal prices without binary subtraction.
+
+    Do not round to an integer, a configured limit, or an instrument tick. Real
+    fractional spreads remain distinguishable from the next rejection boundary.
+    """
+    bid_value, ask_value, point_value = (_decimal(bid, "bid"), _decimal(ask, "ask"), _decimal(point, "point"))
+    if bid_value <= 0 or ask_value < bid_value or point_value <= 0:
+        raise ValueError("positive ordered quotes and point are required")
+    try:
+        with localcontext() as context:
+            context.prec = 80
+            points = (ask_value - bid_value) / point_value
+        result = float(points)
+    except (InvalidOperation, ZeroDivisionError, OverflowError) as exc:
+        raise ValueError("spread cannot be represented safely") from exc
+    if not isfinite(result) or (points > 0 and result == 0):
+        raise ValueError("spread cannot be represented safely")
+    return result
+
+
 def is_price_on_tick_grid(price: float, tick_size: float) -> bool:
     """Require an observed positive executable price without modifying it."""
     try:

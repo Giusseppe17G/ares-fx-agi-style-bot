@@ -97,6 +97,9 @@ def test_forward_shadow_audits_portfolio_decision(monkeypatch, tmp_path: Path) -
         def initialize(self):
             return True
 
+        def terminal_info(self):
+            return SimpleNamespace(connected=True)
+
         def account_info(self):
             return SimpleNamespace(login=1, trade_mode=0, balance=10000, equity=10000, margin_free=9000, currency="USD", trade_allowed=True)
 
@@ -120,7 +123,8 @@ def test_forward_shadow_audits_portfolio_decision(monkeypatch, tmp_path: Path) -
 
     db = TelemetryDatabase(tmp_path / "fwd.sqlite3")
     try:
-        bot = fsb.ForwardShadowBot(config=BotConfig(paper_allow_disabled_ml=True), symbols=("EURUSD",), audit_logger=JsonlAuditLogger(tmp_path / "logs"), database=db, mt5_client=FakeMT5(), max_cycles=1, cycle_seconds=0)
+        bot = fsb.ForwardShadowBot(config=BotConfig(paper_allow_disabled_ml=True), symbols=("EURUSD",), audit_logger=JsonlAuditLogger(tmp_path / "logs"), database=db, mt5_client=FakeMT5(), max_cycles=1, cycle_seconds=0,
+            decision_evidence_provider=lambda snapshot, features, book: {"observed_at_utc": snapshot.timestamp_utc, "broker_readiness_score": 80., "correlation": 0.})
         summary = bot.run()
         events = [row["event_type"] for row in db.fetch_all("events")]
         assert summary.execution_attempted is False

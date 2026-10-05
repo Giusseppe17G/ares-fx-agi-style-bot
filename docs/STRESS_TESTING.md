@@ -1,6 +1,6 @@
 # Stress Testing
 
-Stress testing checks whether a backtest collapses under worse costs, trade concentration, missing data proxies, delayed entries, and artificial loss streaks.
+Evidence version 2.0 applies post-trade monetary and concentration approximations to supplied closed trades. It does not rerun a strategy, fills or risk decisions. Operational scenarios requiring explicit quote replay are reported as `NOT_MODELED` with null metrics.
 
 Safety invariants:
 
@@ -24,9 +24,10 @@ The stress runner evaluates:
 - Commission multipliers: `x1.0`, `x1.5`, `x2.0`.
 - Removal of best `1%`, `5%`, and `10%` of trades.
 - Artificial losing streaks.
-- Missing-bars proxy.
-- One-bar entry delay proxy.
-- Session shift proxy.
+- Periodic trade omission, without claiming missing-bar or fill-rate behavior.
+- Fixed 5% absolute-profit haircut, without claiming delayed entries.
+
+Entry delay, session shift, fill rate and missing bars are explicitly unmodeled. Only `COMPLETED` scenarios count as completed; empty/all-zero evidence cannot fabricate successful checks or loss magnitudes. Synthetic loss streaks append PnL on an integer index, with no historical calendar metrics.
 
 ## Reports
 
@@ -34,7 +35,11 @@ Files:
 
 - `data/reports/stress/summary.json`
 - `data/reports/stress/scenarios.csv`
+- `data/reports/stress/scenarios.json`
+- `data/reports/stress/inputs.json`
+
+Summary includes scenario scopes/counts, exact assumptions, input/configuration/source hashes, commit and runtime versions. The inputs reproduce consumed economic fields; arbitrary metadata is excluded. Extra spread is charged once, extra slippage per side and input commission is assumed round trip. R retains its original risk denominator after every monetary penalty.
 
 ## Interpretation
 
-A strategy should not be promoted if spread `x2` destroys profitability or removing the top `5%` of trades removes the whole edge. That usually means the result is too fragile or too concentrated.
+The legacy diagnostic classification still uses spread `x2` and removal of the top `5%`, with unchanged cutoffs. It authorizes no promotion or execution. Passing these approximations does not prove operational robustness. See [the evidence contract](decisions/2026-10-05-sequence-and-post-trade-evidence.md) and [verification](testing/monte-carlo-stress-evidence.md).

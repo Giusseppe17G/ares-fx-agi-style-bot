@@ -385,11 +385,11 @@ def test_forward_scan_uses_actual_shared_pipeline_and_paper_state(fixture, tmp_p
     try:
         bot = ForwardShadowBot(config=ctx.config, symbols=("EURUSD",), database=db,
             audit_logger=JsonlAuditLogger(tmp_path / "scan-logs"), clock=FrozenClock(NOW),
-            decision_evidence_provider=lambda snapshot, features, positions: {"broker_readiness_score": 80, "correlation": 0.0})
+            decision_evidence_provider=lambda snapshot, features, positions: {"observed_at_utc": bot.clock.now_utc(), "broker_readiness_score": 80, "correlation": 0.0})
         bot.ml_filter = MLFilter(tmp_path / "scan-no-model")
         bot.manager.fill_model = PaperFillModel(slippage_points=0, clock=bot.clock)
         resolution = SimpleNamespace(broker_symbol="EURUSD", canonical_symbol="EURUSD")
-        bot.connector = SimpleNamespace(mt5=object(), resolve_symbol=lambda symbol: (SimpleNamespace(accepted=True), resolution))
+        bot.connector = SimpleNamespace(mt5=SimpleNamespace(terminal_info=lambda: SimpleNamespace(connected=True)), resolve_symbol=lambda symbol: (SimpleNamespace(accepted=True), resolution))
         monkeypatch.setattr(bot, "_snapshot_for", lambda *args: ctx.snapshot)
         monkeypatch.setattr(MT5DataOnlyBot, "_read_timeframes", lambda *args: {"M5": object()})
         monkeypatch.setattr(MT5DataOnlyBot, "_features_from_bars", lambda *args: {**ctx.features, "available_at_utc": ctx.snapshot.timestamp_utc})
@@ -411,7 +411,7 @@ def test_forward_scan_uses_actual_shared_pipeline_and_paper_state(fixture, tmp_p
         assert bot._scan_new_paper_trades(ctx.account) == 0
         assert db.count_rows("paper_trades") == 1
         payloads = [json.loads(row["payload_json"]) for row in db.fetch_all("events")]
-        assert any(payload.get("reject_code") == "BROKER_QUALITY_UNVERIFIED" for payload in payloads)
+        assert any(payload.get("reject_code") == "BROKER_EVIDENCE_MISSING" for payload in payloads)
     finally:
         db.close()
 
@@ -428,18 +428,21 @@ def test_forward_refreshes_risk_metrics_even_without_new_signals(fixture, tmp_pa
             audit_logger=JsonlAuditLogger(tmp_path / "metrics-logs"), clock=FrozenClock(NOW),
             max_cycles=1, cycle_seconds=0, report_dir=str(tmp_path / "reports"))
         monkeypatch.setattr(bot, "_connect", lambda: True)
-        monkeypatch.setattr(bot, "_read_account", lambda: ctx.account)
-        monkeypatch.setattr(bot, "_scan_new_paper_trades", lambda account: 0)
+        from agi_style_forex_bot_mt5.paper_trading.lifecycle import PaperAccountObservation, PaperCycleInput
+        observation = PaperAccountObservation(ctx.account, NOW, True)
+        monkeypatch.setattr(bot, "_observe_account", lambda: observation)
+        monkeypatch.setattr(bot, "_acquire_paper_cycle", lambda observed, **kwargs:
+            PaperCycleInput(kwargs['event_id'], NOW, observed, {"EURUSD": ctx.snapshot}, (), {}))
         monkeypatch.setattr(bot.recovery_manager, "recover", lambda: {"status": "OK"})
         seen = []
         calls = []
         original = bot._refresh_paper_risk_state
 
-        def refresh(account):
+        def refresh(account, **kwargs):
             calls.append("refresh")
             if refresh_fails:
                 raise OSError("sensitive-private-path")
-            return original(account)
+            return original(account, **kwargs)
 
         def legacy_override(metrics):
             raise AssertionError("a legacy override must not reset current verified risk")
@@ -448,17 +451,18 @@ def test_forward_refreshes_risk_metrics_even_without_new_signals(fixture, tmp_pa
         monkeypatch.setattr(bot, "_micro_legacy_drawdown_adjusted_metrics", legacy_override)
         monkeypatch.setattr(bot.alerts, "evaluate", lambda metrics: seen.append(metrics) or [])
         result = bot.run()
-        assert result.cycles_completed == 1
-        assert calls == ["refresh"]
-        assert len(seen) == 1
         if refresh_fails:
-            assert seen[0]["paper_risk_state_status"] == "UNKNOWN"
-            assert seen[0]["daily_drawdown_pct"] is None
-            assert seen[0]["paper_risk_state_reason"] == "PAPER_VALUATION_REFRESH_FAILED"
+            # A valuation storage failure now aborts the shared economic cycle;
+            # publishing a successful heartbeat with unknown equity is unsafe.
+            assert result.cycles_completed == 0 and result.lifecycle_halted
+            assert result.audit_complete is False
+            assert calls == ["refresh"] and seen == []
             events = db.fetch_all("events")
-            assert any(row["event_type"] == "PAPER_METRICS_UNVERIFIED" for row in events)
+            assert any(row["event_type"] == "PAPER_CYCLE_HALTED" for row in events)
             assert all("sensitive-private-path" not in row["payload_json"] for row in events)
         else:
+            assert result.cycles_completed == 1 and not result.lifecycle_halted
+            assert calls == ["refresh", "refresh"] and len(seen) == 1
             assert seen[0]["paper_risk_state_status"] == "VERIFIED"
             assert seen[0]["daily_drawdown_pct"] == 0
             assert seen[0]["paper_equity"] == 10000

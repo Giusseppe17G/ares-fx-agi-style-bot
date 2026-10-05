@@ -15,7 +15,7 @@ NOW = datetime(2026, 10, 5, 12, tzinfo=timezone.utc)
 
 def snapshot(bid=1.1, seconds=0):
     return MarketSnapshot(symbol="EURUSD", timeframe="M5", timestamp_utc=NOW + timedelta(seconds=seconds),
-                          bid=bid, ask=bid + 0.0001, spread_points=10., digits=5, point=0.00001,
+                          bid=bid, ask=round(bid + 0.0001, 5), spread_points=10., digits=5, point=0.00001,
                           tick_value=1., tick_size=0.00001, volume_min=.01, volume_max=100., volume_step=.01,
                           stops_level_points=0, freeze_level_points=0)
 
