@@ -65,7 +65,8 @@ La ampliacion posterior, guardada en `7abf90e4cc1cc35c9c66ce8d7f215cf7145ae1d3`
 `docs/testing/evidence/2026-10-05-shared-pipeline/tests-final-root-1940.txt`.
 Los tests no acreditan una ventaja financiera ni ejecucion nativa en terminal.
 
-La ampliacion de lifecycle, precision, reloj UTC y evidencia sintetica pasa
+La ampliacion `496140ec26923c48ec9e5f9a485e87bf89e773bc` de lifecycle,
+precision, reloj UTC y evidencia sintetica pasa
 **2.101 tests Python** en 97,89 segundos. Log:
 `docs/testing/evidence/2026-10-05-shared-pipeline/tests-lifecycle-root-final.txt`.
 La primera integracion detecto un consumidor de stress que no admitia resultados
@@ -100,6 +101,24 @@ resultado favorable.
 Los datos inspeccionados de febrero-mayo de 2026 son desarrollo/diagnostico y
 no pueden reutilizarse como holdout final. El reporte de candidatos independientes
 declara `full_risk_pipeline_applied=False`; no representa el replay estatal.
+
+El recalculo de secuencias con codigo limpio `496140e`, seed 82 y 2.000
+bootstraps por simbolo produjo los siguientes diagnosticos. Se ejecutaron desde
+otro directorio, verificando commit, hashes de fuentes y CSV preservados:
+
+| Simbolo | Probabilidad simulada de DD >= 30% | Retorno percentil 5 | Stress |
+| --- | ---: | ---: | --- |
+| EURUSD | 9,25% | -30,01% | REJECTED |
+| GBPUSD | 77,25% | -62,68% | REJECTED |
+| USDJPY | 43,15% | -45,75% | REJECTED |
+
+Son secuencias IID de PnL monetario fijo, con capital ilustrativo 10.000 y sin
+redimensionar lotes, no probabilidades predictivas del bot con riesgo de portfolio.
+DD del 30% no significa insolvencia. Los costes/metadatos originales siguen
+siendo supuestos; no se alteraron fills. La clasificacion legacy Monte Carlo
+WATCHLIST de EURUSD tampoco implica beneficio ni promocion. Los escenarios
+operativos de stress siguen NOT_MODELED. Evidencia:
+`docs/testing/evidence/2026-10-05-shared-pipeline/sequence-496140e/`.
 
 La verificacion global de paridad sigue incompleta. El inventario del motor
 legacy comparte 7/16 contratos de etapas y conserva nueve brechas. El nuevo
