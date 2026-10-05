@@ -1,3 +1,5 @@
 # Generated fixture hashes and --check compare exact canonical bytes.
 /tests/fixtures/native_closed_bar_cases.json text eol=lf
 /tests/mt5/GeneratedClosedBarFixtures.mqh text eol=lf
+/tests/fixtures/native_core_indicator_cases.json text eol=lf
+/tests/mt5/GeneratedCoreIndicatorFixtures.mqh text eol=lf

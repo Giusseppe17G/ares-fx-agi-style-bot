@@ -57,6 +57,13 @@ anteriores. Se conserva ese historial y se distingue de la evidencia nueva.
   del resultado ante fallo. Conserva gaps y excluye barras abiertas/futuras;
   no adquiere datos ni calcula indicadores. Fixtures distinguen coincidencias
   con Python de comprobaciones nativas deliberadamente mas estrictas.
+- Paquete nativo puro de EMA20/50/200, RSI14 y ATR14: revalida la ventana en cada
+  llamada y conserva las semillas Python y todo el prefijo recibido. Exige 200
+  barras para publicar el conjunto; limpia resultados ante fallo y no se conecta
+  al EA. El warmup 250 de investigacion sigue siendo una politica distinta.
+- VWAP Python rechaza productos/sumas no representables y conversiones de tipos
+  no normalizados; el fallback al precio tipico corresponde solo a volumen
+  acumulado cero. No convierte overflow en una cotizacion aparentemente valida.
 
 Contratos y compatibilidad estan en `PROJECT_SPEC.md`, seccion 17. ADRs en
 `docs/decisions/2026-10-05-*.md` documentan cambios y sus limites.
@@ -192,6 +199,27 @@ No se inicio el terminal ni se instalaron binarios. Las 31 aserciones anteriores
 y las 1.103 llamadas de asercion del nuevo harness **no se ejecutaron**.
 Tests Python y compilacion no acreditan comportamiento runtime MQL5, asignacion
 fallida, autenticidad UTC ni paridad integral. Estrategia/riesgo nativos pendientes.
+
+La ampliacion de indicadores se compilo despues en cuatro objetivos (los tres
+anteriores y CoreIndicatorsHarness), con cero errores y advertencias. Root
+verifico 21 fuentes, script, cuatro logs y cuatro binarios por hash. Evidencia:
+`docs/testing/evidence/native-core-indicators-2026-10-05/`. Las 49 fixtures
+sinteticas tienen 98 pruebas Python y 1.348 llamadas de asercion MQL compiladas,
+todavia no ejecutadas. Las tolerancias de regresion no son una cota universal de
+error ni modifican umbrales de estrategia. El RSI cuyo cociente desborda se
+rechaza explicitamente aunque pandas termine saturando a 100.
+
+La regresion de VWAP verifica tambien el `.run` real de forward con cliente
+falso y replay: ninguno produce decisiones ni trades con volumen que desborda.
+Forward registra fallo de features y excluye la candidatura durante adquisicion;
+replay detiene su lifecycle. Son modos de recuperacion distintos, no evidencia
+de paridad integral para ese fallo. La auditoria se conserva en ambos.
+
+Suite completa de esta ampliacion: **2.447 tests Python pasan** en 190,11
+segundos, con las mismas dos advertencias del desbordamiento monetario
+intencional. Log: `docs/testing/evidence/2026-10-05-shared-pipeline/tests-core-indicators-vwap-root.txt`.
+Ambos generadores de fixtures pasaron `--check` antes de esa corrida. No se
+repitio el estudio financiero para atribuir beneficio a cambios de software.
 
 ## Pendientes que impiden promocion
 

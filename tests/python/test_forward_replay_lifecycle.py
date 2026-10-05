@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from datetime import timedelta
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -268,6 +269,34 @@ def quote_event(entry, index, bid, *, decisions=(), evidence_age=0):
     quote = replace(base, timestamp_utc=now, bid=round(bid, 5), ask=round(bid+.00005, 5))
     return StatefulReplayEvent(f'cycle-{index+1}', now, {'EURUSD': quote}, decisions,
         {'EURUSD': ReplayEvidence(now-timedelta(seconds=evidence_age), 85., 0.)})
+
+
+def test_vwap_overflow_blocks_actual_forward_and_replay_before_candidate(lifecycle_case, tmp_path):
+    first = lifecycle_case['event']
+    bars = first.decisions[0].bars.copy(deep=True)
+    bars['volume'] = 1e308
+    event = replace(first, decisions=(replace(first.decisions[0], bars=bars),))
+    replay = run_case(lifecycle_case, tmp_path/'replay', [event])
+    assert replay.halted and replay.audit_complete and not replay.trades
+    assert not replay.decisions
+    bot, database, summary, client = forward_episode(lifecycle_case, tmp_path/'forward', [event])
+    try:
+        # Forward catches feature failure during acquisition and excludes the
+        # candidate. Replay catches it inside the lifecycle and halts that run.
+        # Both must persist evidence and prevent strategy/risk/order decisions.
+        assert summary.audit_complete
+        assert database.count_rows('paper_trades') == 0
+        assert not bot.paper_cycle_results[0].decisions
+        audit = [json.loads(line) for path in (tmp_path/'forward'/'events').glob('*.jsonl')
+                 for line in path.read_text(encoding='utf-8').splitlines()]
+        failures = [json.loads(item['payload_json']) for item in audit
+                    if item['event_type'] == 'FORWARD_FEATURE_BUILD_FAILED']
+        assert len(failures) == 1
+        assert 'VWAP arithmetic' in failures[0]['feature_build_exception']
+        assert failures[0]['execution_attempted'] is False
+        assert not any(call in {'order_send', 'order_check'} for call in client.calls)
+    finally:
+        database.close()
 
 
 @pytest.mark.parametrize('episode', ['stop_gap', 'profit', 'managed_stop', 'same_candle', 'stale_evidence', 'missing_quote'])

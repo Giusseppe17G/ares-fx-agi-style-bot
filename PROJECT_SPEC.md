@@ -1209,3 +1209,56 @@ adquiere historial; no cambia contratos Python ni el bloqueo de ejecucion.
   Compilacion y guardianes de fuente no acreditan ejecucion de sus aserciones
   ni paridad runtime. No se usa CopyRates, reloj, cuenta, red o almacenamiento
   dentro del selector; origen UTC y eleccion de volumen requieren adapter futuro.
+
+### 17.9 Indicadores Basicos Nativos Puros
+
+Paquete fijo `native_core_indicators_v1`: EMA20/50/200, RSI14 y ATR14 finales.
+No incluye regimen, scoring, senal, VWAP ni conexion al EA. No cambia parametros
+de estrategia ni usa funciones iMA/iRSI/iATR de semantica no acreditada.
+
+- `NativeCalculateCoreIndicators(const NativeClosedBarRequest &request,
+  const NativeClosedBar &bars[], NativeCoreIndicatorResult &result)` revalida
+  cada llamada mediante `NativeSelectClosedBars` con resultado local propio.
+  Nunca acepta un bool valid externo como prueba de procedencia o frescura.
+- Calcula desde el primer cierre del prefijo seleccionado, sin truncar, ordenar,
+  imputar ni guardar estado entre llamadas. Gaps cuentan como observaciones
+  sucesivas, sin decaimiento temporal adicional. Se exige tanto el minimo del
+  request como 200 barras cerradas para publicar los cinco valores; warmup 250
+  de investigacion sigue siendo una politica posterior distinta.
+- Referencia: funciones reales ema/rsi/atr de `data/indicators.py`. EMA se inicia
+  con primer close y alpha=2/(periodo+1). ATR inicia con high-low de primera
+  barra; despues usa max(high-low, abs(high-close_previo), abs(low-close_previo))
+  y alpha=1/14. RSI inicia medias de ganancias/perdidas con primera diferencia,
+  suaviza con alpha=1/14; requiere 15 cierres para 14 diferencias. No se usa
+  semilla SMA. RSI sin perdidas y ganancias positivas=100, ambas cero=50,
+  solo perdidas=0. ATR cero es matematicamente valido, no aprobacion de senal.
+- Resultado escalar con valid/reason, version, simbolo/timeframe, cantidad de
+  barras, inicio de historia, ultimo source/available, snapshot/reloj/resolucion
+  declarados y cinco valores. Ante fallo todos los valores, cantidades y tiempos
+  se limpian; flags execution_authorized/full_pipeline_verified siempre false.
+  No hay valores de salida parciales ni reutilizados de una llamada anterior.
+- Intermediarios y resultados deben ser finitos; salida EMA positiva, RSI en
+  [0,100], ATR no negativo. Riesgo de division por cero o overflow se rechaza
+  antes de la operacion peligrosa. Una comprobacion nativa mas estricta que el
+  resultado saturado de pandas se documenta como tal, no como paridad demostrada.
+- Fixtures sinteticas invocan Python real, conservan historia y versiones; una
+  tolerancia predeclarada de comparacion no modifica valores/umbrales del bot.
+  Pruebas de prefijos, inicio de historia, gaps, ventana cerrada, fallos y reset.
+  Compilar el harness no ejecuta sus aserciones ni verifica equivalencia runtime.
+
+### 17.10 VWAP Aproximado Ante Aritmetica Invalida
+
+- `approximate_vwap` conserva firma y formula acumulada de precio tipico/volumen.
+  El fallback al precio tipico solo corresponde a volumen acumulado exactamente
+  cero. No sustituye NaN/Inf de un desbordamiento ni cero por underflow de un
+  producto estrictamente positivo. Intermediarios/salida no finitos o no
+  positivos donde corresponda producen MarketDataError, sin features parciales.
+- Se conservan resultados ordinarios y el comportamiento de volumen inicial
+  cero. No se normaliza volumen, cambia precision, imputa datos ni introduce
+  dependencias para hacer pasar entradas extremas. Esta correccion restringe
+  entradas numericamente no representables antes aceptadas por error; no cambia
+  las semillas de indicadores ni acredita el origen del volumen.
+- Campos usados por VWAP requieren dtype numerico real normalizado. Tipos
+  complejos, booleanos u objetos (incluido Decimal sin normalizar) se rechazan
+  antes de convertir a float; truncar una parte imaginaria o convertir volumen
+  positivo no representable en cero no puede activar el fallback.

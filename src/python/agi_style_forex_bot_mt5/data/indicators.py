@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from .feature_engineering import add_price_features
-from .market_data import validate_ohlcv_frame
+from .market_data import MarketDataError, validate_ohlcv_frame
 
 
 def ema(series: pd.Series, period: int) -> pd.Series:
@@ -83,15 +83,40 @@ def bollinger_bands(
 
 
 def approximate_vwap(bars: pd.DataFrame) -> pd.Series:
-    """Return cumulative approximate VWAP using typical price and volume."""
+    """Return cumulative approximate VWAP, rejecting unrepresentable arithmetic.
 
+    Only an exactly zero cumulative volume uses the current typical price.
+    Non-finite arithmetic must not be converted into an apparently valid price.
+    """
+
+    for key in ("high", "low", "close", "volume"):
+        if key in bars:
+            dtype = bars[key].dtype
+            if (not pd.api.types.is_numeric_dtype(dtype)
+                    or pd.api.types.is_complex_dtype(dtype)
+                    or pd.api.types.is_bool_dtype(dtype)):
+                raise MarketDataError("VWAP requires normalized real numeric prices and volume")
     validate_ohlcv_frame(bars)
-    typical_price = (bars["high"] + bars["low"] + bars["close"]) / 3.0
+    # Convert before addition so valid int64 OHLC does not wrap on its sum.
+    high, low, close = (bars[key].astype(float) for key in ("high", "low", "close"))
     volume = bars["volume"].astype(float)
-    cumulative_volume = volume.cumsum()
-    cumulative_value = (typical_price * volume).cumsum()
-    vwap = cumulative_value / cumulative_volume.replace(0.0, np.nan)
-    return vwap.fillna(typical_price)
+    with np.errstate(over="ignore", invalid="ignore", under="ignore"):
+        typical_price = (high + low + close) / 3.0
+        weighted_price = typical_price * volume
+        cumulative_volume = volume.cumsum()
+        cumulative_value = weighted_price.cumsum()
+    intermediates = (typical_price, weighted_price, cumulative_volume, cumulative_value)
+    if not all(np.isfinite(value.to_numpy(dtype=float)).all() for value in intermediates):
+        raise MarketDataError("VWAP arithmetic contains non-finite intermediate values")
+    if (typical_price <= 0.0).any() or ((volume > 0.0) & (weighted_price <= 0.0)).any():
+        raise MarketDataError("VWAP arithmetic lost a strictly positive price or product")
+    zero_volume = cumulative_volume == 0.0
+    with np.errstate(over="ignore", invalid="ignore", under="ignore"):
+        # One is a division placeholder only; zero-volume rows use typical_price.
+        vwap = (cumulative_value / cumulative_volume.mask(zero_volume, 1.0)).mask(zero_volume, typical_price)
+    if not np.isfinite(vwap.to_numpy(dtype=float)).all() or (vwap <= 0.0).any():
+        raise MarketDataError("VWAP result is not a finite positive price")
+    return vwap
 
 
 def add_indicators(
