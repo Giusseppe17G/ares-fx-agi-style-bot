@@ -52,6 +52,11 @@ anteriores. Se conserva ese historial y se distingue de la evidencia nueva.
 - Base nativa MQL5 de observacion: cuenta demo verificada cada ciclo, validacion
   de cotizaciones/metadata/reloj, auditoria local obligatoria y gate de ejecucion
   siempre bloqueado. No implementa aun estrategia ni riesgo nativos.
+- Selector nativo puro de barras cerradas, aislado del EA: timestamps UTC
+  explicitos, limites de calendario/reloj, validacion de todo el lote y limpieza
+  del resultado ante fallo. Conserva gaps y excluye barras abiertas/futuras;
+  no adquiere datos ni calcula indicadores. Fixtures distinguen coincidencias
+  con Python de comprobaciones nativas deliberadamente mas estrictas.
 
 Contratos y compatibilidad estan en `PROJECT_SPEC.md`, seccion 17. ADRs en
 `docs/decisions/2026-10-05-*.md` documentan cambios y sus limites.
@@ -91,6 +96,12 @@ monetario y verifica su rechazo; no corresponden a una investigacion de mercado.
 La corrida completa se hizo con fuentes congeladas e incluye CLI desde otra
 CWD, persistencia, hashes, parametros efectivos, causalidad, moneda y geometria.
 El checkout original permanece limpio. No se ejecutaron ordenes ni terminal.
+
+El modulo nativo `37113e0d63855422d57e3c97d1819601c674be57` pasa la suite
+completa: **2.323 tests Python**, dos advertencias del desbordamiento intencional,
+en 180,41 segundos. Log: `docs/testing/evidence/2026-10-05-shared-pipeline/tests-native-closed-bars-root.txt`.
+La integracion `101b48c9cb0ff0e4fe2eb479e8b2157f7f61165f` conserva las fixtures
+canonicas byte a byte (`--check`) y vuelve a pasar sus 108 tests especificos.
 
 El estudio predeclarado de ese commit limpio completo sus 27 celdas:
 tres umbrales, tres simbolos y tres tramos temporales. Las nueve celdas train y
@@ -170,14 +181,17 @@ no certifican por si solos paridad economica completa de cada perfil. Se
 conserva `full_pipeline_verified=False`. Ver
 `docs/testing/forward-replay-lifecycle.md`.
 
-La revision local encontro MetaTrader 5 y MetaEditor instalados. Se sustituyo
-el EA vacio por una base de observacion y se compilaron EA y harness con
-MetaEditor 5.0.0.5833: **0 errores y 0 advertencias** en ambos. Los hashes del
-manifest coinciden con las fuentes actuales. Los otros contratos nativos no
-implementados siguen pendientes; el trabajo de estrategia/riesgo probado es
-Python. No se inicio el terminal ni se instalaron binarios. Las 31 aserciones
-del harness MQL5 se compilaron pero no se ejecutaron; 20 guardianes de fuente
-Python verifican restricciones estaticas, no comportamiento runtime.
+La revision local encontro MetaTrader 5 y MetaEditor instalados. La compilacion
+integrada con MetaEditor 5.0.0.5833 produjo **0 errores y 0 advertencias** en el
+EA observador, ObservationPolicyHarness y ClosedBarWindowHarness. Se verificaron
+los 17 hashes de fuentes, script, tres logs y tres binarios contra el staging
+aislado; evidencia en `docs/testing/evidence/native-closed-bars-integrated-2026-10-05/`.
+Git puede cambiar bytes de fin de linea, por lo que se conserva tambien la
+compilacion anterior y su manifest sin atribuirle los bytes del nuevo checkout.
+No se inicio el terminal ni se instalaron binarios. Las 31 aserciones anteriores
+y las 1.103 llamadas de asercion del nuevo harness **no se ejecutaron**.
+Tests Python y compilacion no acreditan comportamiento runtime MQL5, asignacion
+fallida, autenticidad UTC ni paridad integral. Estrategia/riesgo nativos pendientes.
 
 ## Pendientes que impiden promocion
 
