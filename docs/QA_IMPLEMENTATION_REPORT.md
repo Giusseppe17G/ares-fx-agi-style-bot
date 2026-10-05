@@ -1952,4 +1952,25 @@ The legacy OHLC inventory is now 7/16 shared stages after shared features/profil
 policy; nine gaps remain in that path. Its results must not be presented as a
 stateful portfolio backtest or as global parity. All broker execution capabilities
 in the supported adapter are blocked until a future reviewed release. MQL5 source
-files remain empty placeholders; no native EA compilation is claimed.
+files were empty placeholders at that commit; no native compilation was claimed.
+
+### 2026-10-05 — Corrected metrics, strict reports and native observer
+
+Code commit `7abf90e4cc1cc35c9c66ce8d7f215cf7145ae1d3`: full suite **1940 passed**.
+Engine 0.3.1 retains the initial capital and first calendar period, groups equal
+close timestamps and computes recovery from monetary drawdown. Consolidation
+report 2.0 rejects missing/invalid/unknown evidence as grounds for approval and
+declares its observational scope and lack of promotion/execution authority.
+
+The native observation EA and fixture harness compiled with MetaEditor
+5.0.0.5833, zero errors/warnings. Source hashes match the compile manifest.
+The harness was not run, no terminal was started and no binaries were installed.
+Native strategy/risk and runtime behavior remain unverified. Both Python and
+native release gates block broker execution.
+
+The new historical diagnostic ran from another CWD, verified code/script/data
+hashes, and preserved trades byte-for-byte versus 9aba352. All three symbols
+remain net negative (PF approximately 0.866/0.721/0.806). These are development
+data with assumed broker metadata and unverified spread/cost provenance, not
+OOS or full-state portfolio evidence. See the central implementation status and
+`testing/evidence/2026-10-05-shared-pipeline/diagnostic-7abf90e/`.

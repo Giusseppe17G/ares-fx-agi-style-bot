@@ -779,3 +779,16 @@ Paper equity/drawdown now require a fresh persisted ledger matching the complete
 book. Missing evidence is UNKNOWN, never zero. New trades use approved-lot PnL
 once and reconcile costs/tick rounding before opening. Legacy paper history needs
 explicit reconciliation before new entries and is not automatically rewritten.
+
+### 2026-10-05 — Latest code and diagnostic evidence
+
+Commit `7abf90e4cc1cc35c9c66ce8d7f215cf7145ae1d3` passes 1940 Python tests.
+Corrected realized metrics and strict report consolidation do not change the
+parity inventory or authorize promotion. The repeated development diagnostic
+remains negative in EURUSD, GBPUSD and USDJPY; all trade CSVs match 9aba352 byte
+for byte. Zero spreads and assumed broker metadata remain explicit limitations.
+
+An observation-only native EA now compiles cleanly; it cannot place orders and
+does not implement the Python strategies or prove runtime/parity. Native harness
+assertions were compiled, not executed. This evidence pack does not satisfy the
+Strategy Promotion Gate. Current details: `IMPLEMENTATION_STATUS_2026-10-05.md`.

@@ -48,12 +48,14 @@ Validacion del codigo guardado en `9aba3529306da2fc31948850807f5c54ec542dec`:
 con Python 3.14. Logs en `docs/testing/evidence/2026-10-05-shared-pipeline/`.
 `git diff --check` pasa. El checkout original se conserva sin modificaciones.
 
-La ampliacion posterior (motor 0.3.1, reporte observacional 2.0 y observador
-nativo) pasa **1.940 tests Python** desde la raiz en 71,20 segundos. Log:
+La ampliacion posterior, guardada en `7abf90e4cc1cc35c9c66ce8d7f215cf7145ae1d3`
+(motor 0.3.1, reporte observacional 2.0 y observador nativo), pasa
+**1.940 tests Python** desde la raiz en 71,20 segundos. Log:
 `docs/testing/evidence/2026-10-05-shared-pipeline/tests-final-root-1940.txt`.
 Los tests no acreditan una ventaja financiera ni ejecucion nativa en terminal.
 
-El diagnostico del commit `9aba352` (motor 0.3.0, con tick grid) produjo:
+El diagnostico del commit `7abf90e` (motor 0.3.1, con tick grid y metricas
+corregidas), ejecutado desde un directorio externo, produjo:
 
 | Simbolo | Trades | Profit factor | PnL neto simulado |
 | --- | ---: | ---: | ---: |
@@ -65,8 +67,11 @@ Son 644 candidatos independientes con lotaje fijo ilustrativo. El PnL esta
 expresado en las unidades de cuenta supuestas; no representa dinero operado,
 lotaje aprobado por portfolio ni rentabilidad OOS. Los tres resultados son
 negativos incluso bajo los supuestos de costes declarados. La correccion
-metrica 0.3.1 incluye primer periodo/capital inicial y recovery monetario;
-el artefacto anterior se conserva con sus limitaciones, sin reescribirlo.
+metrica 0.3.1 incluye primer periodo/capital inicial y recovery monetario.
+Los tres archivos de trades son identicos byte a byte al diagnostico `9aba352`;
+la correccion no modifica fills ni PnL. Se verificaron hashes de codigo, script
+y los tres datasets. Ambos reportes estan preservados en
+`docs/testing/evidence/2026-10-05-shared-pipeline/`.
 
 El spread original es cero en 18.845/20.000 barras EURUSD (94,225%),
 8/20.000 GBPUSD (0,04%) y 17.228/20.000 USDJPY (86,14%). No se puede afirmar que
