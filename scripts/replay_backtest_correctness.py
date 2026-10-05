@@ -21,6 +21,8 @@ def main() -> None:
     parser.add_argument("--symbols", default="EURUSD,GBPUSD,USDJPY")
     args = parser.parse_args()
     package_root = args.source_root.resolve() / "src" / "python"
+    if not (package_root / "agi_style_forex_bot_mt5" / "backtesting" / "backtester.py").is_file():
+        parser.error("source-root must contain the project backtester; installed packages are not a fallback")
     sys.path.insert(0, str(package_root))
     from agi_style_forex_bot_mt5.backtesting.backtester import (
         ENGINE_VERSION, BacktestSettings, CostModel, load_historical_csv, run_strategy_backtest,
@@ -61,6 +63,7 @@ def main() -> None:
         reports.append({
             "symbol": symbol, "dataset_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "data_quality": asdict(quality), "instrument": instrument.as_dict(),
+            "spread_observations": spread_observations(frame["spread_points"]),
             "metrics": metrics, "rejected_count": len(outcome.rejected_candidates),
             "rejection_reasons": dict(Counter(item["reason"] for item in outcome.rejected_candidates)),
         })
@@ -69,7 +72,10 @@ def main() -> None:
         "base_commit": args.code_commit, "source_tree_sha256": source_hash.hexdigest(),
         "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "engine_version": ENGINE_VERSION, "signal_profile": config.signal_profile,
-        "settings": asdict(settings),
+        "settings": asdict(settings), "effective_config": asdict(config),
+        "dataset_role": "INSPECTED_DEVELOPMENT_DATA_NOT_FINAL_HOLDOUT",
+        "entry_timing": "FIRST_OPEN_AT_OR_AFTER_CLOSED_BAR_AVAILABILITY",
+        "spread_provenance": "CSV_VALUES_NOT_BROKER_VERIFIED",
         "assumed_broker_metadata": True,
         "cost_provenance": "ILLUSTRATIVE_NOT_BROKER_VERIFIED",
         "full_risk_pipeline_applied": False, "operationally_eligible": False,
@@ -96,6 +102,21 @@ def main() -> None:
             "expectancy": result["metrics"]["expectancy"],
             "rejected": result["rejected_count"], "operationally_eligible": False,
         }))
+
+
+def spread_observations(values):
+    """Describe supplied spreads without interpreting zero as a verified cost."""
+    numbers = [float(value) for value in values]
+    if not numbers or any(not math.isfinite(value) or value < 0 for value in numbers):
+        raise ValueError("spread observations must be finite, nonnegative and nonempty")
+    zero_count = sum(value == 0 for value in numbers)
+    return {
+        "rows": len(numbers), "minimum_points": min(numbers),
+        "maximum_points": max(numbers), "zero_count": zero_count,
+        "zero_pct": 100.0 * zero_count / len(numbers),
+        "cost_verified": False,
+        "interpretation": "ZERO_MAY_BE_A_VALID_QUOTE_OR_MISSING_COST_EVIDENCE; NOT_RESOLVED_BY_THIS_DIAGNOSTIC",
+    }
 
 
 if __name__ == "__main__":

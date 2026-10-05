@@ -1933,3 +1933,23 @@ the complete pipeline, with full_pipeline_verified=false.
 54 new regressions; 1025 tests pass from both repository root and another CWD.
 See testing/backtest-causality-validation.md, the dated architecture decision,
 and EXTERNAL_TRADING_BENCHMARK_2026-10-05.md. Full phase 82B remains incomplete.
+
+### 2026-10-05 — Shared decisions, stateful paper replay and release lock
+
+The current implementation and limits are documented in
+`IMPLEMENTATION_STATUS_2026-10-05.md`. Code commit:
+`9aba3529306da2fc31948850807f5c54ec542dec`. Full Python suite: 1763 passed from
+the project root and 1763 passed from an alternate CWD. Evidence logs reside in
+`testing/evidence/2026-10-05-shared-pipeline/`.
+
+Forward uses the shared decision core and verified paper ledger. A separate
+explicit-quote replay now carries actual paper positions, equity and risk through
+time using those same components. Independent review covers audit failure,
+causality, risk with existing exposure, economic determinism and daily boundaries.
+This verifies software on fixtures, not market profitability or broker fills.
+
+The legacy OHLC inventory is now 7/16 shared stages after shared features/profile
+policy; nine gaps remain in that path. Its results must not be presented as a
+stateful portfolio backtest or as global parity. All broker execution capabilities
+in the supported adapter are blocked until a future reviewed release. MQL5 source
+files remain empty placeholders; no native EA compilation is claimed.

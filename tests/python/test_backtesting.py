@@ -502,7 +502,10 @@ def test_validation_report_consolidates_results(tmp_path: Path) -> None:
 
     report = build_master_validation_report(reports_root=root, output_dir=root / "validation")
 
-    assert report["classification"] == "APPROVED_FOR_SHADOW_OBSERVATION"
+    assert report["classification"] == "NEEDS_MORE_DATA"
+    assert set(report["missing_sections"]) == {"broker_quality", "readiness", "forward_shadow", "execution_simulation", "paper_vs_backtest"}
+    assert report["execution_enabled"] is False
+    assert report["full_pipeline_verified"] is False
     assert len(report["reports_created"]) == 3
 
 

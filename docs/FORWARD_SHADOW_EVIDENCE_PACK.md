@@ -765,3 +765,17 @@ The inventory now excludes three distinct adapters from shared implementations
 (5/16, 31.25%). Generated backtest trades retain source-bar timestamp,
 available_at_utc and entry_timing. Older results must be retained and reevaluated
 under engine 0.2.0. See testing/backtest-causality-validation.md.
+
+### 2026-10-05 — Current evidence supersedes prior readiness claims
+
+See `IMPLEMENTATION_STATUS_2026-10-05.md` and code commit
+`9aba3529306da2fc31948850807f5c54ec542dec`. The legacy OHLC inventory is now 7/16
+shared contracts (43.75%), with nine gaps; it is not globally PARITY_OK. The new
+stateful explicit-quote adapter and recorded-context adapter have separate scope
+labels and cannot silently promote old reports. Both full-suite invocations passed
+1763 tests. Strategy promotion and all broker orders remain blocked.
+
+Paper equity/drawdown now require a fresh persisted ledger matching the complete
+book. Missing evidence is UNKNOWN, never zero. New trades use approved-lot PnL
+once and reconcile costs/tick rounding before opening. Legacy paper history needs
+explicit reconciliation before new entries and is not automatically rewritten.

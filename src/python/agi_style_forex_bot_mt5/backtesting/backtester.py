@@ -36,7 +36,7 @@ from ..strategy import evaluate_ensemble
 from ..strategy.strategy_ensemble import EnsembleConfig, STRATEGY_VERSION
 
 
-ENGINE_VERSION = "0.3.0"
+ENGINE_VERSION = "0.3.1"
 
 
 @dataclass(frozen=True)
@@ -1089,7 +1089,7 @@ def calculate_metrics(
 ) -> BacktestMetrics:
     """Calculate project-required metrics from closed trades."""
 
-    normalized = [_trade_to_mapping(trade) for trade in trades]
+    normalized = _ordered_trade_mappings(trades)
     profits = np.array([float(trade["profit"]) for trade in normalized], dtype=float)
     r_values = np.array([float(trade.get("r_multiple", 0.0)) for trade in normalized], dtype=float)
     wins = profits[profits > 0]
@@ -1113,15 +1113,17 @@ def calculate_metrics(
 
     if equity_curve is None:
         equity_curve = build_equity_curve(normalized, initial_balance=initial_balance)
+    equity_curve = _equity_with_initial_balance(equity_curve, initial_balance)
     equity = equity_curve["equity"].astype(float)
     max_dd_pct, drawdown_pct = _max_drawdown_pct(equity)
-    daily_max_dd_pct = _daily_max_drawdown_pct(equity_curve)
+    daily_max_dd_pct = _daily_max_drawdown_pct(equity_curve, initial_balance)
     trade_returns = _trade_returns(profits, initial_balance)
     sharpe = _sharpe(trade_returns)
     sortino = _sortino(trade_returns)
-    recovery_factor = net_profit / abs(max_dd_pct / 100.0 * initial_balance) if max_dd_pct < 0 else None
+    max_dd_amount = float((equity.cummax() - equity).max()) if len(equity) else 0.0
+    recovery_factor = net_profit / max_dd_amount if max_dd_amount > 0 else None
     monthly_returns, trades_per_month = _monthly_stats(normalized, initial_balance)
-    worst_day, worst_week, worst_month = _worst_period_returns(equity_curve)
+    worst_day, worst_week, worst_month = _worst_period_returns(equity_curve, initial_balance)
     exposure_time_pct = _exposure_time_pct(
         normalized,
         total_bars=total_bars,
@@ -1181,38 +1183,32 @@ def build_equity_curve(
     initial_balance: float,
     candles: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Build an equity curve from trade close times and optional candle dates."""
+    """Build realized equity, including capital before the first realization.
 
-    normalized = [_trade_to_mapping(trade) for trade in trades]
+    All simultaneous closes form one net realization. Candle timestamps add
+    observations without hiding closes between bars. If the first observation
+    is also a close, its initial-capital row precedes the close at the same time.
+    """
+
+    normalized = _ordered_trade_mappings(trades)
+    timestamps: list[pd.Timestamp] = []
     if candles is not None and len(candles):
         bars = _normalize_candles(candles)
-        curve = pd.DataFrame({"timestamp": bars["timestamp"], "equity": initial_balance})
-    else:
-        timestamps = [pd.Timestamp(trade["exit_time"]) for trade in normalized]
-        if not timestamps:
-            timestamps = [pd.Timestamp("1970-01-01T00:00:00Z")]
-        curve = pd.DataFrame({"timestamp": sorted(timestamps), "equity": initial_balance})
-    curve = curve.sort_values("timestamp").reset_index(drop=True)
-    equity = float(initial_balance)
-    grouped: dict[pd.Timestamp, float] = {}
+        timestamps.extend(bars["timestamp"])
+    grouped: dict[pd.Timestamp, list[float]] = {}
     for trade in normalized:
-        ts = pd.Timestamp(trade["exit_time"])
-        grouped[ts] = grouped.get(ts, 0.0) + float(trade["profit"])
-    ordered = sorted(grouped.items(), key=lambda item: item[0])
-    pointer = 0
-    values: list[float] = []
-    for timestamp in curve["timestamp"]:
-        while pointer < len(ordered) and ordered[pointer][0] <= timestamp:
-            equity += ordered[pointer][1]
-            pointer += 1
-        values.append(equity)
-    if pointer < len(ordered):
-        for timestamp, profit in ordered[pointer:]:
-            equity += profit
-            curve.loc[len(curve)] = [timestamp, equity]
-            values.append(equity)
-    curve["equity"] = values[: len(curve)]
-    return curve.sort_values("timestamp").reset_index(drop=True)
+        ts = pd.to_datetime(trade["exit_time"], utc=True)
+        grouped.setdefault(ts, []).append(float(trade["profit"]))
+    timestamps.extend(grouped)
+    ordered = sorted(set(timestamps)) or [pd.Timestamp("1970-01-01T00:00:00Z")]
+    equity = float(initial_balance)
+    observations = [{"timestamp": ordered[0], "equity": equity}]
+    for timestamp in ordered:
+        if timestamp == ordered[0] and timestamp not in grouped:
+            continue
+        equity += math.fsum(grouped.get(timestamp, ()))
+        observations.append({"timestamp": timestamp, "equity": equity})
+    return pd.DataFrame(observations)
 
 
 def _normalize_candles(candles: pd.DataFrame) -> pd.DataFrame:
@@ -1385,6 +1381,35 @@ def _trade_to_mapping(trade: TradeResult | Mapping[str, Any]) -> Mapping[str, An
     return trade
 
 
+def _ordered_trade_mappings(trades: Iterable[TradeResult | Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Order realized outcomes by UTC close time, with deterministic identity ties."""
+    normalized = [_trade_to_mapping(trade) for trade in trades]
+
+    def ordering(trade: Mapping[str, Any]) -> tuple[pd.Timestamp, pd.Timestamp, str]:
+        exit_time = pd.to_datetime(trade["exit_time"], utc=True)
+        entry_time = pd.to_datetime(trade.get("entry_time", trade["exit_time"]), utc=True)
+        if pd.isna(exit_time) or pd.isna(entry_time):
+            raise ValueError("closed-trade metrics require valid timestamps")
+        return exit_time, entry_time, str(trade.get("signal_id", ""))
+
+    return sorted(normalized, key=ordering)
+
+
+def _equity_with_initial_balance(equity_curve: pd.DataFrame, initial_balance: float) -> pd.DataFrame:
+    """Normalize observation order and restore a missing pre-realization baseline."""
+    curve = equity_curve[["timestamp", "equity"]].copy()
+    curve["timestamp"] = pd.to_datetime(curve["timestamp"], utc=True)
+    if curve["timestamp"].isna().any():
+        raise ValueError("equity observations require valid timestamps")
+    curve = curve.sort_values("timestamp", kind="stable").reset_index(drop=True)
+    if curve.empty:
+        return pd.DataFrame({"timestamp": [pd.Timestamp("1970-01-01T00:00:00Z")], "equity": [float(initial_balance)]})
+    if float(curve["equity"].iloc[0]) != initial_balance:
+        baseline = pd.DataFrame({"timestamp": [curve["timestamp"].iloc[0]], "equity": [float(initial_balance)]})
+        curve = pd.concat([baseline, curve], ignore_index=True)
+    return curve
+
+
 def _max_drawdown_pct(equity: pd.Series) -> tuple[float, np.ndarray]:
     if len(equity) == 0:
         return 0.0, np.array([], dtype=float)
@@ -1394,15 +1419,18 @@ def _max_drawdown_pct(equity: pd.Series) -> tuple[float, np.ndarray]:
     return float(drawdown.min()), np.abs(drawdown.to_numpy(dtype=float))
 
 
-def _daily_max_drawdown_pct(equity_curve: pd.DataFrame) -> float:
+def _daily_max_drawdown_pct(equity_curve: pd.DataFrame, initial_balance: float) -> float:
     if len(equity_curve) == 0:
         return 0.0
     curve = equity_curve.copy()
     curve["timestamp"] = pd.to_datetime(curve["timestamp"], utc=True)
     worst = 0.0
+    previous_close = float(initial_balance)
     for _, group in curve.groupby(curve["timestamp"].dt.date):
-        dd, _ = _max_drawdown_pct(group["equity"].astype(float))
+        values = pd.Series([previous_close, *group["equity"].astype(float)], dtype=float)
+        dd, _ = _max_drawdown_pct(values)
         worst = min(worst, dd)
+        previous_close = float(values.iloc[-1])
     return float(worst)
 
 
@@ -1443,7 +1471,7 @@ def _monthly_stats(
     profits_by_month: dict[str, float] = {}
     counts_by_month: dict[str, int] = {}
     for trade in trades:
-        month = pd.Timestamp(trade["exit_time"]).strftime("%Y-%m")
+        month = pd.to_datetime(trade["exit_time"], utc=True).strftime("%Y-%m")
         profits_by_month[month] = profits_by_month.get(month, 0.0) + float(trade["profit"])
         counts_by_month[month] = counts_by_month.get(month, 0) + 1
     returns: dict[str, float] = {}
@@ -1454,16 +1482,19 @@ def _monthly_stats(
     return returns, counts_by_month
 
 
-def _worst_period_returns(equity_curve: pd.DataFrame) -> tuple[float, float, float]:
+def _worst_period_returns(equity_curve: pd.DataFrame, initial_balance: float) -> tuple[float, float, float]:
     if len(equity_curve) < 2:
         return 0.0, 0.0, 0.0
     curve = equity_curve.copy()
     curve["timestamp"] = pd.to_datetime(curve["timestamp"], utc=True)
-    curve = curve.set_index("timestamp").sort_index()
+    curve = curve.set_index("timestamp").sort_index(kind="stable")
 
     def worst(freq: str) -> float:
         period = curve["equity"].resample(freq).last().dropna()
-        returns = period.pct_change().dropna() * 100.0
+        previous = period.shift(1)
+        if len(previous):
+            previous.iloc[0] = initial_balance
+        returns = ((period - previous) / previous.replace(0, np.nan) * 100.0).dropna()
         return float(returns.min()) if len(returns) else 0.0
 
     return worst("D"), worst("W"), worst("ME")

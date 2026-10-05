@@ -835,7 +835,7 @@ no autoriza ejecucion demo ni real y no sustituye el Strategy Promotion Gate.
 - `backtesting.decision_replay.replay_decisions` reproduce contextos completos
   mediante FrozenClock y el mismo nucleo, con auditoria obligatoria del resultado.
   Este alcance es `RECORDED_DECISION_REPLAY`, no verificacion de rentabilidad ni
-  simulacion completa de portfolio. El motor OHLC `0.3.0` de candidatos
+  simulacion completa de portfolio. El motor OHLC `0.3.1` de candidatos
   independientes sigue declarando `full_risk_pipeline_applied=False` y
   `operationally_eligible=False`; sus metricas no promueven una estrategia.
 - `InstrumentRegistrySnapshot` captura solo symbol_info via cliente inyectado,
@@ -931,3 +931,46 @@ no autoriza ejecucion demo ni real y no sustituye el Strategy Promotion Gate.
   insercion puede conservarse separado y no alimenta decisiones historicas.
   Fallos de auditoria postfill se propagan como `PaperAuditError`, detienen el
   replay y marcan `audit_complete=False` aunque se pueda guardar el evento halt.
+- Metricas de trades cerrados incluyen el capital inicial antes del primer
+  resultado, incluso sin barras auxiliares. Si coincide con el primer cierre,
+  la curva conserva dos filas del mismo timestamp UTC, baseline primero; no
+  inventa un instante anterior. Agrupa cierres simultaneos y conserva todos los
+  timestamps de cierre entre barras. Retornos de peor dia/semana/mes
+  incluyen el primer periodo frente al capital inicial; no se descarta con
+  pct_change. Recovery factor divide beneficio neto por el maximo drawdown
+  monetario observado, no por un porcentaje multiplicado por capital inicial.
+  Estas metricas no sustituyen la trayectoria mark-to-market del replay estatal.
+- El consolidado `validation-report` es un informe observacional, nunca una
+  autorizacion de promocion o ejecucion. Evidencia ausente, JSON ambiguo,
+  numeros no finitos y clasificaciones desconocidas no equivalen a aprobacion.
+  Conserva umbrales y firmas; registra disponibilidad/calidad por seccion y
+  flags explicitos de ejecucion/promocion deshabilitadas. Arrays producidos por
+  el registry/mix de investigacion solo son informacion, no autorizaciones.
+- El diagnostico de candidatos conserva la configuracion efectiva, rol de los
+  datos inspeccionados y estadistica de spreads suministrados. Un spread cero
+  puede ser una observacion o evidencia incompleta; no se considera coste
+  verificado ni se sustituye silenciosamente. Las metricas conservan los
+  supuestos declarados y no autorizan promocion.
+
+### 17.2 Base Nativa De Observacion MQL5
+
+La primera implementacion nativa tiene scope `NATIVE_OBSERVATION_ONLY` y no
+implementa una estrategia ni certifica paridad con el motor Python. Su gate de
+ejecucion rechaza siempre `EXECUTION_NOT_RELEASED`; no construye requests ni
+incluye APIs de trading, red o DLL. No existe flag que active operaciones.
+
+- El EA exige cuenta demo conocida y conexion valida, incluso si alguien
+  cambia DEMO_ONLY. No lee ni registra login, servidor, nombre o credenciales.
+- Cotizaciones y metadata pasan validacion finita, precios/tick grid, spread,
+  volumen y frescura. Cada aceptacion/rechazo es de una observacion de datos,
+  nunca de una senal operable.
+- Reloj host UTC requiere confirmacion explicita y offset de timestamp del
+  broker declarado con intervalo de validez. Defaults desconocidos bloquean
+  inicializacion; no se deduce un offset ni se certifica autenticidad temporal.
+  Tester se rechaza donde no se pueda preservar esta semantica UTC.
+- Auditoria local JSONL UTF8 por sesion con limite de tamano, flush y verificacion
+  de lectura; fallo de auditoria aborta inicializacion o detiene observacion.
+  Este transporte no se presenta como entrada directa al replay Python.
+- Compilacion se realiza en staging separado; no instala el EA ni inicia el
+  terminal. Compilar un harness no implica haberlo ejecutado. Runtime, Telegram,
+  estrategia nativa y validacion broker quedan pendientes de evidencia propia.
