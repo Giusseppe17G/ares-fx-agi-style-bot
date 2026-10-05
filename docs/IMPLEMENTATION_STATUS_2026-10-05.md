@@ -32,6 +32,15 @@ anteriores. Se conserva ese historial y se distingue de la evidencia nueva.
   fuentes, commit y costes. Hashes verifican integridad, no origen autentico.
 - Walk-forward con ventanas test disjuntas, calentamiento y purga; sin optimizar
   supuestos de costes para mejorar el resultado.
+- Comparacion offline predeclarada de trend pullback: cinco parametros realmente
+  aplicados, umbrales 62/70/78 sin seleccion, periodos comunes 60/20/20 con
+  metricas propias, warmup 250 y exclusion previa de horizonte incompleto.
+  Plan persistido antes de evaluar, hashes verificados antes/despues de cada
+  celda y bloqueo ante cambios. Moneda, instrumento, lotaje y costes explicitos;
+  codigo no convierte datos de desarrollo en holdout ni autoriza promocion.
+- Motor OHLC 0.3.2 transmite tick_size real al fill y valida la rejilla de SL/TP.
+  BE/trailing usan distancias decimales y stops conservadores; las regresiones
+  reproducen precios antes inejecutables y activacion perdida de BE exacto.
 - Monte Carlo conserva la secuencia realmente mezclada y separa su indice
   sintetico del calendario. Stress declara aproximaciones posteriores al trade;
   retrasos, sesiones, fill rate y barras ausentes siguen NOT_MODELED. Reportes v2
@@ -72,6 +81,15 @@ precision, reloj UTC y evidencia sintetica pasa
 La primera integracion detecto un consumidor de stress que no admitia resultados
 NOT_MODELED; se corrigio y se conserva el log fallido anterior. `git diff --check`
 pasa. Los tests siguen aislados de MT5 real y del directorio original de datos.
+
+La ampliacion del estudio predeclarado y motor OHLC 0.3.2 pasa
+**2.213 tests Python** en 179,65 segundos. Log:
+`docs/testing/evidence/2026-10-05-shared-pipeline/tests-predeclared-root.txt`.
+Las dos advertencias NumPy pertenecen al test que provoca un desbordamiento
+monetario y verifica su rechazo; no corresponden a una investigacion de mercado.
+La corrida completa se hizo con fuentes congeladas e incluye CLI desde otra
+CWD, persistencia, hashes, parametros efectivos, causalidad, moneda y geometria.
+El checkout original permanece limpio. No se ejecutaron ordenes ni terminal.
 
 El diagnostico del commit `7abf90e` (motor 0.3.1, con tick grid y metricas
 corregidas), ejecutado desde un directorio externo, produjo:
@@ -157,11 +175,13 @@ Python verifican restricciones estaticas, no comportamiento runtime.
 5. Verificacion runtime del observador y posterior implementacion/verificacion
    de estrategia/riesgo nativos si se entrega el EA completo contemplado en la
    vision. Compilar el observador no acredita esos modulos ni paridad Python.
-6. Sustituir la comparacion aparente del runner legacy de investigacion: sus
-   etiquetas de candidatos no aplican parametros distintos al backtest y el
+6. Completar la validacion financiera del nuevo estudio predeclarado, incluidos
+   baselines y datos intactos. Las etiquetas de candidatos del runner legacy
+   no aplican parametros distintos al backtest y el
    assessment reutiliza la misma muestra como train/test. Ahora lo declara
    `OOS_NOT_EVALUATED`, limita resultados a diagnostico y no aprueba candidatos.
-   Ese runner no sirve aun para seleccionar una estrategia validada.
+   El runner nuevo aplica parametros y separa tramos, pero sus resultados de
+   desarrollo tampoco permiten seleccionar una estrategia validada.
 
 Uso offline: `docs/testing/stateful-replay-input.md`. Fuentes publicas y decisiones
 de metodologia: `docs/EXTERNAL_TRADING_BENCHMARK_2026-10-05.md`.

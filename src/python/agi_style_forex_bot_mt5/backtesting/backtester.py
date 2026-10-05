@@ -12,6 +12,7 @@ import math
 from hashlib import sha256
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -26,6 +27,7 @@ from ..data.strategy_features import prepare_strategy_features, strategy_feature
 from ..data_pipeline.historical_csv_loader import load_historical_csv_contract
 from ..data_pipeline.historical_data_resolver import resolve_historical_data
 from ..core.execution import SharedFillModel
+from ..core.price_grid import is_price_on_tick_grid, snap_price_to_tick
 from ..core.decision.signal_builder import build_signal_prices
 from ..core.clock import FrozenClock
 from ..core.run_manifest import RunManifest
@@ -36,7 +38,7 @@ from ..strategy import evaluate_ensemble
 from ..strategy.strategy_ensemble import EnsembleConfig, STRATEGY_VERSION
 
 
-ENGINE_VERSION = "0.3.1"
+ENGINE_VERSION = "0.3.2"
 
 
 @dataclass(frozen=True)
@@ -392,6 +394,9 @@ class Backtester:
             raise ValueError("candidate lot must be positive")
         if not all(math.isfinite(value) and value > 0 for value in (candidate.sl_price, candidate.tp_price)):
             raise ValueError("candidate requires positive SL and TP")
+        if not all(is_price_on_tick_grid(value, self.settings.cost_model.tick_size)
+                   for value in (candidate.sl_price, candidate.tp_price)):
+            raise ValueError("candidate SL and TP must be on the executable tick grid")
 
         timestamp = pd.to_datetime(candidate.timestamp, utc=True)
         if pd.isna(timestamp):
@@ -427,6 +432,7 @@ class Backtester:
             spread_points=spread_points,
             slippage_points=self.settings.cost_model.slippage_points,
             point=self.settings.cost_model.point,
+            tick_size=self.settings.cost_model.tick_size,
             max_spread_points=self.settings.cost_model.max_spread_points,
         )
         _validate_directional_prices(direction, entry_price, candidate.sl_price, candidate.tp_price)
@@ -434,7 +440,8 @@ class Backtester:
         initial_sl = float(candidate.sl_price)
         current_sl = initial_sl
         tp_price = float(candidate.tp_price)
-        risk_distance = abs(entry_price - initial_sl)
+        entry_decimal = Decimal(str(entry_price))
+        risk_distance = float(abs(entry_decimal - Decimal(str(initial_sl))))
         if risk_distance <= 0:
             raise ValueError("SL distance must be positive")
 
@@ -455,8 +462,8 @@ class Backtester:
             high = float(row.high)
             low = float(row.low)
             if direction == Direction.BUY.value:
-                mae = min(mae, low - entry_price)
-                mfe = max(mfe, high - entry_price)
+                mae = min(mae, float(Decimal(str(low)) - entry_decimal))
+                mfe = max(mfe, float(Decimal(str(high)) - entry_decimal))
                 if low <= current_sl:
                     exit_base_price = current_sl
                     exit_reason = "SL"
@@ -476,8 +483,8 @@ class Backtester:
                     bar_extreme=high,
                 )
             else:
-                mae = min(mae, entry_price - high)
-                mfe = max(mfe, entry_price - low)
+                mae = min(mae, float(entry_decimal - Decimal(str(high))))
+                mfe = max(mfe, float(entry_decimal - Decimal(str(low))))
                 if high >= current_sl:
                     exit_base_price = current_sl
                     exit_reason = "SL"
@@ -503,6 +510,7 @@ class Backtester:
             spread_points=spread_points,
             slippage_points=self.settings.cost_model.slippage_points,
             point=self.settings.cost_model.point,
+            tick_size=self.settings.cost_model.tick_size,
             max_spread_points=self.settings.cost_model.max_spread_points,
         )
         commission = self.settings.cost_model.commission_per_lot_round_turn * candidate.lot
@@ -569,28 +577,36 @@ class Backtester:
         risk_distance: float,
         bar_extreme: float,
     ) -> float:
-        new_sl = current_sl
-        point = self.settings.cost_model.point
+        new_sl = Decimal(str(current_sl))
+        point = Decimal(str(self.settings.cost_model.point))
+        entry = Decimal(str(entry_price))
+        extreme = Decimal(str(bar_extreme))
+        excursion = Decimal(str(favorable_excursion))
+        risk = Decimal(str(risk_distance))
         if (
             self.settings.break_even_trigger_r is not None
-            and favorable_excursion >= self.settings.break_even_trigger_r * risk_distance
+            and excursion >= Decimal(str(self.settings.break_even_trigger_r)) * risk
         ):
-            lock = self.settings.break_even_lock_points * point
+            lock = Decimal(str(self.settings.break_even_lock_points)) * point
             if direction == Direction.BUY.value:
-                new_sl = max(new_sl, entry_price + lock)
+                new_sl = max(new_sl, entry + lock)
             else:
-                new_sl = min(new_sl, entry_price - lock)
+                new_sl = min(new_sl, entry - lock)
         if (
             self.settings.trailing_start_r is not None
             and self.settings.trailing_distance_points > 0
-            and favorable_excursion >= self.settings.trailing_start_r * risk_distance
+            and excursion >= Decimal(str(self.settings.trailing_start_r)) * risk
         ):
-            distance = self.settings.trailing_distance_points * point
+            distance = Decimal(str(self.settings.trailing_distance_points)) * point
             if direction == Direction.BUY.value:
-                new_sl = max(new_sl, bar_extreme - distance)
+                new_sl = max(new_sl, extreme - distance)
             else:
-                new_sl = min(new_sl, bar_extreme + distance)
-        return new_sl
+                new_sl = min(new_sl, extreme + distance)
+        # An adjusted protective stop cannot claim an unexecutable extra tick
+        # of profit. The existing stop was validated and is never loosened.
+        aligned = snap_price_to_tick(new_sl, self.settings.cost_model.tick_size,
+                                     rounding="down" if direction == Direction.BUY.value else "up")
+        return max(current_sl, aligned) if direction == Direction.BUY.value else min(current_sl, aligned)
 
 
 def load_historical_csv(
@@ -1265,6 +1281,7 @@ def _apply_entry_cost(
     spread_points: float,
     slippage_points: float,
     point: float,
+    tick_size: float | None = None,
     max_spread_points: float = 25.0,
 ) -> float:
     """Entry price under the shared execution model.
@@ -1279,6 +1296,7 @@ def _apply_entry_cost(
         spread_points=spread_points,
         slippage_points=slippage_points,
         point=point,
+        tick_size=tick_size,
         is_entry=True,
         max_spread_points=max_spread_points,
     )
@@ -1292,9 +1310,10 @@ def _shared_fill_price(
     slippage_points: float,
     point: float,
     is_entry: bool,
+    tick_size: float | None = None,
     max_spread_points: float = 25.0,
 ) -> float:
-    snapshot = _replay_snapshot(base_price, spread_points=spread_points, point=point)
+    snapshot = _replay_snapshot(base_price, spread_points=spread_points, point=point, tick_size=tick_size)
     model = SharedFillModel(max_spread_points=max_spread_points, slippage_points=slippage_points)
     # Reapply the same limit as the run's gate, without inflating it.
     # Preserve the observed spread exactly, including zero.
@@ -1312,8 +1331,15 @@ def _shared_fill_price(
     return float(result.fill_price)
 
 
-def _replay_snapshot(base_price: float, *, spread_points: float, point: float) -> MarketSnapshot:
-    """A price-only replay snapshot; the fixed epoch is not a live tick."""
+def _replay_snapshot(base_price: float, *, spread_points: float, point: float,
+                     tick_size: float | None = None) -> MarketSnapshot:
+    """Price-only replay, never a live tick or a source of volume limits.
+
+    Legacy private price callers may omit tick_size; Backtester always passes
+    the explicit instrument geometry from CostModel. lot=0 requests only a
+    price estimate from SharedFillModel, so placeholder volume fields do not
+    validate candidate sizing. Instrument-aware callers must validate sizing.
+    """
 
     half = spread_points * point / 2.0
     digits = max(0, int(round(-math.log10(point)))) if point > 0 else 5
@@ -1327,7 +1353,7 @@ def _replay_snapshot(base_price: float, *, spread_points: float, point: float) -
         digits=digits,
         point=point,
         tick_value=1.0,
-        tick_size=point,
+        tick_size=point if tick_size is None else tick_size,
         volume_min=0.01,
         volume_max=100.0,
         volume_step=0.01,
@@ -1343,11 +1369,13 @@ def _apply_exit_cost(
     spread_points: float,
     slippage_points: float,
     point: float,
+    tick_size: float | None = None,
     max_spread_points: float = 25.0,
 ) -> float:
     return _shared_fill_price(
         base_price, direction=direction, spread_points=spread_points,
         slippage_points=slippage_points, point=point, is_entry=False,
+        tick_size=tick_size,
         max_spread_points=max_spread_points,
     )
 

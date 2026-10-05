@@ -1100,3 +1100,69 @@ frescura: un tick viejo con otro offset produce la misma observacion.
 - La frescura contra reloj local no autentica ese reloj ni el origen del tick.
   Datos aparentemente UTC deben seguir pasando coherencia, calidad, auditoria
   y gates de promocion. No se agrega una ruta de ejecucion broker.
+
+### 17.6 Comparacion Predeclarada De Trend Pullback
+
+Primera ampliacion de investigacion efectiva, exclusivamente offline. Hipotesis
+y protocolo se fijan en `docs/research/trend-pullback-predeclared-v1.md` antes de
+implementar/evaluar. No sustituye el runner legacy ni activa el componente en
+forward por un resultado favorable.
+
+- `TrendPullbackResearchParams` admite solo rsi_buy_min, rsi_buy_max,
+  rsi_sell_min, rsi_sell_max y min_score. Defaults 38/58/42/62/62 reproducen
+  condiciones actuales. Una configuracion keyword opcional del evaluator aplica
+  esos valores; callers existentes conservan comportamiento por defecto.
+  Claves EMA, SL/TP, costes y cualquier otra no soportada se rechazan, no se
+  guardan como si hubieran afectado el resultado.
+- Plan v1 immutable por hash, serializado y persistido antes de evaluar. Declara
+  entradas/hashes, hipotesis, parametros completos, codigo/version, instrumento,
+  costes, gestion fija, lotaje, capital, calidad/procedencia y limites temporales.
+  La comparacion inicial incluye min_score 62/70/78 y RSI default; no selecciona
+  ganador (`NONE_COMPARE_ALL`) ni optimiza costes, stops o gestion.
+- Splits UTC comunes [inicio, fin), materializados en el plan desde timestamps
+  con proporcion temporal 60/20/20. Se verifican fechas, filas y hashes por
+  simbolo; no se reorganizan ni acortan para obtener trades. Etiquetas
+  train/validation/development_test no convierten datos ya inspeccionados en
+  holdout final. Roles admitidos inicialmente: desarrollo inspeccionado o fixture
+  sintetica; final_holdout=NOT_AVAILABLE.
+- Warmup de 250 barras anteriores, solo para indicadores; ninguna entrada suya
+  participa en metricas. Barras/decision deben haber cerrado dentro de la ventana
+  y disponer de horizonte completo de max_holding_bars antes de admitir una
+  entrada. Exclusiones por borde se deciden antes de conocer salida/PnL y quedan
+  registradas. No se fabrica un cierre para aprovechar una salida truncada.
+- Identidad de hipotesis incluye estrategia/version y cinco parametros. La de
+  evaluacion liga plan, hipotesis, simbolo, split, fuentes/config/datos/instrumento
+  y costes. Se guardan todos los resultados, rechazos, ausencia e insuficiencia,
+  con PnL y metricas propios de cada tramo. No se copia train hacia test.
+- El plan exige denomination_currency explicita (tres letras ASCII mayusculas).
+  Capital, PnL, valor monetario del tick y comision usan esa misma moneda;
+  tick_value_currency y commission_currency de procedencia deben coincidir.
+  Moneda quote/margin del simbolo no acredita moneda del tick ni de cuenta.
+  No existe conversion FX implicita; ausencia o discrepancia bloquea el plan.
+- El evaluator reutiliza features causales, estrategia trend_pullback, politica
+  de proteccion compartida y Backtester. Reporta candidaturas independientes con
+  lote fijo: full_risk_pipeline_applied=False, full_pipeline_verified=False y
+  promotion_eligible=False. Metadata/costes asumidos permanecen declarados.
+- Walk-forward y baselines no ejecutados se declaran NOT_EVALUATED. Cualquier
+  seleccion posterior exige otro plan y walk-forward conforme a seccion 12;
+  ver resultados en development_test impide reutilizarlo como test final.
+  No hay conclusion operativa, umbral de aprobacion nuevo ni ruta broker.
+
+### 17.7 Rejilla Ejecutable En Backtester OHLC
+
+- Engine 0.3.2 pasa CostModel.tick_size a SharedFillModel tanto para entrada
+  como salida. point sigue midiendo spread/slippage; no reemplaza tick_size.
+  Fills se redondean adversamente y SL/TP iniciales fuera de rejilla se rechazan.
+  Stops dinamicos usan aritmetica decimal y redondeo conservador (BUY abajo,
+  SELL arriba), sin aflojar el stop existente ni modificar el riesgo inicial.
+  Distancias de riesgo/excursion y umbrales BE/trailing se comparan como
+  decimales para que ruido binario no altere un umbral exactamente alcanzado.
+- Helpers privados conservan tick_size opcional con fallback legacy a point;
+  Backtester siempre proporciona el valor declarado. El snapshot REPLAY es
+  solo una estimacion de precio con lot=0: sus placeholders de volumen no
+  acreditan lotaje. Callers con InstrumentSpec validan volumen real contra el
+  instrumento; no se atribuye esta validacion al motor OHLC independiente.
+- Resultados 0.3.1 con tick_size distinto de point o stops dinamicos en el
+  limite exacto de un umbral deben recalcularse. Los
+  reportes historicos conservan su version y sus hashes. Corregir esta rejilla
+  no resuelve ambiguedad intrabar ni acredita fills de broker o paridad completa.
