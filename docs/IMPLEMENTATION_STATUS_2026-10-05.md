@@ -82,7 +82,8 @@ La primera integracion detecto un consumidor de stress que no admitia resultados
 NOT_MODELED; se corrigio y se conserva el log fallido anterior. `git diff --check`
 pasa. Los tests siguen aislados de MT5 real y del directorio original de datos.
 
-La ampliacion del estudio predeclarado y motor OHLC 0.3.2 pasa
+La ampliacion `3e9b4d4a7bd2e7d57684669892a68570def676ca` del estudio
+predeclarado y motor OHLC 0.3.2 pasa
 **2.213 tests Python** en 179,65 segundos. Log:
 `docs/testing/evidence/2026-10-05-shared-pipeline/tests-predeclared-root.txt`.
 Las dos advertencias NumPy pertenecen al test que provoca un desbordamiento
@@ -90,6 +91,22 @@ monetario y verifica su rechazo; no corresponden a una investigacion de mercado.
 La corrida completa se hizo con fuentes congeladas e incluye CLI desde otra
 CWD, persistencia, hashes, parametros efectivos, causalidad, moneda y geometria.
 El checkout original permanece limpio. No se ejecutaron ordenes ni terminal.
+
+El estudio predeclarado de ese commit limpio completo sus 27 celdas:
+tres umbrales, tres simbolos y tres tramos temporales. Las nueve celdas train y
+las nueve validation tienen PnL negativo. En development_test solo EURUSD/78
+(+26,60 USD supuestos, PF 1,0074) y GBPUSD/78 (+56,20, PF 1,0188) son positivos;
+sus tramos anteriores siguen negativos. **25/27 resultados negativos** y
+ningun PF supera 1,15. No se elige una configuracion ni se cambia el protocolo
+para eliminar esos resultados.
+
+La auditoria independiente verifica las 27 identidades, todos los hashes y
+metricas recalculadas. Son 69.000 registros de candidatos de una estrategia
+individual, con solapamiento temporal, no una cartera ni observaciones
+estadisticamente independientes. Costes y valor del tick siguen siendo
+ilustrativos; desarrollo ya inspeccionado no es OOS final. Evidencia completa,
+datos originales/canonicos y bytes de codigo preservados en
+`docs/testing/evidence/2026-10-05-shared-pipeline/predeclared-3e9b4d4/`.
 
 El diagnostico del commit `7abf90e` (motor 0.3.1, con tick grid y metricas
 corregidas), ejecutado desde un directorio externo, produjo:

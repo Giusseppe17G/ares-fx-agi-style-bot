@@ -1,0 +1,4 @@
+# Evidence hashes refer to exact bytes; do not translate line endings.
+*.json -text
+*.jsonl -text
+*.zip -text
