@@ -1,0 +1,5739 @@
+{
+  "cases": [
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "m5_exact_close_with_forming_and_future",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 1767614400000,
+        "closed_count": 3,
+        "excluded_count": 2,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "CLOSED_BARS_VALID",
+        "selected_indices": [
+          0,
+          1,
+          2
+        ],
+        "source_bar_timestamp_utc_msc": 1767614100000,
+        "timeframe": "M5",
+        "valid": true
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767611700000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767612600000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767615300000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "m15_exact_close",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 1767614400000,
+        "closed_count": 3,
+        "excluded_count": 2,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "CLOSED_BARS_VALID",
+        "selected_indices": [
+          0,
+          1,
+          2
+        ],
+        "source_bar_timestamp_utc_msc": 1767613500000,
+        "timeframe": "M15",
+        "valid": true
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767613500000,
+          "source_timestamps_utc_msc": [
+            1767611700000,
+            1767612600000,
+            1767613500000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M15"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767603600000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767607200000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767610800000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767618000000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "h1_exact_close",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 1767614400000,
+        "closed_count": 3,
+        "excluded_count": 2,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "CLOSED_BARS_VALID",
+        "selected_indices": [
+          0,
+          1,
+          2
+        ],
+        "source_bar_timestamp_utc_msc": 1767610800000,
+        "timeframe": "H1",
+        "valid": true
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767610800000,
+          "source_timestamps_utc_msc": [
+            1767603600000,
+            1767607200000,
+            1767610800000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "H1"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "one_millisecond_before_close",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 1767614100000,
+        "closed_count": 2,
+        "excluded_count": 3,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "CLOSED_BARS_VALID",
+        "selected_indices": [
+          0,
+          1
+        ],
+        "source_bar_timestamp_utc_msc": 1767613800000,
+        "timeframe": "M5",
+        "valid": true
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614100000,
+          "closed_count": 2,
+          "source_bar_timestamp_utc_msc": 1767613800000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 2,
+        "snapshot_utc_msc": 1767614399999,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "one_millisecond_after_close",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 1767614400000,
+        "closed_count": 3,
+        "excluded_count": 2,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "CLOSED_BARS_VALID",
+        "selected_indices": [
+          0,
+          1,
+          2
+        ],
+        "source_bar_timestamp_utc_msc": 1767614100000,
+        "timeframe": "M5",
+        "valid": true
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400001,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400001,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 0.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 0.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 0.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 0.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 0.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 0.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 0.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 0.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 0.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 0.0
+        }
+      ],
+      "case_id": "zero_volume_and_spread_preserved",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 1767614400000,
+        "closed_count": 3,
+        "excluded_count": 2,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "CLOSED_BARS_VALID",
+        "selected_indices": [
+          0,
+          1,
+          2
+        ],
+        "source_bar_timestamp_utc_msc": 1767614100000,
+        "timeframe": "M5",
+        "valid": true
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767612900000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767615000000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "gaps_preserved",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 1767614400000,
+        "closed_count": 3,
+        "excluded_count": 2,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "CLOSED_BARS_VALID",
+        "selected_indices": [
+          0,
+          1,
+          2
+        ],
+        "source_bar_timestamp_utc_msc": 1767614100000,
+        "timeframe": "M5",
+        "valid": true
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767612900000,
+            1767613500000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "snapshot_age_exact_5000",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 1767614400000,
+        "closed_count": 3,
+        "excluded_count": 2,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "CLOSED_BARS_VALID",
+        "selected_indices": [
+          0,
+          1,
+          2
+        ],
+        "source_bar_timestamp_utc_msc": 1767614100000,
+        "timeframe": "M5",
+        "valid": true
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614405000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "snapshot_age_5001",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "STALE_SNAPSHOT",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "MARKET_DATA_INVALID",
+          "status": "REJECTED"
+        },
+        "temporal_at_clock_upper": {
+          "code": "MARKET_DATA_INVALID",
+          "status": "REJECTED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614405001,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "snapshot_age_exact_one_millisecond",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 1767614400000,
+        "closed_count": 3,
+        "excluded_count": 2,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "CLOSED_BARS_VALID",
+        "selected_indices": [
+          0,
+          1,
+          2
+        ],
+        "source_bar_timestamp_utc_msc": 1767614100000,
+        "timeframe": "M5",
+        "valid": true
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400001,
+        "max_snapshot_age_msc": 1,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "snapshot_age_two_exceeds_one_millisecond",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "STALE_SNAPSHOT",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "MARKET_DATA_INVALID",
+          "status": "REJECTED"
+        },
+        "temporal_at_clock_upper": {
+          "code": "MARKET_DATA_INVALID",
+          "status": "REJECTED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400002,
+        "max_snapshot_age_msc": 1,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "second_clock_cannot_satisfy_one_millisecond_age",
+      "comparison_scope": "NATIVE_CLOCK_INTERVAL",
+      "difference_note": "Requested age is finer than clock certainty; start alone cannot establish freshness.",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "STALE_SNAPSHOT",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "MARKET_DATA_INVALID",
+          "status": "REJECTED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1000,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 1,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "snapshot_future_one_millisecond",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "FUTURE_SNAPSHOT",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "MARKET_DATA_INVALID",
+          "status": "REJECTED"
+        },
+        "temporal_at_clock_upper": {
+          "code": "MARKET_DATA_INVALID",
+          "status": "REJECTED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400001,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "second_clock_fresh_boundary",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 1767614400000,
+        "closed_count": 3,
+        "excluded_count": 2,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "CLOSED_BARS_VALID",
+        "selected_indices": [
+          0,
+          1,
+          2
+        ],
+        "source_bar_timestamp_utc_msc": 1767614100000,
+        "timeframe": "M5",
+        "valid": true
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1000,
+        "clock_start_utc_msc": 1767614404001,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "second_clock_ambiguous_stale",
+      "comparison_scope": "NATIVE_CLOCK_INTERVAL",
+      "difference_note": "Python at clock start passes; upper endpoint rejects.",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "STALE_SNAPSHOT",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "MARKET_DATA_INVALID",
+          "status": "REJECTED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1000,
+        "clock_start_utc_msc": 1767614404002,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "second_clock_possibly_future",
+      "comparison_scope": "NATIVE_CLOCK_INTERVAL",
+      "difference_note": "Native requires snapshot <= clock start; upper-end Python alone would pass.",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "FUTURE_SNAPSHOT",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "MARKET_DATA_INVALID",
+          "status": "REJECTED"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1000,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400001,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613200000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 102.0
+        }
+      ],
+      "case_id": "bar_age_exact_duration_plus_5000",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 1767614100000,
+        "closed_count": 3,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 3,
+        "reason": "CLOSED_BARS_VALID",
+        "selected_indices": [
+          0,
+          1,
+          2
+        ],
+        "source_bar_timestamp_utc_msc": 1767613800000,
+        "timeframe": "M5",
+        "valid": true
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614100000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767613800000,
+          "source_timestamps_utc_msc": [
+            1767613200000,
+            1767613500000,
+            1767613800000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614405000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614405000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613200000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 102.0
+        }
+      ],
+      "case_id": "bar_age_one_millisecond_stale",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 3,
+        "reason": "STALE_CLOSED_BARS",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614100000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767613800000,
+          "source_timestamps_utc_msc": [
+            1767613200000,
+            1767613500000,
+            1767613800000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "STALE_FEATURES",
+          "status": "REJECTED"
+        },
+        "temporal_at_clock_upper": {
+          "code": "STALE_FEATURES",
+          "status": "REJECTED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614405001,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614405001,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613200000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 102.0
+        }
+      ],
+      "case_id": "second_clock_bar_age_exact",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 1767614100000,
+        "closed_count": 3,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 3,
+        "reason": "CLOSED_BARS_VALID",
+        "selected_indices": [
+          0,
+          1,
+          2
+        ],
+        "source_bar_timestamp_utc_msc": 1767613800000,
+        "timeframe": "M5",
+        "valid": true
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614100000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767613800000,
+          "source_timestamps_utc_msc": [
+            1767613200000,
+            1767613500000,
+            1767613800000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1000,
+        "clock_start_utc_msc": 1767614404001,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614404001,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613200000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 102.0
+        }
+      ],
+      "case_id": "second_clock_bar_age_ambiguous",
+      "comparison_scope": "NATIVE_CLOCK_INTERVAL",
+      "difference_note": "Fresh at start, stale at upper endpoint.",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 3,
+        "reason": "STALE_CLOSED_BARS",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614100000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767613800000,
+          "source_timestamps_utc_msc": [
+            1767613200000,
+            1767613500000,
+            1767613800000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "STALE_FEATURES",
+          "status": "REJECTED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1000,
+        "clock_start_utc_msc": 1767614404002,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614404002,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        }
+      ],
+      "case_id": "closed_duplicate",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 3,
+        "reason": "BAR_TIME_ORDER_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        }
+      ],
+      "case_id": "closed_reversed",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 3,
+        "reason": "BAR_TIME_ORDER_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "future_duplicate_invalidates_batch",
+      "comparison_scope": "NATIVE_GLOBAL_VALIDATION",
+      "difference_note": "Python excludes future rows before checking order.",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 6,
+        "reason": "BAR_TIME_ORDER_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        }
+      ],
+      "case_id": "future_reversed_invalidates_batch",
+      "comparison_scope": "NATIVE_GLOBAL_VALIDATION",
+      "difference_note": "Python excludes future rows before checking order.",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_TIME_ORDER_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800001,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        }
+      ],
+      "case_id": "closed_intervals_overlap_one_millisecond",
+      "comparison_scope": "NATIVE_INTERVAL_VALIDATION",
+      "difference_note": "Python selector checks unique sorted timestamps, not interval overlap.",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 3,
+        "reason": "BAR_INTERVAL_OVERLAP",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800001,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 0.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "closed_zero_open",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_VALUES_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": -1.0,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "closed_negative_close",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_VALUES_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 1.0,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "closed_inconsistent_high",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_VALUES_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 99.0,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "closed_inconsistent_low",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_VALUES_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": -1.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "closed_negative_volume",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_VALUES_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": -1.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "closed_negative_spread",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_VALUES_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": "NAN",
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "closed_nan_open",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_VALUES_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": "POS_INF",
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "closed_positive_infinite_high",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_VALUES_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": "NEG_INF",
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "closed_negative_infinite_spread",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_VALUES_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": -1.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "invalid_future_ohlc_invalidates_batch",
+      "comparison_scope": "NATIVE_GLOBAL_VALIDATION",
+      "difference_note": "Python validates only selected closed subset.",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_VALUES_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": "NAN",
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "invalid_forming_spread_invalidates_batch",
+      "comparison_scope": "NATIVE_GLOBAL_VALIDATION",
+      "difference_note": "Python validates only selected closed subset.",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_VALUES_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [],
+      "case_id": "empty_history",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 0,
+        "reason": "EMPTY_HISTORY",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "all_forming_future",
+      "comparison_scope": "COMPARABLE",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 2,
+        "reason": "NO_CLOSED_BARS",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "history_below_declared_minimum",
+      "comparison_scope": "NATIVE_REQUEST_CONSTRAINT",
+      "difference_note": "Python helper has no minimum-history argument.",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "INSUFFICIENT_CLOSED_BARS",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 4,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "invalid_minimum_bars_0",
+      "comparison_scope": "NATIVE_REQUEST_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "REQUEST_LIMITS_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 0,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "invalid_minimum_bars_-1",
+      "comparison_scope": "NATIVE_REQUEST_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "REQUEST_LIMITS_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": -1,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "invalid_max_snapshot_age_msc_0",
+      "comparison_scope": "NATIVE_REQUEST_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "REQUEST_LIMITS_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "CONFIG_INVALID",
+          "status": "REJECTED"
+        },
+        "temporal_at_clock_upper": {
+          "code": "CONFIG_INVALID",
+          "status": "REJECTED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 0,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "invalid_max_snapshot_age_msc_5001",
+      "comparison_scope": "NATIVE_REQUEST_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "REQUEST_LIMITS_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "CONFIG_INVALID",
+          "status": "REJECTED"
+        },
+        "temporal_at_clock_upper": {
+          "code": "CONFIG_INVALID",
+          "status": "REJECTED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5001,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "invalid_clock_resolution_msc_0",
+      "comparison_scope": "NATIVE_REQUEST_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "REQUEST_LIMITS_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "FUTURE_DATA",
+          "status": "REJECTED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 0,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "invalid_clock_resolution_msc_2",
+      "comparison_scope": "NATIVE_REQUEST_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "REQUEST_LIMITS_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 2,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "empty_symbol",
+      "comparison_scope": "NATIVE_REQUEST_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "SYMBOL_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "ValueError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "blank_symbol",
+      "comparison_scope": "NATIVE_REQUEST_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "SYMBOL_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": " ",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "noncanonical_timeframe_PERIOD_M5",
+      "comparison_scope": "NATIVE_REQUEST_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "TIMEFRAME_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "PERIOD_M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "noncanonical_timeframe_m5",
+      "comparison_scope": "NATIVE_REQUEST_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "TIMEFRAME_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "m5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "noncanonical_timeframe_M30",
+      "comparison_scope": "NATIVE_REQUEST_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "TIMEFRAME_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M30"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "noncanonical_timeframe_empty",
+      "comparison_scope": "NATIVE_REQUEST_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "TIMEFRAME_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": ""
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "snapshot_zero",
+      "comparison_scope": "NATIVE_CALENDAR_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "REQUEST_TIMESTAMP_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "MarketDataError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 0,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "clock_zero",
+      "comparison_scope": "NATIVE_CALENDAR_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "REQUEST_TIMESTAMP_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "FUTURE_DATA",
+          "status": "REJECTED"
+        },
+        "temporal_at_clock_upper": {
+          "code": "FUTURE_DATA",
+          "status": "REJECTED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 0,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "snapshot_calendar_overflow",
+      "comparison_scope": "NATIVE_CALENDAR_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "REQUEST_TIMESTAMP_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767615000000,
+          "closed_count": 5,
+          "source_bar_timestamp_utc_msc": 1767614700000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000,
+            1767614400000,
+            1767614700000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "MARKET_DATA_INVALID",
+          "status": "REJECTED"
+        },
+        "temporal_at_clock_upper": {
+          "code": "MARKET_DATA_INVALID",
+          "status": "REJECTED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 32535215999999,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 32535216000000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "clock_interval_calendar_overflow",
+      "comparison_scope": "NATIVE_CALENDAR_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "REQUEST_TIMESTAMP_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "MARKET_DATA_INVALID",
+          "status": "REJECTED"
+        },
+        "temporal_at_clock_upper": {
+          "code": "MARKET_DATA_INVALID",
+          "status": "REJECTED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1000,
+        "clock_start_utc_msc": 32535215999999,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 0,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "zero_open_timestamp",
+      "comparison_scope": "NATIVE_CALENDAR_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_TIMESTAMP_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            0,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": -1,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "negative_open_timestamp",
+      "comparison_scope": "NATIVE_CALENDAR_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_TIMESTAMP_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            -1,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 32535215700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "bar_close_calendar_overflow",
+      "comparison_scope": "NATIVE_CALENDAR_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_TIMESTAMP_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 32535215099999,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 32535215399999,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 32535215699999,
+          "volume": 102.0
+        }
+      ],
+      "case_id": "native_calendar_exact_last_millisecond",
+      "comparison_scope": "NATIVE_CALENDAR_CONSTRAINT",
+      "difference_note": "Native permits a closing timestamp equal to the documented calendar ceiling; Pandas range is not assumed equivalent.",
+      "expected_native": {
+        "available_at_utc_msc": 32535215999999,
+        "closed_count": 3,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 3,
+        "reason": "CLOSED_BARS_VALID",
+        "selected_indices": [
+          0,
+          1,
+          2
+        ],
+        "source_bar_timestamp_utc_msc": 32535215699999,
+        "timeframe": "M5",
+        "valid": true
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 32535215999999,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 32535215699999,
+          "source_timestamps_utc_msc": [
+            32535215099999,
+            32535215399999,
+            32535215699999
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        },
+        "temporal_at_clock_upper": {
+          "code": "INPUTS_VALID",
+          "status": "VALID"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 32535215999999,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 32535215999999,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "snapshot_long_max",
+      "comparison_scope": "NATIVE_CALENDAR_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "REQUEST_TIMESTAMP_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "OUTSIDE_PYTHON_DATETIME_RANGE",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 9223372036854775807,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "snapshot_long_min",
+      "comparison_scope": "NATIVE_CALENDAR_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "REQUEST_TIMESTAMP_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "OUTSIDE_PYTHON_DATETIME_RANGE",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": -9223372036854775808,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "clock_long_max",
+      "comparison_scope": "NATIVE_CALENDAR_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "REQUEST_TIMESTAMP_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "available_at_utc_msc": 1767614400000,
+          "closed_count": 3,
+          "source_bar_timestamp_utc_msc": 1767614100000,
+          "source_timestamps_utc_msc": [
+            1767613500000,
+            1767613800000,
+            1767614100000
+          ],
+          "valid": true
+        },
+        "temporal_at_clock_start": {
+          "code": "OUTSIDE_PYTHON_DATETIME_RANGE",
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "code": "OUTSIDE_PYTHON_DATETIME_RANGE",
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 9223372036854775807,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": -9223372036854775808,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614700000,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "bar_open_long_min",
+      "comparison_scope": "NATIVE_CALENDAR_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_TIMESTAMP_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "OverflowError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    },
+    {
+      "bars": [
+        {
+          "close": 10.25,
+          "high": 10.5,
+          "low": 9.5,
+          "open": 10.0,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613500000,
+          "volume": 100.0
+        },
+        {
+          "close": 10.375,
+          "high": 10.625,
+          "low": 9.625,
+          "open": 10.125,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767613800000,
+          "volume": 101.0
+        },
+        {
+          "close": 10.5,
+          "high": 10.75,
+          "low": 9.75,
+          "open": 10.25,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614100000,
+          "volume": 102.0
+        },
+        {
+          "close": 10.625,
+          "high": 10.875,
+          "low": 9.875,
+          "open": 10.375,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 1767614400000,
+          "volume": 103.0
+        },
+        {
+          "close": 10.75,
+          "high": 11.0,
+          "low": 10.0,
+          "open": 10.5,
+          "spread_points": 5.0,
+          "timestamp_utc_msc": 9223372036854775807,
+          "volume": 104.0
+        }
+      ],
+      "case_id": "bar_open_long_max",
+      "comparison_scope": "NATIVE_CALENDAR_CONSTRAINT",
+      "difference_note": "",
+      "expected_native": {
+        "available_at_utc_msc": 0,
+        "closed_count": 0,
+        "excluded_count": 0,
+        "execution_authorized": false,
+        "full_pipeline_verified": false,
+        "input_count": 5,
+        "reason": "BAR_TIMESTAMP_INVALID",
+        "selected_indices": [],
+        "source_bar_timestamp_utc_msc": 0,
+        "timeframe": "M5",
+        "valid": false
+      },
+      "python_reference": {
+        "selector": {
+          "error_type": "OverflowError",
+          "valid": false
+        },
+        "temporal_at_clock_start": {
+          "status": "NOT_EVALUATED"
+        },
+        "temporal_at_clock_upper": {
+          "status": "NOT_EVALUATED"
+        }
+      },
+      "request": {
+        "clock_resolution_msc": 1,
+        "clock_start_utc_msc": 1767614400000,
+        "max_snapshot_age_msc": 5000,
+        "minimum_bars": 3,
+        "snapshot_utc_msc": 1767614400000,
+        "symbol": "SYNTHETIC",
+        "timeframe": "M5"
+      }
+    }
+  ],
+  "execution_authorized": false,
+  "full_pipeline_verified": false,
+  "native_runtime_executed": false,
+  "python_functions": [
+    "data.strategy_features.closed_strategy_bars",
+    "core.decision.pipeline.SharedDecisionPipeline._validate_context"
+  ],
+  "schema_version": "native_closed_bar_fixtures_v1",
+  "scope": "SYNTHETIC_FUNCTION_REFERENCE_ONLY"
+}

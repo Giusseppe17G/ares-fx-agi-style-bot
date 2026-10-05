@@ -1,0 +1,58 @@
+{
+  "schema_version": "native_compile_evidence_v1",
+  "scope": "NATIVE_OBSERVATION_ONLY",
+  "additional_scopes": [
+    "NATIVE_CLOSED_BAR_WINDOW_ONLY"
+  ],
+  "compiled_at_utc": "2026-10-05T10:04:00.9785507Z",
+  "compiler_version": "5.0.0.5833",
+  "compiler_sha256": "2c0c8e9e5c1239e30e8a908d9205cdb01b9cdfcf876752e43bd7a755cce58ad3",
+  "build_script_sha256": "c80204e7a18f829d840d6761c3a7de8b310f4214ba2cb360debe0da4ac963405",
+  "source_hashes": {
+    "Experts/AGI_STYLE_FOREX_BOT_MT5.mq5": "62fa54916c74710cc8d80c53ddb8e15a4b899722f07c55997d78ec2dd357eb76",
+    "Include/Contracts/BacktestContract.mqh": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "Include/Contracts/ClosedBarContract.mqh": "6943af1ae359a54a02332e7faad566893b96457b0715fc48bc796f557c8925a2",
+    "Include/Contracts/EventContract.mqh": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "Include/Contracts/ExecutionContract.mqh": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "Include/Contracts/MarketSnapshot.mqh": "4b17b21b3bece55603ce8e929c1fbe3d644f09e72cc15a29999731d771acf666",
+    "Include/Contracts/RiskContract.mqh": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "Include/Contracts/SignalContract.mqh": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "Include/Core/ClosedBarWindow.mqh": "6ea935da90d7bcfe1c0c3dc26207776800d933cd8b371cf5563d6827e5f5b491",
+    "Include/Core/NativeClock.mqh": "2327250ebf5471941edd1e695bebcbcd12626b6e5691ec18ed2c63fffceaf076",
+    "Include/Core/NativeMarketReader.mqh": "0987ffe73896c255168f137c500aaa1b894164e77f8083e9c3bc35e2a3888da4",
+    "Include/Core/ObservationPolicy.mqh": "91958e1cc83b88d4041de28f65499e6d823ad044322a93e49dafb2cf4a0df41f",
+    "Include/Execution/ReleaseGate.mqh": "0294673f24ec97034c77b792d073803e49241e740d9e990a8c4ebaa61b4115a8",
+    "Include/Telemetry/JsonlAudit.mqh": "15ee81677675178940ced710d6766ffe2abfe9184af0fa80681df9c8e440e4f7",
+    "Scripts/ObservationPolicyHarness.mq5": "f0f434d1926b042414faa077315c7b74eea9a93fbce0af10e817d95f88804d73",
+    "Scripts/ClosedBarWindowHarness.mq5": "aca6013070949d4859cb22920b623f3e2498db91cf670ca9d75806cb8ba91c17",
+    "Scripts/GeneratedClosedBarFixtures.mqh": "ebfc995ea5da01c46155d0712b0acb70d0cf79d99e5de484f6f6563fc5ced734"
+  },
+  "results": [
+    {
+      "source": "Experts/AGI_STYLE_FOREX_BOT_MT5.mq5",
+      "clean_build": true,
+      "process_exit_code": 1,
+      "log_sha256": "25e8b6decc522f03164172f6500f6bd0be3a2acd0b0be61193065c9292b69d1a",
+      "binary_sha256": "7ae7897393b6e60246e47367b535d226ca330d459876a2cdbf3dd33ff25d3f0a"
+    },
+    {
+      "source": "Scripts/ObservationPolicyHarness.mq5",
+      "clean_build": true,
+      "process_exit_code": 1,
+      "log_sha256": "c2c4ed20649072c8937dbb3087d58d3b2129c320336e0585f3108deaa6de847c",
+      "binary_sha256": "7fa88e4b295e426a68c698fb9c46a99f3b874a53d56ae5812253ce49682d3c03"
+    },
+    {
+      "source": "Scripts/ClosedBarWindowHarness.mq5",
+      "clean_build": true,
+      "process_exit_code": 1,
+      "log_sha256": "2c40aa9c68cb15cf8b684537d3c6531a3a4cd884e1c32624f4b1c3aa0aa1fddc",
+      "binary_sha256": "db938435ece1744a2d7d15ca357c3aa91dffc67409da8720f2f41ef5ff1eae8e"
+    }
+  ],
+  "harness_executed": false,
+  "terminal_started": false,
+  "installed_to_terminal": false,
+  "execution_authorized": false,
+  "release_status": "BLOCKED"
+}

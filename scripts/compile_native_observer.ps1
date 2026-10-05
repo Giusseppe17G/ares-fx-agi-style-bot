@@ -27,11 +27,16 @@ foreach ($source in $sources) {
     Copy-Item -LiteralPath $source.FullName -Destination $destination
     $sourceHashes[$relative.Replace('\','/')] = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
 }
-$harness = Join-Path $projectRoot 'tests\mt5\ObservationPolicyHarness.mq5'
-Copy-Item -LiteralPath $harness -Destination (Join-Path $mqlRoot 'Scripts\ObservationPolicyHarness.mq5')
-$sourceHashes['Scripts/ObservationPolicyHarness.mq5'] = (Get-FileHash -LiteralPath $harness -Algorithm SHA256).Hash.ToLowerInvariant()
+$harnessNames = @('ObservationPolicyHarness.mq5', 'ClosedBarWindowHarness.mq5')
+foreach ($name in ($harnessNames + @('GeneratedClosedBarFixtures.mqh'))) {
+    $harness = Join-Path $projectRoot ('tests\mt5\' + $name)
+    $destination = Join-Path $mqlRoot ('Scripts\' + $name)
+    Copy-Item -LiteralPath $harness -Destination $destination
+    $sourceHashes['Scripts/' + $name] = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
+}
 $results = @()
-foreach ($relative in @('Experts\AGI_STYLE_FOREX_BOT_MT5.mq5', 'Scripts\ObservationPolicyHarness.mq5')) {
+$compileSources = @('Experts\AGI_STYLE_FOREX_BOT_MT5.mq5') + @($harnessNames | ForEach-Object { 'Scripts\' + $_ })
+foreach ($relative in $compileSources) {
     $source = Join-Path $mqlRoot $relative
     $arguments = @('/compile:"' + $source + '"', '/include:"' + $mqlRoot + '"', '/log')
     $process = Start-Process -FilePath $compiler -ArgumentList $arguments -WindowStyle Hidden -PassThru
@@ -56,6 +61,7 @@ foreach ($relative in @('Experts\AGI_STYLE_FOREX_BOT_MT5.mq5', 'Scripts\Observat
 }
 $manifest = [ordered]@{
     schema_version = 'native_compile_evidence_v1'; scope = 'NATIVE_OBSERVATION_ONLY'
+    additional_scopes = @('NATIVE_CLOSED_BAR_WINDOW_ONLY')
     compiled_at_utc = [DateTime]::UtcNow.ToString('o'); compiler_version = (Get-Item -LiteralPath $compiler).VersionInfo.FileVersion
     compiler_sha256 = (Get-FileHash -LiteralPath $compiler -Algorithm SHA256).Hash.ToLowerInvariant()
     build_script_sha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()

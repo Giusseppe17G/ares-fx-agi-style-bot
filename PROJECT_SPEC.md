@@ -1166,3 +1166,46 @@ forward por un resultado favorable.
   limite exacto de un umbral deben recalcularse. Los
   reportes historicos conservan su version y sus hashes. Corregir esta rejilla
   no resuelve ambiguedad intrabar ni acredita fills de broker o paridad completa.
+
+### 17.8 Ventana Causal Nativa De Barras
+
+Ampliacion pura y aislada previa a indicadores nativos. No se conecta al EA ni
+adquiere historial; no cambia contratos Python ni el bloqueo de ejecucion.
+
+- `NativeClosedBar` representa apertura UTC en milisegundos, OHLC, volumen y
+  spread_points. `NativeClosedBarRequest` declara simbolo, timeframe canonico
+  M5/M15/H1, timestamp de snapshot UTC en milisegundos, inicio del intervalo de
+  reloj observado, resolucion de reloj (1 o 1000 ms), minimo de barras y limite
+  de edad de snapshot positivo no mayor de 5000 ms. Campos sin defaults inferidos.
+- Funcion pura `NativeSelectClosedBars` recibe request y array cronologico;
+  devuelve bool y `NativeClosedBarResult` con array dinamico `closed_bars[]`
+  propio (no buffer fijo del caller), valid/reason, conteos,
+  ultimo source_bar_timestamp_utc_msc/available_at_utc_msc, timeframe canonico,
+  execution_authorized=false y full_pipeline_verified=false. Un rechazo vacia
+  la salida y no deja disponibilidad/precios de una invocacion anterior.
+- Los timestamps deben ser positivos y permitir sumar duracion sin desbordar
+  el calendario admitido por MQL5. No se ordena ni deduplica. Intervalos de barra
+  no pueden solaparse; se conservan huecos y datos originales, sin rellenar ni
+  transformar cotizaciones. OHLC finitos positivos/coherentes y volumen/spread
+  finitos no negativos son obligatorios. Simbolo/timeframe se declaran para
+  todo el array; no se infieren desde nombres de archivos o terminal.
+- Snapshot posterior al inicio del intervalo de reloj se rechaza: una fecha
+  posiblemente futura dentro de su resolucion no se toma como evidencia segura.
+  Se usa el extremo superior del intervalo para comprobar edad maxima de
+  snapshot y frescura de la ultima barra cerrada. Esta politica conservadora
+  puede rechazar cotizaciones ambiguas dentro del segundo; el modulo no mejora
+  artificialmente la resolucion suministrada ni cambia el observer existente.
+- Solo barras con apertura+duracion <= snapshot_utc_msc entran en la ventana;
+  filas formando/futuras se cuentan y excluyen. La ventana exige minimo de
+  historia y edad de ultima disponibilidad <= duracion+limite de snapshot.
+  Datos invalidos/ambiguos en cualquier fila rechazan el lote completo. Esta
+  validacion global es mas estricta que el helper Python que valida el subconjunto.
+- Timeframe requiere M5/M15/H1. Una funcion explicita aparte puede convertir
+  PERIOD_M5/PERIOD_M15/PERIOD_H1 a su nombre canonico; cadenas desconocidas
+  rechazan. No se modifica silenciosamente el snapshot/EA existente.
+- Referencia semantica: `closed_strategy_bars` y temporalidad del core comun.
+  Fixtures comparables ejecutan esas funciones Python; restricciones nativas
+  adicionales se distinguen. Harness MQL5 se compila en staging independiente.
+  Compilacion y guardianes de fuente no acreditan ejecucion de sus aserciones
+  ni paridad runtime. No se usa CopyRates, reloj, cuenta, red o almacenamiento
+  dentro del selector; origen UTC y eleccion de volumen requieren adapter futuro.
