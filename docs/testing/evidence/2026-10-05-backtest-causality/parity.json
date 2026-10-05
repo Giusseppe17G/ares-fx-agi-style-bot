@@ -1,0 +1,195 @@
+{
+  "compared_decision_ids": [
+    "instrument_metadata",
+    "strategy_action",
+    "strategy_score"
+  ],
+  "decision_count": 360,
+  "decision_parity_pct": 100.0,
+  "decision_parity_status": "PARITY_OK",
+  "demo_only": true,
+  "difference_count": 0,
+  "differences": [],
+  "equivalent_decision_count": 360,
+  "evidence_scope": "SHARED_COMPONENT_SMOKE_TEST",
+  "execution_attempted": false,
+  "execution_model": {
+    "commission_per_lot_round_turn": 0.0,
+    "max_spread_points": 25.0,
+    "slippage_points": 1.0
+  },
+  "full_pipeline_verified": false,
+  "instrument": {
+    "broker_symbol": "EURUSD",
+    "canonical_symbol": "EURUSD",
+    "contract_size": 100000.0,
+    "currency_base": "EUR",
+    "currency_quote": "USD",
+    "digits": 5,
+    "freeze_level_points": 0,
+    "max_volume": 100.0,
+    "min_volume": 0.01,
+    "point": 1e-05,
+    "source": "parity_fixture",
+    "stops_level_points": 0,
+    "symbol": "EURUSD",
+    "tick_size": 1e-05,
+    "tick_value": 1.0,
+    "volume_step": 0.01
+  },
+  "live_trading_approved": false,
+  "mode": "backtest-live-parity",
+  "order_check_called": false,
+  "order_send_called": false,
+  "parity_gap_stage_count": 11,
+  "parity_gap_stage_ids": [
+    "market_data",
+    "profile_thresholds",
+    "stable_filters",
+    "risk_engine",
+    "ml_filter",
+    "signal_ranker",
+    "portfolio_guard",
+    "dynamic_risk",
+    "paper_limits",
+    "persistence",
+    "metrics"
+  ],
+  "parity_status": "PARITY_INCOMPLETE",
+  "parity_threshold_pct": 95.0,
+  "reference_time_utc": "2026-09-04T18:00:00+00:00",
+  "seed": 82,
+  "shared_stage_count": 5,
+  "stage_count": 16,
+  "stage_parity_pct": 31.25,
+  "stages": [
+    {
+      "backtest_implementation": "data_pipeline.historical_csv_loader",
+      "forward_implementation": "mt5_data_bot + MT5Connector",
+      "note": "Different sources: stored bars versus live ticks. A shared output contract does not establish equivalent availability times or values.",
+      "same": false,
+      "scope": "ADAPTER_REQUIRED",
+      "stage_id": "market_data"
+    },
+    {
+      "backtest_implementation": "core.instruments.InstrumentRegistry",
+      "forward_implementation": "core.instruments.InstrumentRegistry (from MT5 symbol_info)",
+      "note": "FASE 82: unified. Previously the backtester invented digits/tick_value/volumes/stops.",
+      "same": true,
+      "scope": "SHARED",
+      "stage_id": "instrument_metadata"
+    },
+    {
+      "backtest_implementation": "contracts.MarketSnapshot",
+      "forward_implementation": "contracts.MarketSnapshot",
+      "note": "Same frozen contract on both sides.",
+      "same": true,
+      "scope": "SHARED",
+      "stage_id": "normalization"
+    },
+    {
+      "backtest_implementation": "data.feature_engineering + indicators",
+      "forward_implementation": "data.feature_engineering + indicators",
+      "note": "Same feature builders.",
+      "same": true,
+      "scope": "SHARED",
+      "stage_id": "features"
+    },
+    {
+      "backtest_implementation": "strategy.evaluate_ensemble",
+      "forward_implementation": "strategy.evaluate_ensemble",
+      "note": "Identical function and configuration object.",
+      "same": true,
+      "scope": "SHARED",
+      "stage_id": "strategy"
+    },
+    {
+      "backtest_implementation": "_profile_threshold_result",
+      "forward_implementation": "not run",
+      "note": "The backtest re-applies signal-profile thresholds that the live ensemble config already carries.",
+      "same": false,
+      "scope": "BACKTEST_ONLY",
+      "stage_id": "profile_thresholds"
+    },
+    {
+      "backtest_implementation": "_stable_filter_result",
+      "forward_implementation": "not run",
+      "note": "Symbol/strategy/session/regime allow-lists applied only offline.",
+      "same": false,
+      "scope": "BACKTEST_ONLY",
+      "stage_id": "stable_filters"
+    },
+    {
+      "backtest_implementation": "not run",
+      "forward_implementation": "risk.RiskEngine.evaluate",
+      "note": "PARITY GAP: the backtest sizes positions without the live risk engine's checks.",
+      "same": false,
+      "scope": "FORWARD_ONLY",
+      "stage_id": "risk_engine"
+    },
+    {
+      "backtest_implementation": "not run",
+      "forward_implementation": "ml.MLFilter.approve_or_reject",
+      "note": "PARITY GAP: the backtest never sees the ML meta-filter, so it counts trades live would reject.",
+      "same": false,
+      "scope": "FORWARD_ONLY",
+      "stage_id": "ml_filter"
+    },
+    {
+      "backtest_implementation": "not run",
+      "forward_implementation": "portfolio.SignalRanker.rank",
+      "note": "PARITY GAP: no top-N competition offline.",
+      "same": false,
+      "scope": "FORWARD_ONLY",
+      "stage_id": "signal_ranker"
+    },
+    {
+      "backtest_implementation": "not run",
+      "forward_implementation": "portfolio.PortfolioGuard.evaluate",
+      "note": "PARITY GAP: correlation and exposure limits are not applied offline.",
+      "same": false,
+      "scope": "FORWARD_ONLY",
+      "stage_id": "portfolio_guard"
+    },
+    {
+      "backtest_implementation": "not run",
+      "forward_implementation": "portfolio.DynamicRiskAllocator",
+      "note": "PARITY GAP: risk scaling is not applied offline.",
+      "same": false,
+      "scope": "FORWARD_ONLY",
+      "stage_id": "dynamic_risk"
+    },
+    {
+      "backtest_implementation": "not run",
+      "forward_implementation": "paper_risk_calibration.evaluate_paper_trade_limits",
+      "note": "PARITY GAP: daily trade caps and drawdown halts do not exist offline.",
+      "same": false,
+      "scope": "FORWARD_ONLY",
+      "stage_id": "paper_limits"
+    },
+    {
+      "backtest_implementation": "core.execution.SharedFillModel",
+      "forward_implementation": "core.execution.SharedFillModel via PaperFillModel",
+      "note": "FASE 82: unified onto execution_simulation.FillModel.",
+      "same": true,
+      "scope": "SHARED",
+      "stage_id": "execution_simulation"
+    },
+    {
+      "backtest_implementation": "backtesting.performance_report",
+      "forward_implementation": "telemetry.TelemetryDatabase + JSONL",
+      "note": "Different stores; the safety envelope alone is not implementation or audit-path parity.",
+      "same": false,
+      "scope": "ADAPTER_REQUIRED",
+      "stage_id": "persistence"
+    },
+    {
+      "backtest_implementation": "backtesting.backtester.calculate_metrics",
+      "forward_implementation": "paper_trading.paper_performance",
+      "note": "Different implementations. Equivalence requires independent fixtures, including open equity and costs.",
+      "same": false,
+      "scope": "ADAPTER_REQUIRED",
+      "stage_id": "metrics"
+    }
+  ]
+}

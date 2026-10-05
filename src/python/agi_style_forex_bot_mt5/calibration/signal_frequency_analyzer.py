@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from ..core.instruments import assumed_fx_spec
+from ..data.strategy_features import prepare_strategy_features
+
 from pathlib import Path
 from collections import Counter
 from typing import Any, Iterable, Mapping
@@ -67,7 +71,7 @@ def analyze_signal_frequency(
             continue
         try:
             candles, _quality = load_historical_csv(m5.path, symbol=symbol, timeframe="M5")
-            enriched = _enrich(candles)
+            enriched = _enrich(candles, point=assumed_fx_spec(symbol).point)
         except Exception as exc:
             records.append(_record(symbol=symbol, action="NONE", blocking_reason=_csv_error_code(str(exc)), required_data_missing=True, resolutions=resolutions))
             continue
@@ -82,7 +86,8 @@ def analyze_signal_frequency(
         for idx in indexes[:max_rows_per_symbol]:
             row = enriched.iloc[idx]
             try:
-                snapshot = _snapshot_from_row(row, symbol=symbol, timeframe="M5", point=0.01 if "JPY" in symbol else 0.00001, config=cfg)
+                snapshot = _snapshot_from_row(row, symbol=symbol, timeframe="M5", point=assumed_fx_spec(symbol).point, config=cfg)
+                snapshot = replace(snapshot, timestamp_utc=(pd.Timestamp(snapshot.timestamp_utc) + pd.Timedelta(minutes=5)).to_pydatetime())
                 features = _features_from_row(enriched, idx, snapshot, cfg)
                 signal = evaluate_ensemble(snapshot, features, mode="shadow")
                 metadata = dict(signal.metadata)
@@ -165,12 +170,12 @@ def is_near_miss(*, setup_score: float, threshold: float, blocking_reasons: Any,
     return has_block and setup_score > 0 and threshold - diagnostic_window <= setup_score < threshold
 
 
-def _enrich(candles: pd.DataFrame) -> pd.DataFrame:
+def _enrich(candles: pd.DataFrame, *, point: float = 0.00001) -> pd.DataFrame:
     frame = candles.rename(columns={"timestamp": "timestamp_utc"}).copy()
     frame["volume"] = frame.get("volume", frame.get("tick_volume", 0))
     if "spread_points" not in frame.columns:
         frame["spread_points"] = frame.get("spread", 10)
-    enriched = add_regime_labels(add_indicators(frame), max_spread_points=25.0)
+    enriched = prepare_strategy_features(frame, point=point, max_spread_points=25.0)
     return enriched
 
 

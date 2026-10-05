@@ -1,4 +1,4 @@
-﻿# QA Implementation Report
+# QA Implementation Report
 ## FASE 33 - Weekend Offline Readiness, Clean-State Validation & EC2 Prep
 
 Added offline readiness tooling for closed-market operation:
@@ -1920,3 +1920,16 @@ Removed the invented instrument metadata from the backtester. Before delegating 
 Found and worked around a defect in `execution_simulation.SpreadModel`: its estimator falls back to `max_spread_points` when every input is falsy, so a zero-spread bar is classified EXTREME. The backtest replay path feeds the model the bar's observed spread instead of relying on that fallback. The defect itself was left alone because fixing it changes paper-trading behaviour and there is no real-data evidence yet.
 
 `tests/python/test_phase82_backtest_live_parity.py` adds 43 tests covering the registry, missing and invalid metadata, MT5 and dataset providers, rounding, resolution order and strict mode, execution-model equivalence across spreads and directions, the replay context, the stage map, parity on a deterministic fixture, reproducibility, the CLI, baselines and the no-production-writes invariant. Full suite: 971 passed, identical from the repository root and from an alternative working directory, repository `data/` fingerprint unchanged.
+
+### 2026-10-05 — Backtest causality and parity correction
+
+The phase-82 note above is historical. The zero-spread workaround is now removed,
+entry and exit costs share the adapter, and generated bar-close decisions cannot
+fill at their source-bar opening. The old 8/16 shared classification included
+three different implementations: data, persistence and metrics. The corrected
+inventory is 5/16 (31.25%). Comparable-component success is PARITY_INCOMPLETE for
+the complete pipeline, with full_pipeline_verified=false.
+
+54 new regressions; 1025 tests pass from both repository root and another CWD.
+See testing/backtest-causality-validation.md, the dated architecture decision,
+and EXTERNAL_TRADING_BENCHMARK_2026-10-05.md. Full phase 82B remains incomplete.

@@ -18,20 +18,25 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 import pandas as pd
 
-from ..calibration import effective_profile_config
+from ..calibration.decision_policy import evaluate_profile_thresholds, evaluate_stability_filters, resolve_signal_profile
 from ..config import BotConfig
 from ..contracts import Direction, MarketSnapshot, SignalAction
-from ..data import add_indicators, add_regime_labels, normalize_ohlcv_bars
+from ..data import normalize_ohlcv_bars
+from ..data.strategy_features import prepare_strategy_features, strategy_features_at
 from ..data_pipeline.historical_csv_loader import load_historical_csv_contract
 from ..data_pipeline.historical_data_resolver import resolve_historical_data
 from ..core.execution import SharedFillModel
+from ..core.decision.signal_builder import build_signal_prices
+from ..core.clock import FrozenClock
+from ..core.run_manifest import RunManifest
+from ..core.instruments.snapshot import instrument_metadata_hash
 from ..core.operational_state.errors import ExecutionSimulationError
 from ..core.instruments import ASSUMED_SOURCE, InstrumentRegistry, InstrumentSpec, assumed_fx_spec, resolve_registry
 from ..strategy import evaluate_ensemble
-from ..strategy.strategy_ensemble import EnsembleConfig
+from ..strategy.strategy_ensemble import EnsembleConfig, STRATEGY_VERSION
 
 
-ENGINE_VERSION = "0.1.0"
+ENGINE_VERSION = "0.3.0"
 
 
 @dataclass(frozen=True)
@@ -47,6 +52,8 @@ class CostModel:
     max_spread_points: float = 25.0
 
     def validate(self) -> None:
+        if not all(math.isfinite(value) for value in asdict(self).values()):
+            raise ValueError("cost model values must be finite")
         if self.spread_points < 0 or self.slippage_points < 0:
             raise ValueError("spread and slippage must be non-negative")
         if self.commission_per_lot_round_turn < 0:
@@ -87,6 +94,9 @@ class TradeCandidate:
     lot: float = 1.0
     entry_price: float | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    # Source-bar timestamp is retained for attribution. This is the earliest
+    # instant at which all inputs to the decision were actually available.
+    available_at_utc: datetime | str | pd.Timestamp | None = None
 
 
 @dataclass(frozen=True)
@@ -378,16 +388,28 @@ class Backtester:
     def _simulate_candidate(
         self, bars: pd.DataFrame, candidate: TradeCandidate
     ) -> tuple[TradeResult | None, set[int]]:
-        if candidate.lot <= 0:
+        if not math.isfinite(candidate.lot) or candidate.lot <= 0:
             raise ValueError("candidate lot must be positive")
-        if candidate.sl_price <= 0 or candidate.tp_price <= 0:
+        if not all(math.isfinite(value) and value > 0 for value in (candidate.sl_price, candidate.tp_price)):
             raise ValueError("candidate requires positive SL and TP")
 
-        timestamp = pd.Timestamp(candidate.timestamp)
+        timestamp = pd.to_datetime(candidate.timestamp, utc=True)
+        if pd.isna(timestamp):
+            raise ValueError("candidate timestamp must be valid")
+        if candidate.available_at_utc is not None:
+            available_at = pd.to_datetime(candidate.available_at_utc, utc=True)
+            if pd.isna(available_at) or available_at < timestamp:
+                raise ValueError("candidate availability must be valid and not precede its source")
+            if candidate.entry_price is not None:
+                raise ValueError("availability-based market entry cannot override entry_price")
+            timestamp = available_at
         start_idx = _first_bar_index_at_or_after(bars, timestamp)
         if start_idx is None:
             raise ValueError("candidate timestamp is outside candle data")
-        if self.settings.use_next_bar_open:
+        # Legacy external candidates retain their documented timing switch.
+        # Explicit availability is authoritative; applying the switch again
+        # would introduce a second, artificial bar of delay.
+        if self.settings.use_next_bar_open and candidate.available_at_utc is None:
             start_idx += 1
             if start_idx >= len(bars):
                 raise ValueError("no next bar available for entry")
@@ -405,6 +427,7 @@ class Backtester:
             spread_points=spread_points,
             slippage_points=self.settings.cost_model.slippage_points,
             point=self.settings.cost_model.point,
+            max_spread_points=self.settings.cost_model.max_spread_points,
         )
         _validate_directional_prices(direction, entry_price, candidate.sl_price, candidate.tp_price)
 
@@ -480,6 +503,7 @@ class Backtester:
             spread_points=spread_points,
             slippage_points=self.settings.cost_model.slippage_points,
             point=self.settings.cost_model.point,
+            max_spread_points=self.settings.cost_model.max_spread_points,
         )
         commission = self.settings.cost_model.commission_per_lot_round_turn * candidate.lot
         profit = _profit_for_price_move(
@@ -524,7 +548,14 @@ class Backtester:
             point=self.settings.cost_model.point,
             tick_value=self.settings.cost_model.tick_value,
             tick_size=self.settings.cost_model.tick_size,
-            metadata=dict(candidate.metadata),
+            metadata={
+                **dict(candidate.metadata),
+                **({
+                    "source_bar_timestamp_utc": pd.to_datetime(candidate.timestamp, utc=True).isoformat(),
+                    "available_at_utc": timestamp.isoformat(),
+                    "entry_timing": "FIRST_OPEN_AT_OR_AFTER_AVAILABILITY",
+                } if candidate.available_at_utc is not None else {}),
+            },
         )
         return trade, used_indices
 
@@ -630,7 +661,7 @@ def run_strategy_backtest(
     cfg.validate_safety()
     run_settings = settings or BacktestSettings(
         strategy_name="strategy_ensemble",
-        strategy_version="0.1.0",
+        strategy_version=STRATEGY_VERSION,
         break_even_trigger_r=0.6,
         trailing_start_r=0.8,
         trailing_distance_points=80,
@@ -664,18 +695,16 @@ def generate_strategy_candidates(
     """Create deterministic offline trade candidates from the current ensemble."""
 
     bars = _normalize_candles(candles)
+    bar_duration = pd.Timedelta(seconds=_timeframe_seconds(timeframe))
     indicator_input = bars.rename(columns={"timestamp": "timestamp_utc"}).copy()
     indicator_input["volume"] = indicator_input.get("volume", indicator_input.get("tick_volume", 0))
-    if "spread_points" not in indicator_input.columns:
-        indicator_input["spread_points"] = config.max_spread_points_default
-    enriched = add_regime_labels(
-        add_indicators(indicator_input),
-        max_spread_points=config.max_spread_points_default,
+    enriched = prepare_strategy_features(
+        indicator_input, point=point, max_spread_points=config.max_spread_points_default,
     )
     candidates: list[TradeCandidate] = []
     last_candidate_idx = -999
     profile = _signal_profile_settings(config.signal_profile, config.profile_config)
-    if profile["name"] == "BALANCED_STABLE" and profile.get("apply_stability_filters") and symbol.upper() in set(profile.get("disabled_symbols", [])):
+    if profile.get("apply_stability_filters") and symbol.upper() in set(profile.get("disabled_symbols", [])):
         return (
             TradeCandidate(
                 timestamp=pd.Timestamp(bars.iloc[0]["timestamp"]),
@@ -688,13 +717,15 @@ def generate_strategy_candidates(
                 metadata={"stable_rejection_reason": "STABLE_SYMBOL_DISABLED"},
             ),
         )
-    for idx in range(220, len(enriched) - 1):
+    for idx in range(220, len(enriched)):
         row = enriched.iloc[idx]
         if pd.isna(row[["ema20", "ema50", "ema200", "rsi14", "atr14"]]).any():
             continue
         if idx - last_candidate_idx < 3:
             continue
         snapshot = _snapshot_from_row(row, symbol=symbol, timeframe=timeframe, point=point, config=config, instrument=instrument)
+        available_at = pd.Timestamp(row["timestamp_utc"]) + bar_duration
+        snapshot = replace(snapshot, timestamp_utc=available_at.to_pydatetime())
         features = _features_from_row(enriched, idx, snapshot, config)
         signal = evaluate_ensemble(
             snapshot,
@@ -707,7 +738,7 @@ def generate_strategy_candidates(
         passed_thresholds, threshold_failures = _profile_threshold_result(signal.metadata, profile, ensemble_score=signal.score)
         if not passed_thresholds:
             continue
-        session = session_for_timestamp(pd.Timestamp(row["timestamp_utc"]))
+        session = session_for_timestamp(available_at)
         regime = str(row["regime"])
         stable_passed, stable_reason = _stable_filter_result(
             profile,
@@ -726,22 +757,14 @@ def generate_strategy_candidates(
                     tp_price=0.0,
                     timeframe=timeframe,
                     signal_id=f"stable_block_{symbol}_{idx}",
+                    available_at_utc=available_at,
                     metadata={"stable_rejection_reason": stable_reason},
                 )
             )
             last_candidate_idx = idx
             continue
         direction = Direction.BUY if signal.action == SignalAction.BUY else Direction.SELL
-        reference = snapshot.ask if direction == Direction.BUY else snapshot.bid
-        atr = max(float(row["atr14"]), point * 100)
-        stop_distance = max(atr, point * 100)
-        target_distance = stop_distance * 1.8
-        if direction == Direction.BUY:
-            sl_price = reference - stop_distance
-            tp_price = reference + target_distance
-        else:
-            sl_price = reference + stop_distance
-            tp_price = reference - target_distance
+        sl_price, tp_price = build_signal_prices(snapshot, signal.action, float(features["atr"]))
         candidates.append(
             TradeCandidate(
                 timestamp=pd.Timestamp(row["timestamp_utc"]),
@@ -752,6 +775,7 @@ def generate_strategy_candidates(
                 timeframe=timeframe,
                 signal_id=f"bt_{symbol}_{idx}",
                 lot=1.0,
+                available_at_utc=available_at,
                 metadata={
                     "regime": regime,
                     "session": session,
@@ -783,60 +807,15 @@ def _profile_allows_signal(metadata: Mapping[str, Any], profile: Mapping[str, An
 def _profile_threshold_result(metadata: Mapping[str, Any], profile: Mapping[str, Any], *, ensemble_score: float | None = None) -> tuple[bool, tuple[str, ...]]:
     """Return whether metadata passes effective profile thresholds."""
 
-    failures: list[str] = []
-    component_scores = dict(metadata.get("component_scores") or {})
-    resolved_ensemble_score = ensemble_score
-    if resolved_ensemble_score is None:
-        resolved_ensemble_score = metadata.get("ensemble_score", metadata.get("score", 0.0))
-    if float(resolved_ensemble_score or 0.0) < float(profile["ensemble_min_score"]):
-        failures.append("ensemble_score_below_min")
-    setup_score = float(metadata.get("setup_quality_score", 0.0) or 0.0)
-    if setup_score and setup_score < float(profile["min_setup_score"]):
-        failures.append("setup_score_below_min")
-    if component_scores:
-        if min(float(value) for value in component_scores.values()) < float(profile["min_component_score"]):
-            failures.append("component_score_below_min")
-        checks = {
-            "cost_fit": profile["cost_fit_min"],
-            "structure_fit": profile["structure_fit_min"],
-            "volatility_fit": profile["volatility_fit_min"],
-            "session_fit": profile["session_fit_min"],
-        }
-        for name, threshold in checks.items():
-            if float(component_scores.get(name, 0.0) or 0.0) < float(threshold):
-                failures.append(f"{name}_below_min")
-    return not failures, tuple(failures)
+    return evaluate_profile_thresholds(metadata, profile, ensemble_score=ensemble_score)
 
 
 def _signal_profile_settings(name: str, profile_config: str = "") -> dict[str, Any]:
-    try:
-        effective = effective_profile_config(str(name or "CONSERVATIVE").strip().upper(), source="backtester", profile_config=profile_config or None)
-    except ValueError:
-        effective = effective_profile_config("CONSERVATIVE", source="backtester")
-    return {
-        "name": effective.profile_name,
-        **effective.thresholds,
-        **effective.filters,
-        "research_only": effective.research_only,
-        "not_for_demo_live": effective.not_for_demo_live,
-        "allowed_for_shadow": effective.allowed_for_shadow,
-        "profile_hash": effective.profile_hash,
-        "source": effective.source,
-    }
+    return resolve_signal_profile(BotConfig(signal_profile=name, profile_config=profile_config))
 
 
 def _stable_filter_result(profile: Mapping[str, Any], *, symbol: str, strategy_name: str, session: str, regime: str) -> tuple[bool, str]:
-    if profile.get("name") != "BALANCED_STABLE" or not profile.get("apply_stability_filters"):
-        return True, ""
-    if symbol.upper() in set(profile.get("disabled_symbols", [])):
-        return False, "STABLE_SYMBOL_DISABLED"
-    if strategy_name.upper() in {str(item).upper() for item in profile.get("disabled_strategies", [])}:
-        return False, "STABLE_STRATEGY_DISABLED"
-    if session.upper() in set(profile.get("blocked_sessions", [])):
-        return False, "STABLE_SESSION_BLOCK"
-    if regime.upper() in set(profile.get("blocked_regimes", [])):
-        return False, "STABLE_REGIME_BLOCK"
-    return True, ""
+    return evaluate_stability_filters(profile, symbol=symbol, strategy_name=strategy_name, session=session, regime=regime)
 
 
 def classify_sample_size(total_trades: int) -> str:
@@ -909,9 +888,9 @@ def run_backtest_for_symbols(
     cfg = config or BotConfig()
     cfg.validate_safety()
     run_settings = settings or BacktestSettings(
-        run_id=f"backtest_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+        run_id="backtest",
         strategy_name="strategy_ensemble",
-        strategy_version="0.1.0",
+        strategy_version=STRATEGY_VERSION,
         break_even_trigger_r=0.6,
         trailing_start_r=0.8,
         trailing_distance_points=80,
@@ -922,7 +901,7 @@ def run_backtest_for_symbols(
             "SIGNAL_PROFILE": cfg.signal_profile,
         },
     )
-    profile = _signal_profile_settings(cfg.signal_profile)
+    profile = _signal_profile_settings(cfg.signal_profile, cfg.profile_config)
     resolved_symbols = [item.strip().upper() for item in symbols if item.strip()]
     registry, instrument_metadata_source = resolve_registry(
         registry=instruments,
@@ -937,9 +916,13 @@ def run_backtest_for_symbols(
     promotions: dict[str, PromotionGateResult] = {}
     data_valid_symbols: list[str] = []
     signals_generated = 0
+    dataset_paths: list[Path] = []
+    dataset_end = pd.Timestamp("1970-01-01T00:00:00Z")
     for symbol in resolved_symbols:
         path = _find_history_csv(Path(data_dir), symbol, timeframe)
+        dataset_paths.append(path)
         candles, quality = load_historical_csv(path, symbol=symbol, timeframe=timeframe)
+        dataset_end = max(dataset_end, pd.Timestamp(candles["timestamp"].max()) + pd.Timedelta(seconds=_timeframe_seconds(timeframe)))
         qualities.append(quality)
         data_valid_symbols.append(symbol)
         spec = registry.get(symbol) if registry.has(symbol) else assumed_fx_spec(symbol)
@@ -972,6 +955,9 @@ def run_backtest_for_symbols(
         classification = "WARNING_NO_TRADES"
     summary: dict[str, Any] = {
         "mode": "backtest",
+        "scope": "INDEPENDENT_RESEARCH_CANDIDATES",
+        "full_risk_pipeline_applied": False,
+        "operationally_eligible": False,
         "instrument_metadata_source": instrument_metadata_source,
         "instrument_metadata_assumed": instrument_metadata_source == ASSUMED_SOURCE,
         "signal_profile_used": profile["name"],
@@ -1004,6 +990,13 @@ def run_backtest_for_symbols(
         "execution_attempted": False,
         "reports_created": [],
     }
+    provenance = RunManifest.build(
+        mode="backtest", clock=FrozenClock(dataset_end.to_pydatetime()),
+        config={"bot": asdict(cfg), "settings": asdict(run_settings), "effective_profile": profile},
+        dataset_paths=dataset_paths, symbols=resolved_symbols, timeframe=timeframe,
+        seed=run_settings.random_seed, instrument_metadata_hash=instrument_metadata_hash(registry),
+    )
+    summary = provenance.attach(summary)
     result = BacktestBatchResult(
         summary=summary,
         trades=trades_frame,
@@ -1263,9 +1256,10 @@ def _first_bar_index_at_or_after(bars: pd.DataFrame, timestamp: pd.Timestamp) ->
 
 
 def _bar_spread_points(row: pd.Series, default: float) -> float:
-    if "spread_points" in row and not pd.isna(row["spread_points"]):
-        return float(row["spread_points"])
-    return float(default)
+    value = float(row["spread_points"]) if "spread_points" in row else float(default)
+    if not math.isfinite(value) or value < 0:
+        raise ValueError("bar spread must be finite and non-negative")
+    return value
 
 
 def _apply_entry_cost(
@@ -1275,12 +1269,12 @@ def _apply_entry_cost(
     spread_points: float,
     slippage_points: float,
     point: float,
+    max_spread_points: float = 25.0,
 ) -> float:
     """Entry price under the shared execution model.
 
     Delegates to `execution_simulation.FillModel` via SharedFillModel, the same
-    model paper trading uses. Verified to reproduce the previous arithmetic
-    exactly (see test_phase82 execution-model parity).
+    model paper trading uses, including its price precision and spread gate.
     """
 
     return _shared_fill_price(
@@ -1290,6 +1284,7 @@ def _apply_entry_cost(
         slippage_points=slippage_points,
         point=point,
         is_entry=True,
+        max_spread_points=max_spread_points,
     )
 
 
@@ -1301,16 +1296,13 @@ def _shared_fill_price(
     slippage_points: float,
     point: float,
     is_entry: bool,
+    max_spread_points: float = 25.0,
 ) -> float:
     snapshot = _replay_snapshot(base_price, spread_points=spread_points, point=point)
-    model = SharedFillModel(max_spread_points=spread_points + 10.0, slippage_points=slippage_points)
-    # Two things this call must not do. The spread gate was already applied upstream
-    # by `_simulate_candidate` against the run's own `cost_model.max_spread_points`,
-    # so the limit here is deliberately slack: this bar was already accepted. And
-    # SpreadModel's estimator falls back to `max_spread_points` when every input is
-    # falsy, which classifies a zero-spread bar as EXTREME; feeding it the bar's own
-    # observed spread keeps the estimate on real data instead of that fallback.
-    context = {"forward_spreads": (max(spread_points, 0.1),)}
+    model = SharedFillModel(max_spread_points=max_spread_points, slippage_points=slippage_points)
+    # Reapply the same limit as the run's gate, without inflating it.
+    # Preserve the observed spread exactly, including zero.
+    context = {"forward_spreads": (spread_points,)}
     if is_entry:
         result = model.entry(direction=direction, snapshot=snapshot, replay=True, context=context)
     else:
@@ -1325,14 +1317,14 @@ def _shared_fill_price(
 
 
 def _replay_snapshot(base_price: float, *, spread_points: float, point: float) -> MarketSnapshot:
-    """A snapshot for a replayed bar: mid price plus the bar's own spread."""
+    """A price-only replay snapshot; the fixed epoch is not a live tick."""
 
     half = spread_points * point / 2.0
     digits = max(0, int(round(-math.log10(point)))) if point > 0 else 5
     return MarketSnapshot(
         symbol="REPLAY",
         timeframe="REPLAY",
-        timestamp_utc=datetime.now(timezone.utc),
+        timestamp_utc=datetime(1970, 1, 1, tzinfo=timezone.utc),
         bid=max(point, base_price - half),
         ask=base_price + half,
         spread_points=spread_points,
@@ -1355,9 +1347,13 @@ def _apply_exit_cost(
     spread_points: float,
     slippage_points: float,
     point: float,
+    max_spread_points: float = 25.0,
 ) -> float:
-    cost = ((spread_points / 2.0) + slippage_points) * point
-    return base_price - cost if direction == Direction.BUY.value else base_price + cost
+    return _shared_fill_price(
+        base_price, direction=direction, spread_points=spread_points,
+        slippage_points=slippage_points, point=point, is_entry=False,
+        max_spread_points=max_spread_points,
+    )
 
 
 def _validate_directional_prices(direction: str, entry: float, sl: float, tp: float) -> None:
@@ -1520,13 +1516,13 @@ def _jsonable(value: Any) -> Any:
 
 def _timeframe_seconds(timeframe: str) -> float:
     normalized = timeframe.strip().upper()
-    if normalized.startswith("M"):
-        return float(normalized[1:]) * 60.0
-    if normalized.startswith("H"):
-        return float(normalized[1:]) * 3600.0
-    if normalized.startswith("D"):
-        return float(normalized[1:] or 1) * 86400.0
-    return 300.0
+    units = {"M": 60, "H": 3600, "D": 86400, "W": 604800}
+    if len(normalized) < 2 or normalized[0] not in units or not normalized[1:].isdigit():
+        raise ValueError("timeframe must have an explicit fixed bar duration")
+    count = int(normalized[1:])
+    if count <= 0:
+        raise ValueError("timeframe duration must be positive")
+    return float(count * units[normalized[0]])
 
 
 def _snapshot_from_row(
@@ -1577,42 +1573,7 @@ def _features_from_row(
     snapshot: MarketSnapshot,
     config: BotConfig,
 ) -> dict[str, Any]:
-    row = frame.iloc[idx]
-    previous = frame.iloc[idx - 1]
-    tail = frame.iloc[max(0, idx - 20) : idx + 1]
-    close = float(row["close"])
-    return {
-        "regime": str(row["regime"]),
-        "close": close,
-        "previous_close": float(previous["close"]),
-        "ema20": float(row["ema20"]),
-        "ema50": float(row["ema50"]),
-        "ema200": float(row["ema200"]),
-        "ema_fast": float(row["ema20"]),
-        "ema_slow": float(row["ema50"]),
-        "rsi": float(row["rsi14"]),
-        "rsi14": float(row["rsi14"]),
-        "atr": float(row["atr14"]),
-        "atr14": float(row["atr14"]),
-        "atr_points": float(row["atr14"]) / snapshot.point,
-        "atr_mean_points": float(frame.iloc[max(0, idx - 50) : idx + 1]["atr14"].mean()) / snapshot.point,
-        "atr_percent": float(row["atr_percent"]),
-        "ema_slope": float(row["ema_slope"]),
-        "trend_slope": float(row["ema_slope"]),
-        "trend_strength": float(row["trend_strength"]),
-        "momentum": float(row["momentum"]),
-        "momentum_points": float(row["momentum"]) / snapshot.point,
-        "range_points": float((tail["high"].max() - tail["low"].min()) / snapshot.point),
-        "body_ratio": float(abs(row["candle_body"]) / max(float(row["high"] - row["low"]), snapshot.point)),
-        "prior_high": float(tail.iloc[:-1]["high"].max()) if len(tail) > 1 else close,
-        "prior_low": float(tail.iloc[:-1]["low"].min()) if len(tail) > 1 else close,
-        "lower_wick": float(row["lower_wick"]),
-        "upper_wick": float(row["upper_wick"]),
-        "spread_points": snapshot.spread_points,
-        "max_strategy_spread_points": config.max_spread_points_default,
-        "session": session_for_timestamp(pd.Timestamp(row["timestamp_utc"])),
-        "volatility": float(row["volatility"]),
-    }
+    return strategy_features_at(frame, idx, snapshot, max_spread_points=config.max_spread_points_default)
 
 
 def _find_history_csv(data_dir: Path, symbol: str, timeframe: str) -> Path:

@@ -275,7 +275,7 @@ def test_stage_map_covers_both_pipelines_and_names_every_gap() -> None:
     for forward_only in ("risk_engine", "ml_filter", "signal_ranker", "portfolio_guard", "dynamic_risk", "paper_limits"):
         assert scopes[forward_only] == FORWARD_ONLY
     for backtest_only in ("profile_thresholds", "stable_filters"):
-        assert scopes[backtest_only] == BACKTEST_ONLY
+        assert scopes[backtest_only] == SHARED
     # No gap is left without a stated reason.
     for stage in stages:
         if stage.scope != SHARED:
@@ -286,7 +286,10 @@ def test_shared_stage_decisions_are_equivalent_on_a_deterministic_fixture() -> N
     report = compare_pipelines(build_fixture(clock=CLOCK))
     assert report["decision_count"] > 0
     assert report["decision_parity_pct"] >= 95.0
-    assert report["parity_status"] == "PARITY_OK"
+    assert report["decision_parity_status"] == "PARITY_OK"
+    assert report["parity_status"] == "PARITY_INCOMPLETE"
+    assert report["full_pipeline_verified"] is False
+    assert report["evidence_scope"] == "SHARED_COMPONENT_SMOKE_TEST"
     assert report["differences"] == []
     assert_safety_flags(report, context="parity report")
 
@@ -299,7 +302,8 @@ def test_parity_run_is_reproducible() -> None:
 
 def test_parity_report_declares_the_stage_gap_honestly() -> None:
     report = compare_pipelines(build_fixture(clock=CLOCK))
-    assert report["parity_gap_stage_count"] == 8
+    assert report["parity_gap_stage_count"] == 9
+    assert report["stage_parity_pct"] == 43.75
     assert report["shared_stage_count"] + report["parity_gap_stage_count"] == report["stage_count"]
     assert "risk_engine" in report["parity_gap_stage_ids"]
 
@@ -309,7 +313,8 @@ def test_parity_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
 
     assert main(["--mode", "backtest-live-parity", "--output-dir", str(tmp_path / "out")]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["parity_status"] == "PARITY_OK"
+    assert payload["parity_status"] == "PARITY_INCOMPLETE"
+    assert payload["decision_parity_status"] == "PARITY_OK"
     assert payload["decision_parity_pct"] >= 95.0
     assert payload["run_manifest"]["run_id"]
     assert_safety_flags(payload, context="parity CLI")

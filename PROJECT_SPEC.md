@@ -662,6 +662,31 @@ Metricas minimas:
 - Percentiles de drawdown.
 - Metricas por simbolo/timeframe/sesion.
 
+### 12.3 Causalidad Del Backtest Python (motor 0.2.0)
+
+- Timestamps de barras historicas representan apertura.
+- TradeCandidate.available_at_utc es opcional para candidatos externos y
+  obligatorio en candidatos generados desde OHLC cerrado: apertura mas duracion
+  explicita del timeframe. No se infiere una duracion desconocida.
+- La entrada usa primera apertura >= disponibilidad. Maximos/minimos anteriores
+  no se usan para salida o MAE/MFE. Sin barra posterior elegible, se rechaza.
+- Disponibilidad invalida/anterior al origen o entry_price impuesto en candidatos
+  con disponibilidad provoca rechazo auditado.
+- Compatibilidad: candidatos externos sin ese campo conservan evento disponible
+  en timestamp y use_next_bar_open. Disponibilidad explicita tiene prioridad y
+  evita un segundo desplazamiento por esa opcion.
+- Metadata conserva origen, disponibilidad y politica de entrada. Reportes del
+  motor 0.1.0 deben reevaluarse antes de usarse como evidencia, sin sobrescribirlos.
+- Spread cero es valido; ausente, negativo o no finito no se sustituye por cero.
+  SpreadEstimate agrega reject_reason; SPREAD_DATA_MISSING/INVALID bloquean fills.
+  El maximo configurado sigue siendo inclusivo.
+- El reporte de paridad agrega decision_parity_status, evidence_scope,
+  full_pipeline_verified y stage_parity_pct. PARITY_INCOMPLETE identifica la
+  verificacion parcial. Consumidores que aceptaban PARITY_OK como aprobacion
+  integral deben fallar cerrados. ADAPTER_REQUIRED no es implementacion compartida.
+- Esto no habilita ejecucion demo/real ni sustituye Risk Gate. Decision y limites:
+  docs/decisions/2026-10-05-causal-backtests-and-honest-parity.md.
+
 ## 13. Estructura De Repositorio
 
 ```text
@@ -764,3 +789,145 @@ El bot no debe operar si:
 - Definir matriz de simbolos permitidos.
 - Definir versionado de parametros.
 - Definir CI para validaciones Python y lint documental.
+
+## 17. Contratos De Correccion Y Validacion Compartida (2026-10-05)
+
+Esta ampliacion toca estrategia, riesgo paper, observabilidad y backtesting;
+no autoriza ejecucion demo ni real y no sustituye el Strategy Promotion Gate.
+
+- `data.strategy_features`: preparacion causal versionada `closed_bar_features_v1`.
+  OHLC tiene timestamp de apertura; una barra solo esta disponible al cierre.
+  El adaptador MT5 excluye la barra en formacion, declara M5 explicitamente y
+  el builder rechaza campos ausentes/no finitos. Swings confirmados requieren
+  dos barras posteriores; soporte/resistencia y compresion usan historia previa.
+  Las sesiones son bandas UTC fijas, no calendarios DST del broker certificados.
+- Las seis estrategias y el ensemble version `0.2.1` pasan la direccion al
+  scoring. La calidad del ensemble es media de votantes de la direccion elegida;
+  si falta un score valido no se inventa. `calibration.decision_policy` aplica
+  identicos thresholds y overlays en backtest y forward; exige todos los
+  componentes y scores finitos 0..100. Perfiles/archivos invalidos no caen a otro
+  perfil silenciosamente. No se han relajado umbrales.
+- `core.decision.SharedDecisionPipeline.evaluate(DecisionContext)` ordena
+  estrategia, perfil, estabilidad, construccion de senal, persistencia, riesgo,
+  ML, ranking, portfolio, riesgo dinamico, limites paper y ajuste de volumen.
+  Contexto exige estado completo con timestamps, referencias de riesgo,
+  posiciones, calidad broker y correlacion cuando hay exposicion. Cada etapa
+  produce passed/rejected/error/skipped; no hay defaults que simulen evidencia.
+  El volumen se redondea hacia abajo y el ajuste conserva riesgo preexistente.
+  SL/TP comparten ATR medido, piso100 puntos, stops broker y RR1.8 existentes.
+- `ForwardShadowBot` usa ese nucleo y guarda el resultado completo antes del
+  fill paper. Recibe reloj y proveedor explicito de evidencia broker/correlacion.
+  `PAPER_ALLOW_DISABLED_ML=False` por defecto; True permite investigar sin modelo
+  solo paper, auditandolo. ML_ERROR siempre bloquea; un modelo necesita fecha de
+  disponibilidad no posterior a la decision. Ranking actual es por candidato,
+  sin afirmar competencia top-N entre todos los simbolos.
+- `paper_trading.decision_state` persiste baseline solo en libro vacio y deriva
+  balance/equity de PnL realizado/flotante, con todas las posiciones cotizadas.
+  Conserva referencia y halt diario UTC. Historia faltante, metadata ambigua,
+  referencia overnight ausente o fallo de persistencia bloquean entradas.
+  El store requiere un unico escritor; no se inventa equity de medianoche.
+- Trades paper nuevos llevan `metadata.pnl_basis=APPROVED_LOT_UNSCALED_V1` y
+  `pnl_formula_version=paper_pnl_approved_lot_v1` al cierre. Lot ya fue ajustado;
+  profit/raw_pnl/scaled_paper_pnl son el mismo PnL neto, sin segundo multiplicador.
+  Distancia/riesgo iniciales se conservan para BE/trailing y R. Un gap de SL usa
+  precio observado adverso. Evidencia legacy no se reescribe ni se adopta para
+  nuevas entradas sin reconciliacion explicita.
+- `backtesting.decision_replay.replay_decisions` reproduce contextos completos
+  mediante FrozenClock y el mismo nucleo, con auditoria obligatoria del resultado.
+  Este alcance es `RECORDED_DECISION_REPLAY`, no verificacion de rentabilidad ni
+  simulacion completa de portfolio. El motor OHLC `0.3.0` de candidatos
+  independientes sigue declarando `full_risk_pipeline_applied=False` y
+  `operationally_eligible=False`; sus metricas no promueven una estrategia.
+- `InstrumentRegistrySnapshot` captura solo symbol_info via cliente inyectado,
+  con mapa explicito canonical->broker, fecha UTC, hash metadata y hash envelope.
+  Es inmutable y no sobrescribe evidencia; hash demuestra integridad, no origen
+  autentico ni validez historica. Tick value/moneda/condiciones historicas siguen
+  requiriendo evidencia. CLI `build-instrument-registry` requiere mapa JSON y
+  destino nuevo, solo initialize/symbol_info/shutdown; nunca account u ordenes.
+- `RunManifest` version1.1 agrega hashes de fuentes Python/MQL/scripts y metadata
+  o snapshot de instrumentos a la identidad. IDs cambian respecto1.0; campos
+  anteriores permanecen. Backtest batch incluye config efectiva, settings y
+  archivos historicos; overlays participan por contenido resuelto.
+- Walk-forward: test windows disjuntas, validacion selecciona parametros y test
+  solo evalua el elegido. API programatica agrega warmup_size/purge_size
+  (compatibilidad defaults0/0); calendario agrega warmup_bars=250/purge_bars=1.
+  `DataFrame.attrs['walk_forward_context']` identifica warmup y tramo evaluable.
+  No cuentan entradas en warmup, salidas fuera de ventana ni cierres truncados
+  por fin de datos; metricas se recalculan del tramo valido. Costes no son
+  parametros optimizables para mejorar scores; escenarios se evaluan separados.
+- Los datos EURUSD/GBPUSD/USDJPY M5 ya inspeccionados (febrero-mayo2026) son
+  diagnostico/desarrollo, nunca holdout final. Toda evidencia anterior a estas
+  correcciones queda historica y no certifica el comportamiento nuevo.
+
+### 17.1 Contrato De Replay Estatal Y Correcciones De Riesgo
+
+- `backtesting.stateful_replay` acepta eventos cronologicos con cotizaciones
+  explicitas, barras cerradas y evidencia broker/correlacion disponible entonces.
+  Construye el libro desde capital simulado demo y un directorio nuevo; no adopta
+  posiciones ni equity inventados de un contexto externo. Usa el mismo builder,
+  nucleo de decisiones, ledger y manager del forward. No conecta MT5 ni Telegram.
+  El modelo ML se inyecta explicitamente; no puede cargar artefactos locales
+  posteriores al periodo. Metadata de instrumentos debe coincidir y estar
+  disponible antes de cada evento. Integridad por hash no autentica su origen.
+- Scope `STATEFUL_EXPLICIT_QUOTE_REPLAY`: no interpolar trayectorias intrabar
+  desde OHLC ni presentar una secuencia inventada como ticks observados. Eventos
+  sin cotizaciones frescas para posiciones abiertas no autorizan decisiones.
+  Una referencia diaria con exposicion overnight solo puede capturarse con
+  cotizaciones completas en el instante exacto de medianoche UTC; si falta,
+  bloquear y declarar evidencia incompleta. No reescribir referencias ni halts.
+- Auditoria durable del evento, senal y decision precede cualquier apertura
+  paper. Resultados incluyen identidad de fuentes, inputs, configuracion y
+  metadata, decisiones y trayectoria del patrimonio. El reporte no declara
+  promocion, rentabilidad validada ni habilita ejecucion real/demo.
+- `PaperPositionManager` reconcilia lotaje despues de fill: presupuesto incluye
+  distancia real a SL, slippage de salida y comision completa. Redondea hacia
+  abajo, nunca aumenta volumen aprobado, y rechaza si queda bajo minimo. Audita
+  y relee reconciliacion antes de insertar. Gaps pueden exceder el presupuesto
+  simulado de un stop; no se promete un limite absoluto de perdida.
+- Idempotencia paper identifica senal y simbolo sin depender de direccion;
+  reutilizar identidad con intencion diferente (direccion, proteccion, version,
+  configuracion o metadata relevante) bloquea. Un reintento identico despues de
+  BE conserva el trade original. Evidencia legacy ambigua requiere reconciliar.
+- Precios de proteccion y fills deben respetar `tick_size`, no solo `digits` ni
+  `point`. Normalizacion adversa de fill participa en riesgo; niveles off-grid
+  se rechazan antes de abrir cuando no pueden normalizarse de forma consistente.
+- Observabilidad distingue `historical_drawdown_amount` monetario de drawdown
+  diario/flotante porcentual del ledger. Metricas requieren valuation fresca y
+  fingerprint del libro actual; ausencias o discrepancias son UNKNOWN/null.
+  Una perdida monetaria historica no constituye por si sola un halt diario.
+- Payloads de auditoria se redactan como estructuras antes de serializar JSON;
+  no se aplican expresiones de texto al JSON serializado que puedan corromper
+  decimales o romper su lectura. Se conservan controles de secretos existentes.
+- Gate paper `stable_shadow_gate_v2` exige perfil coincidente, flags booleanos
+  exactos, conteos enteros no negativos y metricas numericas finitas; estados
+  ausentes/desconocidos/insuficientes no equivalen a aprobacion. Se conservan
+  umbrales previos y se exige estado admitido de MC, stress, WFA y costes. Un
+  archivo preferido invalido bloquea; no se sustituye por uno anterior. El gate
+  no autentica por si solo la procedencia de artefactos legacy.
+- Transporte de replay: JSONL con un evento por linea, claves unicas, timestamps
+  con zona horaria y valores numericos finitos. Barras canonicas usan `volume`
+  y `spread_points`. No ordenar, completar ni reinterpretar datos ambiguos.
+  `scripts/replay_stateful_quotes.py` requiere config, instrumentos, costes,
+  capital simulado y modelo explicitamente; `--without-ml` requiere la opcion
+  paper correspondiente. `MLFilter.disabled_for_research()` no lee modelos
+  locales ni cambia las condiciones del gate.
+- Mientras esta release carezca de Strategy Promotion Gate y evidencia de
+  ejecucion aprobados, el adapter MT5 no construye requests ni invoca
+  `order_check`/`order_send`. `ExecutionEngine.execute` devuelve rechazo incluso
+  con riesgo aceptado y booleano audit_confirmed. `SHADOW_MODE_BLOCKED` identifica
+  shadow; `EXECUTION_NOT_RELEASED` impide activarlo cambiando ese flag. No existe
+  switch de aprobacion, whitelist ni token que habilite esta release. Las APIs
+  de lectura y firmas se conservan; antiguos callers que esperaban envio reciben
+  rechazo explicito. Una futura release necesita decision de arquitectura y
+  evidencia completa antes de implementar capacidad ejecutable demo.
+- Caller forward/replay no reevalua para apertura una identidad de senal que
+  ya tenga trade paper persistido (abierto o cerrado). Registra
+  `CANDIDATE_ALREADY_TRADED`; conserva la proteccion estricta de intencion del
+  manager para llamadas directas. Una senal rechazada sin trade puede volver a
+  evaluarse con observaciones frescas y auditoria nueva. La identidad incluye
+  simbolo, barra cerrada y perfil; los limites siguen aplicandose entre barras.
+- `TelemetryDatabase.insert_paper_trade_event` acepta `timestamp_utc` opcional;
+  manager pasa el instante observado al abrir/modificar/cerrar. El tiempo de
+  insercion puede conservarse separado y no alimenta decisiones historicas.
+  Fallos de auditoria postfill se propagan como `PaperAuditError`, detienen el
+  replay y marcan `audit_complete=False` aunque se pueda guardar el evento halt.

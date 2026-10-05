@@ -8,6 +8,7 @@ import pytest
 
 from agi_style_forex_bot_mt5 import cli
 from agi_style_forex_bot_mt5.config import BotConfig
+from agi_style_forex_bot_mt5.core.clock import FrozenClock
 from agi_style_forex_bot_mt5.contracts import Direction, EntryType, MarketSnapshot, RiskDecision, TradeSignal, utc_now
 from agi_style_forex_bot_mt5.paper_trading import (
     ForwardShadowBot,
@@ -21,11 +22,14 @@ from agi_style_forex_bot_mt5.paper_trading import (
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
 
 
+PAPER_NOW = utc_now()
+
+
 def _snapshot(*, bid: float = 1.1000, ask: float = 1.1001, seconds: int = 0) -> MarketSnapshot:
     return MarketSnapshot(
         symbol="EURUSD",
         timeframe="EXECUTION",
-        timestamp_utc=utc_now() + timedelta(seconds=seconds),
+        timestamp_utc=PAPER_NOW + timedelta(seconds=seconds),
         bid=bid,
         ask=ask,
         spread_points=(ask - bid) / 0.00001,
@@ -68,7 +72,7 @@ def _risk() -> RiskDecision:
 
 def _manager(tmp_path: Path, **kwargs) -> tuple[PaperPositionManager, TelemetryDatabase]:
     db = TelemetryDatabase(tmp_path / "paper.sqlite3")
-    return PaperPositionManager(database=db, fill_model=PaperFillModel(slippage_points=0), **kwargs), db
+    return PaperPositionManager(database=db, fill_model=PaperFillModel(slippage_points=0, clock=FrozenClock(PAPER_NOW)), **kwargs), db
 
 
 def _open_trade(manager: PaperPositionManager) -> PaperTrade:
@@ -112,7 +116,7 @@ def test_paper_trade_serializes_roundtrip() -> None:
 
 
 def test_fill_model_uses_bid_ask_and_slippage() -> None:
-    fill = PaperFillModel(slippage_points=2)
+    fill = PaperFillModel(slippage_points=2, clock=FrozenClock(PAPER_NOW))
     snap = _snapshot(bid=1.1000, ask=1.1002)
     assert fill.entry_price(direction="BUY", snapshot=snap) == pytest.approx(1.10022)
     assert fill.entry_price(direction="SELL", snapshot=snap) == pytest.approx(1.09998)
@@ -121,7 +125,7 @@ def test_fill_model_uses_bid_ask_and_slippage() -> None:
 
 
 def test_fill_model_rejects_extreme_spread() -> None:
-    fill = PaperFillModel(max_spread_points=5, slippage_points=0)
+    fill = PaperFillModel(max_spread_points=5, slippage_points=0, clock=FrozenClock(PAPER_NOW))
     with pytest.raises(ValueError, match="spread exceeds maximum"):
         fill.entry_price(direction="BUY", snapshot=_snapshot(bid=1.1000, ask=1.1010))
 
@@ -147,7 +151,7 @@ def test_sqlite_persists_and_reloads_open_paper_trades(tmp_path: Path) -> None:
 
     db = TelemetryDatabase(tmp_path / "paper.sqlite3")
     try:
-        reloaded = PaperPositionManager(database=db, fill_model=PaperFillModel(slippage_points=0)).load_open_trades()
+        reloaded = PaperPositionManager(database=db, fill_model=PaperFillModel(slippage_points=0, clock=FrozenClock(PAPER_NOW))).load_open_trades()
         assert len(reloaded) == 1
         assert reloaded[0].paper_trade_id == opened.paper_trade_id
     finally:
@@ -158,6 +162,7 @@ def test_position_manager_closes_by_sl_and_tp(tmp_path: Path) -> None:
     manager, db = _manager(tmp_path)
     try:
         sl_trade = _open_trade(manager)
+        manager.fill_model.clock.instant = PAPER_NOW + timedelta(seconds=10)
         closed_sl = manager.update_with_snapshot(sl_trade, _snapshot(bid=1.0979, ask=1.0980, seconds=10))
         assert closed_sl.status == "CLOSED"
         assert closed_sl.exit_reason == "SL"
@@ -167,6 +172,7 @@ def test_position_manager_closes_by_sl_and_tp(tmp_path: Path) -> None:
     manager, db = _manager(tmp_path / "tp")
     try:
         tp_trade = _open_trade(manager)
+        manager.fill_model.clock.instant = PAPER_NOW + timedelta(seconds=10)
         closed_tp = manager.update_with_snapshot(tp_trade, _snapshot(bid=1.1041, ask=1.1042, seconds=10))
         assert closed_tp.status == "CLOSED"
         assert closed_tp.exit_reason == "TP"
@@ -178,8 +184,10 @@ def test_break_even_and_trailing_never_retreat(tmp_path: Path) -> None:
     manager, db = _manager(tmp_path, trailing_distance_r=0.4)
     try:
         trade = _open_trade(manager)
+        manager.fill_model.clock.instant = PAPER_NOW + timedelta(seconds=10)
         moved = manager.update_with_snapshot(trade, _snapshot(bid=1.1030, ask=1.1031, seconds=10))
         assert moved.sl_price >= trade.sl_price
+        manager.fill_model.clock.instant = PAPER_NOW + timedelta(seconds=20)
         later = manager.update_with_snapshot(moved, _snapshot(bid=1.1025, ask=1.1026, seconds=20))
         assert later.sl_price >= moved.sl_price
     finally:
@@ -190,6 +198,7 @@ def test_time_stop_closes_trade(tmp_path: Path) -> None:
     manager, db = _manager(tmp_path, time_stop_seconds=1)
     try:
         trade = _open_trade(manager)
+        manager.fill_model.clock.instant = PAPER_NOW + timedelta(seconds=5)
         closed = manager.update_with_snapshot(trade, _snapshot(bid=1.1002, ask=1.1003, seconds=5))
         assert closed.status == "CLOSED"
         assert closed.exit_reason == "TIME_STOP"

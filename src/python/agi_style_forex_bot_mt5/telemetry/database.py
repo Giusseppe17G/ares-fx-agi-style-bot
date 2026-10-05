@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 from uuid import uuid4
@@ -524,14 +525,22 @@ class TelemetryDatabase:
         )
         self._conn.commit()
 
-    def insert_paper_trade_event(self, paper_trade_id: str, event_type: str, payload: Mapping[str, Any]) -> None:
+    def insert_paper_trade_event(self, paper_trade_id: str, event_type: str, payload: Mapping[str, Any], *, timestamp_utc: datetime | str | None = None) -> None:
+        """Persist economic event time when supplied; legacy calls use ingest time."""
+        if timestamp_utc is None:
+            timestamp = utc_now_iso()
+        else:
+            instant = datetime.fromisoformat(timestamp_utc) if isinstance(timestamp_utc, str) else timestamp_utc
+            if not isinstance(instant, datetime) or instant.utcoffset() is None:
+                raise ValueError("paper event timestamp must be timezone-aware")
+            timestamp = instant.astimezone(timezone.utc).isoformat()
         self._conn.execute(
             """
             INSERT INTO paper_trade_events (
                 paper_trade_id, event_type, timestamp_utc, payload_json
             ) VALUES (?, ?, ?, ?)
             """,
-            (paper_trade_id, event_type, utc_now_iso(), compact_json(redact_secrets(payload))),
+            (paper_trade_id, event_type, timestamp, compact_json(redact_secrets(payload))),
         )
         self._conn.commit()
 

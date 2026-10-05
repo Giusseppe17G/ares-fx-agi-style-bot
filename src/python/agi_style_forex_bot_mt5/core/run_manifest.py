@@ -22,7 +22,7 @@ from .safety import SafetyEnvelope
 from .workspace import WorkspacePaths, workspace_paths
 
 
-MANIFEST_VERSION = "1.0"
+MANIFEST_VERSION = "1.1"
 TRACKED_PACKAGES = ("numpy", "pandas", "scikit-learn", "MetaTrader5")
 SECRET_KEY_TOKENS = ("token", "secret", "password", "passwd", "api_key", "apikey", "credential", "chat_id", "login", "private")
 
@@ -47,6 +47,9 @@ class RunManifest:
     timeframe: str = ""
     seed: int | None = None
     safety: Mapping[str, bool] = field(default_factory=dict)
+    source_tree_hash: str = ""
+    instrument_snapshot_hash: str = ""
+    instrument_metadata_hash: str = ""
 
     @classmethod
     def build(
@@ -62,6 +65,8 @@ class RunManifest:
         timeframe: str = "",
         seed: int | None = None,
         envelope: SafetyEnvelope | None = None,
+        instrument_snapshot_hash: str = "",
+        instrument_metadata_hash: str = "",
     ) -> "RunManifest":
         paths = workspace or workspace_paths()
         reference_time = resolve_clock(clock).now_utc().isoformat()
@@ -69,6 +74,10 @@ class RunManifest:
         resolved_dataset_hash = dataset_hash or (hash_paths(dataset_paths) if dataset_paths else "")
         symbol_tuple = tuple(sorted(str(symbol) for symbol in (symbols or ())))
         sha, dirty = _git_state(paths.project_root)
+        source_hash = hash_source_tree(paths.project_root)
+        for digest in (instrument_snapshot_hash, instrument_metadata_hash):
+            if digest and (len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest)):
+                raise ValueError("instrument hashes must be SHA256 hex digests")
         run_id = _derive_run_id(
             mode=mode,
             config_hash=config_hash,
@@ -77,6 +86,10 @@ class RunManifest:
             symbols=symbol_tuple,
             timeframe=timeframe,
             seed=seed,
+            source_tree_hash=source_hash,
+            git_commit_sha=sha,
+            instrument_snapshot_hash=instrument_snapshot_hash,
+            instrument_metadata_hash=instrument_metadata_hash,
         )
         return cls(
             mode=mode,
@@ -94,6 +107,9 @@ class RunManifest:
             timeframe=str(timeframe or ""),
             seed=seed,
             safety=(envelope or SafetyEnvelope()).as_dict(),
+            source_tree_hash=source_hash,
+            instrument_snapshot_hash=instrument_snapshot_hash,
+            instrument_metadata_hash=instrument_metadata_hash,
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -114,6 +130,9 @@ class RunManifest:
             "timeframe": self.timeframe,
             "seed": self.seed,
             "safety": dict(self.safety),
+            "source_tree_hash": self.source_tree_hash,
+            "instrument_snapshot_hash": self.instrument_snapshot_hash,
+            "instrument_metadata_hash": self.instrument_metadata_hash,
         }
 
     def attach(self, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -164,7 +183,18 @@ def hash_paths(paths: Iterable[str | Path]) -> str:
     return digest.hexdigest()
 
 
-def _derive_run_id(*, mode: str, config_hash: str, dataset_hash: str, reference_time: str, symbols: Sequence[str], timeframe: str, seed: int | None) -> str:
+def hash_source_tree(project_root: Path) -> str:
+    """Identify dirty source as well as commits; excludes caches and runtime data."""
+    files = {}
+    for directory in (project_root / "src", project_root / "scripts"):
+        if directory.is_dir():
+            for path in directory.rglob("*"):
+                if path.is_file() and path.suffix.lower() in {".py", ".mq5", ".mqh", ".ps1"}:
+                    files[path.relative_to(project_root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256(json.dumps(files, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _derive_run_id(*, mode: str, config_hash: str, dataset_hash: str, reference_time: str, symbols: Sequence[str], timeframe: str, seed: int | None, source_tree_hash: str = "", git_commit_sha: str = "", instrument_snapshot_hash: str = "", instrument_metadata_hash: str = "") -> str:
     payload = json.dumps(
         {
             "mode": mode,
@@ -174,6 +204,10 @@ def _derive_run_id(*, mode: str, config_hash: str, dataset_hash: str, reference_
             "symbols": list(symbols),
             "timeframe": timeframe,
             "seed": seed,
+            "source_tree_hash": source_tree_hash,
+            "git_commit_sha": git_commit_sha,
+            "instrument_snapshot_hash": instrument_snapshot_hash,
+            "instrument_metadata_hash": instrument_metadata_hash,
         },
         sort_keys=True,
     )

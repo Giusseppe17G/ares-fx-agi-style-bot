@@ -1,9 +1,9 @@
 """Backtest / forward-shadow pipeline parity.
 
-The two pipelines are enumerated stage by stage from the code that actually runs
-them, then executed on one deterministic fixture and compared decision by
-decision. Stages only one side runs are reported as parity gaps with the reason,
-never silently skipped: a gap is the finding, not something to average away.
+The stage inventory describes both pipelines. The fixture below compares only
+shared component calls, not the complete pipelines or their state transitions.
+One-sided stages and distinct adapters are reported as gaps. A passing component
+comparison must never be represented as full pipeline verification.
 
 Forward-shadow order (paper_trading/forward_shadow_bot.py, the live loop):
     strategy -> risk -> ml -> ranker -> portfolio -> execution
@@ -30,6 +30,7 @@ REFERENCE_NOW = datetime(2026, 9, 4, 18, 0, tzinfo=timezone.utc)
 SHARED = "SHARED"
 BACKTEST_ONLY = "BACKTEST_ONLY"
 FORWARD_ONLY = "FORWARD_ONLY"
+ADAPTER_REQUIRED = "ADAPTER_REQUIRED"
 
 
 @dataclass(frozen=True)
@@ -57,22 +58,22 @@ def pipeline_stages() -> list[Stage]:
     """The audited stage map. Every entry was read out of the running code."""
 
     return [
-        Stage("market_data", SHARED, "data_pipeline.historical_csv_loader", "mt5_data_bot + MT5Connector", "Different sources by nature: stored bars versus live ticks. Both normalize into MarketSnapshot."),
+        Stage("market_data", ADAPTER_REQUIRED, "data_pipeline.historical_csv_loader", "mt5_data_bot + MT5Connector", "Different sources: stored bars versus live ticks. A shared output contract does not establish equivalent availability times or values."),
         Stage("instrument_metadata", SHARED, "core.instruments.InstrumentRegistry", "core.instruments.InstrumentRegistry (from MT5 symbol_info)", "FASE 82: unified. Previously the backtester invented digits/tick_value/volumes/stops."),
         Stage("normalization", SHARED, "contracts.MarketSnapshot", "contracts.MarketSnapshot", "Same frozen contract on both sides."),
-        Stage("features", SHARED, "data.feature_engineering + indicators", "data.feature_engineering + indicators", "Same feature builders."),
+        Stage("features", SHARED, "data.strategy_features", "data.strategy_features", "Same causal closed-bar builder; source availability still requires adapter evidence."),
         Stage("strategy", SHARED, "strategy.evaluate_ensemble", "strategy.evaluate_ensemble", "Identical function and configuration object."),
-        Stage("profile_thresholds", BACKTEST_ONLY, "_profile_threshold_result", "not run", "The backtest re-applies signal-profile thresholds that the live ensemble config already carries."),
-        Stage("stable_filters", BACKTEST_ONLY, "_stable_filter_result", "not run", "Symbol/strategy/session/regime allow-lists applied only offline."),
+        Stage("profile_thresholds", SHARED, "calibration.decision_policy", "calibration.decision_policy via core.decision", "Complete finite setup/component evidence required in both callers."),
+        Stage("stable_filters", SHARED, "calibration.decision_policy", "calibration.decision_policy via core.decision", "Same overlays apply to stable and micro descendants."),
         Stage("risk_engine", FORWARD_ONLY, "not run", "risk.RiskEngine.evaluate", "PARITY GAP: the backtest sizes positions without the live risk engine's checks."),
         Stage("ml_filter", FORWARD_ONLY, "not run", "ml.MLFilter.approve_or_reject", "PARITY GAP: the backtest never sees the ML meta-filter, so it counts trades live would reject."),
-        Stage("signal_ranker", FORWARD_ONLY, "not run", "portfolio.SignalRanker.rank", "PARITY GAP: no top-N competition offline."),
+        Stage("signal_ranker", FORWARD_ONLY, "not run", "portfolio.SignalRanker.rank", "PARITY GAP: legacy OHLC bypasses ranking; forward currently ranks single candidates, not simultaneous top-N competition."),
         Stage("portfolio_guard", FORWARD_ONLY, "not run", "portfolio.PortfolioGuard.evaluate", "PARITY GAP: correlation and exposure limits are not applied offline."),
         Stage("dynamic_risk", FORWARD_ONLY, "not run", "portfolio.DynamicRiskAllocator", "PARITY GAP: risk scaling is not applied offline."),
         Stage("paper_limits", FORWARD_ONLY, "not run", "paper_risk_calibration.evaluate_paper_trade_limits", "PARITY GAP: daily trade caps and drawdown halts do not exist offline."),
         Stage("execution_simulation", SHARED, "core.execution.SharedFillModel", "core.execution.SharedFillModel via PaperFillModel", "FASE 82: unified onto execution_simulation.FillModel."),
-        Stage("persistence", SHARED, "backtesting.performance_report", "telemetry.TelemetryDatabase + JSONL", "Different stores, same safety envelope."),
-        Stage("metrics", SHARED, "backtesting.performance_report.calculate_metrics", "paper_trading.paper_performance", "Different implementations of the same metric definitions."),
+        Stage("persistence", ADAPTER_REQUIRED, "backtesting.performance_report", "telemetry.TelemetryDatabase + JSONL", "Different stores; the safety envelope alone is not implementation or audit-path parity."),
+        Stage("metrics", ADAPTER_REQUIRED, "backtesting.backtester.calculate_metrics", "paper_trading.paper_performance", "Different implementations. Equivalence requires independent fixtures, including open equity and costs."),
     ]
 
 
@@ -173,9 +174,11 @@ def build_fixture(*, symbol: str = "EURUSD", bars: int = 120, clock: Clock | Non
 
 
 def compare_pipelines(fixture: ParityFixture | None = None) -> dict[str, Any]:
-    """Run both pipelines' shared stages on one fixture and compare every decision."""
+    """Smoke-test shared components; this does not run either complete pipeline."""
 
     fixture = fixture or build_fixture()
+    if len(fixture.snapshots) != len(fixture.features):
+        raise ValueError("parity fixture needs one feature mapping per snapshot")
     rows: list[DecisionRow] = []
     model = SharedFillModel(max_spread_points=25.0, slippage_points=1.0)
 
@@ -203,9 +206,16 @@ def compare_pipelines(fixture: ParityFixture | None = None) -> dict[str, Any]:
     equivalent = sum(1 for row in rows if row.equivalent)
     parity_pct = (equivalent / len(rows) * 100.0) if rows else 0.0
     gaps = [stage for stage in stages if stage.scope != SHARED]
+    shared_count = sum(1 for stage in stages if stage.scope == SHARED)
+    stage_pct = shared_count / len(stages) * 100.0 if stages else 0.0
+    component_status = "PARITY_OK" if rows and parity_pct >= 95.0 else "PARITY_BELOW_THRESHOLD"
     payload = {
         "mode": "backtest-live-parity",
-        "parity_status": "PARITY_OK" if parity_pct >= 95.0 else "PARITY_BELOW_THRESHOLD",
+        "parity_status": "PARITY_INCOMPLETE" if component_status == "PARITY_OK" else component_status,
+        "decision_parity_status": component_status,
+        "evidence_scope": "SHARED_COMPONENT_SMOKE_TEST",
+        "full_pipeline_verified": False,
+        "compared_decision_ids": sorted({row.stage_id for row in rows}),
         "decision_count": len(rows),
         "equivalent_decision_count": equivalent,
         "decision_parity_pct": round(parity_pct, 4),
@@ -213,7 +223,8 @@ def compare_pipelines(fixture: ParityFixture | None = None) -> dict[str, Any]:
         "difference_count": len(rows) - equivalent,
         "differences": [row.as_dict() for row in rows if not row.equivalent],
         "stage_count": len(stages),
-        "shared_stage_count": sum(1 for stage in stages if stage.scope == SHARED),
+        "shared_stage_count": shared_count,
+        "stage_parity_pct": round(stage_pct, 4),
         "parity_gap_stage_count": len(gaps),
         "parity_gap_stage_ids": [stage.stage_id for stage in gaps],
         "stages": [stage.as_dict() for stage in stages],

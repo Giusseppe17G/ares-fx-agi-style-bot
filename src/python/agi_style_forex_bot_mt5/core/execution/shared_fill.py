@@ -2,10 +2,9 @@
 
 The backtester priced fills with its own `_apply_entry_cost`/`_apply_exit_cost`
 arithmetic while forward-shadow used `execution_simulation.FillModel` through
-`PaperFillModel`. Measured on identical inputs the two produced the same price to
-the instrument's digits, so this adapter routes both through `FillModel` without
-changing any historical result -- and from now on a change to spread, slippage or
-commission assumptions lands on both sides at once instead of one.
+`PaperFillModel`. Both adapters now share executable tick-grid alignment,
+spread, slippage and commission assumptions. Coarse ticks and fractional
+slippage are rounded adversely, so older optimistic results must be rerun.
 
 Backtests replay stored bars, so the live freshness gate is neutralised with an
 explicit `tick_age_seconds=0.0`: a replayed bar is not a stale tick. That is the
@@ -16,6 +15,7 @@ here rather than hidden in a default.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any, Mapping
 
 from ...contracts import MarketSnapshot
@@ -33,6 +33,12 @@ class SharedFillModel:
     max_spread_points: float = 25.0
     slippage_points: float = 1.0
     commission_per_lot_round_turn: float = 0.0
+
+    def __post_init__(self) -> None:
+        for name in ("max_spread_points", "slippage_points", "commission_per_lot_round_turn"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and non-negative")
 
     def simulator(self) -> FillModel:
         return FillModel(

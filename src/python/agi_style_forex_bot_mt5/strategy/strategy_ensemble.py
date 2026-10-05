@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+import math
 from typing import Any
 
 from ..contracts import MarketSnapshot, Regime, SignalAction, StrategySignal
@@ -26,7 +27,7 @@ from .scoring_engine import (
 
 
 STRATEGY_NAME = "strategy_ensemble"
-STRATEGY_VERSION = "0.2.0"
+STRATEGY_VERSION = "0.2.1"
 
 StrategyEvaluator = Callable[[MarketSnapshot, Mapping[str, Any]], StrategySignal]
 
@@ -160,6 +161,18 @@ def evaluate(
     reasons = _ensemble_reasons(child_signals, action)
     component_scores = _merge_component_scores(child_signals, action)
     metadata["component_scores"] = component_scores
+    # Components already use an equal-voter mean. Preserve that same meaning
+    # for setup quality; voting confidence is a separate score and cannot
+    # substitute for an absent child quality measurement.
+    setup_scores = [child.metadata.get("setup_quality_score") for child in child_signals if child.action == action]
+    quality_available = bool(setup_scores) and all(
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        and math.isfinite(value) and 0 <= value <= 100 for value in setup_scores
+    )
+    metadata["required_data_missing"] = not quality_available
+    if quality_available:
+        metadata["setup_quality_score"] = sum(setup_scores) / len(setup_scores)
+    metadata["setup_quality_aggregation"] = "mean_of_winning_direction_voters"
     metadata["setup_quality"] = _setup_quality(score)
     metadata["blocking_reasons"] = ()
     return StrategySignal(

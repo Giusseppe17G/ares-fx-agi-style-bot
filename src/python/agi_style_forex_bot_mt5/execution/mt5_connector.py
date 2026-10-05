@@ -1,13 +1,13 @@
-"""Single MetaTrader 5 adapter used by Python execution code."""
+"""MT5 data/diagnostic adapter with broker execution disabled for this release."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from time import perf_counter
 from typing import Any, Mapping
 
 from agi_style_forex_bot_mt5.config import BotConfig
+from agi_style_forex_bot_mt5.execution.release_policy import execution_block_reason
 from agi_style_forex_bot_mt5.contracts import (
     Direction,
     EntryType,
@@ -166,7 +166,7 @@ def is_market_probably_closed(now_utc: datetime, symbol: str) -> bool:
 
 
 class MT5Connector:
-    """Encapsulate all calls to the MetaTrader5 Python module."""
+    """Provide MT5 observations and diagnostics, with blocked order APIs."""
 
     def __init__(self, *, config: BotConfig, mt5_client: Any | None = None) -> None:
         self.config = config
@@ -712,7 +712,7 @@ class MT5Connector:
         return AdapterCheck.ok("pending stops accepted")
 
     def select_filling_mode(self, symbol: str) -> tuple[AdapterCheck, int | None, str]:
-        """Select a supported filling mode for explicit request construction."""
+        """Report a filling-mode diagnostic without granting order capability."""
 
         symbol_info = self.mt5.symbol_info(symbol)
         if symbol_info is None:
@@ -745,35 +745,10 @@ class MT5Connector:
         snapshot: MarketSnapshot,
         filling_mode: int,
     ) -> dict[str, Any]:
-        """Build a safe MqlTradeRequest-equivalent dictionary."""
+        """Reject broker request construction in the current paper-only release."""
 
-        request.validate()
-        order_type = self._order_type(request)
-        action = (
-            self.const("TRADE_ACTION_DEAL", 1)
-            if request.order_type == EntryType.MARKET
-            else self.const("TRADE_ACTION_PENDING", 5)
-        )
-        price = request.entry_price
-        if request.order_type == EntryType.MARKET:
-            price = snapshot.ask if request.direction == Direction.BUY else snapshot.bid
-        if price is None or price <= 0:
-            raise ValueError("request price is required")
-        comment = self._sanitize_comment(request.comment, request.signal_id)
-        return {
-            "action": action,
-            "symbol": request.symbol,
-            "volume": request.lot,
-            "type": order_type,
-            "price": round(price, snapshot.digits),
-            "sl": round(request.sl_price, snapshot.digits),
-            "tp": round(request.tp_price, snapshot.digits),
-            "deviation": int(request.max_slippage_points),
-            "magic": int(request.magic_number),
-            "comment": comment,
-            "type_time": self.const("ORDER_TIME_GTC", 0),
-            "type_filling": filling_mode,
-        }
+        code, reason = execution_block_reason(self.config)
+        raise ValueError(f"{code}: {reason}")
 
     def _order_type(self, request: ExecutionRequest) -> int:
         if request.order_type == EntryType.MARKET:
@@ -788,24 +763,10 @@ class MT5Connector:
         return f"{base or 'agi'}:{suffix}"[:31]
 
     def order_check(self, trade_request: dict[str, Any]) -> AdapterCheck:
-        """Run MT5 order_check and normalize the result."""
+        """Return a release block without consulting the supplied MT5 client."""
 
-        result = self.mt5.order_check(trade_request)
-        if result is None:
-            return AdapterCheck.reject(
-                "EXECUTION_CONSTRAINT",
-                "order_check returned no result",
-                last_error=self.last_error_code(),
-            )
-        retcode = int(getattr(result, "retcode", 0))
-        if retcode != RETCODE_DONE:
-            return AdapterCheck.reject(
-                self._retcode_to_reject_code(retcode),
-                self.retcode_description(retcode),
-                retcode=retcode,
-                comment=getattr(result, "comment", ""),
-            )
-        return AdapterCheck.ok("order_check accepted", retcode=retcode)
+        code, reason = execution_block_reason(self.config)
+        return AdapterCheck.reject(code, reason)
 
     def order_send(
         self,
@@ -814,51 +775,13 @@ class MT5Connector:
         trade_request: dict[str, Any],
         filling_mode_name: str,
     ) -> ExecutionResult:
-        """Send the request once and convert the MT5 result to ExecutionResult."""
+        """Deny direct adapter calls as well as calls through ExecutionEngine."""
 
-        started = perf_counter()
-        result = self.mt5.order_send(trade_request)
-        latency_ms = int((perf_counter() - started) * 1000)
-        if result is None:
-            return ExecutionResult(
-                signal_id=execution_request.signal_id,
-                sent=False,
-                filled=False,
-                retcode=0,
-                retcode_description="ORDER_SEND_RETURNED_NONE",
-                timestamp_utc=utc_now(),
-                requested_lot=execution_request.lot,
-                error_message="order_send returned no result",
-                last_error=self.last_error_code(),
-                execution_latency_ms=latency_ms,
-                filling_mode_used=filling_mode_name,
-            )
-
-        retcode = int(getattr(result, "retcode", 0))
-        filled = self.is_success_retcode(retcode, execution_request.order_type)
-        fill_price = float(getattr(result, "price", 0.0) or 0.0)
-        filled_lot = float(getattr(result, "volume", 0.0) or 0.0) if filled else 0.0
+        code, reason = execution_block_reason(self.config)
         return ExecutionResult(
-            signal_id=execution_request.signal_id,
-            sent=True,
-            filled=filled,
-            retcode=retcode,
-            retcode_description=self.retcode_description(retcode),
-            timestamp_utc=utc_now(),
-            ticket=getattr(result, "order", None) or getattr(result, "deal", None),
-            fill_price=fill_price,
-            requested_lot=execution_request.lot,
-            filled_lot=filled_lot,
-            error_message="" if filled else getattr(result, "comment", ""),
-            order_ticket=getattr(result, "order", None),
-            deal_ticket=getattr(result, "deal", None),
-            position_ticket=getattr(result, "position", None),
-            request_id=getattr(result, "request_id", None),
-            last_error=self.last_error_code(),
-            server_comment=getattr(result, "comment", ""),
-            execution_latency_ms=latency_ms,
-            account_margin_mode=str(self._account_margin_mode()),
-            filling_mode_used=filling_mode_name,
+            signal_id=execution_request.signal_id, sent=False, filled=False,
+            retcode=0, retcode_description=code, timestamp_utc=utc_now(),
+            error_message=reason,
         )
 
     def _account_margin_mode(self) -> Any:

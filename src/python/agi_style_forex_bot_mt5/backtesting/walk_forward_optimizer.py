@@ -1,10 +1,23 @@
-"""Walk-forward train/validation/test orchestration."""
+"""Walk-forward orchestration with disjoint tests and purged trade evidence.
+
+Callbacks retain their two-argument API. Frames include optional historical
+warmup and ``attrs['walk_forward_context']`` with inclusive evaluation bounds.
+Warmup is for indicators only: callbacks must suppress earlier entries. Only
+trades fully contained in the evaluation interval count; callback metrics and
+equity are rebuilt after purging. No callback receives later segment bars.
+
+Programmatic warmup/purge defaults remain zero for compatibility. Calendar
+research explicitly defaults to 250 warmup bars and one purged end bar. The
+default parameter grid now holds execution costs fixed: cost stress belongs in
+a separate run and cannot be selected as strategy performance. This module
+does not certify external callback logic, data provenance or final holdout use.
+"""
 
 from __future__ import annotations
 
 import json
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
@@ -12,14 +25,18 @@ import pandas as pd
 
 from .backtester import (
     BacktestOutcome,
+    Backtester,
     BacktestMetrics,
     BacktestSettings,
     CostModel,
+    build_equity_curve,
     calculate_metrics,
+    generate_strategy_candidates,
     load_historical_csv,
-    run_strategy_backtest,
 )
 from ..data_pipeline import resolve_historical_data
+from ..config import BotConfig
+from ..core.instruments import assumed_fx_spec
 
 
 BacktestCallback = Callable[[pd.DataFrame, Mapping[str, Any]], BacktestOutcome]
@@ -41,6 +58,7 @@ class WalkForwardFold:
     robust_score: float = 0.0
     classification: str = "WATCHLIST"
     reasons: tuple[str, ...] = ()
+    temporal_audit: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -50,6 +68,7 @@ class WalkForwardResult:
     selection_metric: str
     classification: str = "WATCHLIST"
     reports_created: tuple[str, ...] = ()
+    temporal_policy: str = "DISJOINT_TEST_PURGED_OUTCOMES_V1"
 
 
 @dataclass(frozen=True)
@@ -66,6 +85,20 @@ class WalkForwardSettings:
     min_trades_test: int = 10
     objective_metric: str = "expectancy_r"
     initial_balance: float = 10_000.0
+    warmup_bars: int = 250
+    purge_bars: int = 1
+
+    def validate(self) -> None:
+        for name in ("train_days", "validation_days", "test_days", "step_days"):
+            _validate_count(getattr(self, name), name, positive=True)
+        for name in ("warmup_bars", "purge_bars"):
+            _validate_count(getattr(self, name), name)
+        if self.step_days < self.test_days:
+            raise ValueError("step_days must be at least test_days to prevent overlapping test windows")
+        if self.window_mode.lower() not in {"rolling", "expanding"}:
+            raise ValueError("window_mode must be rolling or expanding")
+        if not math.isfinite(self.initial_balance) or self.initial_balance <= 0:
+            raise ValueError("initial_balance must be finite and positive")
 
 
 @dataclass(frozen=True)
@@ -90,15 +123,31 @@ class WalkForwardOptimizer:
         step_size: int | None = None,
         selection_metric: str = "profit_factor",
         maximize: bool = True,
+        warmup_size: int = 0,
+        purge_size: int = 0,
+        initial_balance: float = 10_000.0,
     ) -> None:
-        if train_size <= 0 or validation_size <= 0 or test_size <= 0:
-            raise ValueError("train, validation and test sizes must be positive")
+        for name, value in (("train_size", train_size), ("validation_size", validation_size), ("test_size", test_size)):
+            _validate_count(value, name, positive=True)
+        step = test_size if step_size is None else step_size
+        _validate_count(step, "step_size", positive=True)
+        _validate_count(warmup_size, "warmup_size")
+        _validate_count(purge_size, "purge_size")
+        if step < test_size:
+            raise ValueError("step_size must be at least test_size to prevent overlapping test windows")
+        if purge_size >= min(train_size, validation_size, test_size):
+            raise ValueError("purge_size must leave rows in every evaluation window")
+        if not math.isfinite(initial_balance) or initial_balance <= 0:
+            raise ValueError("initial_balance must be finite and positive")
         self.train_size = train_size
         self.validation_size = validation_size
         self.test_size = test_size
-        self.step_size = step_size or test_size
+        self.step_size = step
         self.selection_metric = selection_metric
         self.maximize = maximize
+        self.warmup_size = warmup_size
+        self.purge_size = purge_size
+        self.initial_balance = initial_balance
 
     def run(
         self,
@@ -109,6 +158,7 @@ class WalkForwardOptimizer:
         params = [dict(item) for item in parameter_grid]
         if not params:
             raise ValueError("parameter_grid cannot be empty")
+        _validate_parameter_grid(params)
         bars = _normalize_for_split(candles)
         folds: list[WalkForwardFold] = []
         all_test_trades: list[Any] = []
@@ -116,27 +166,24 @@ class WalkForwardOptimizer:
         fold_index = 0
         window = self.train_size + self.validation_size + self.test_size
         while start + window <= len(bars):
-            train = bars.iloc[start : start + self.train_size]
-            validation = bars.iloc[
-                start + self.train_size : start + self.train_size + self.validation_size
-            ]
-            test = bars.iloc[
-                start
-                + self.train_size
-                + self.validation_size : start
-                + self.train_size
-                + self.validation_size
-                + self.test_size
-            ]
+            train_end = start + self.train_size
+            validation_end = train_end + self.validation_size
+            train, validation, test = (
+                _window_input(bars, first, stop, stage=stage, warmup=self.warmup_size,
+                              purge=self.purge_size, initial_balance=self.initial_balance)
+                for first, stop, stage in ((start, train_end, "train"),
+                                          (train_end, validation_end, "validation"),
+                                          (validation_end, validation_end + self.test_size, "test"))
+            )
             scored: list[tuple[float, Mapping[str, Any], BacktestOutcome, BacktestOutcome]] = []
             for candidate_params in params:
-                train_outcome = backtest_callback(train.copy(), candidate_params)
-                validation_outcome = backtest_callback(validation.copy(), candidate_params)
+                train_outcome = _scoped_outcome(backtest_callback(train.copy(), dict(candidate_params)), train)
+                validation_outcome = _scoped_outcome(backtest_callback(validation.copy(), dict(candidate_params)), validation)
                 score = _metric_value(validation_outcome.metrics, self.selection_metric)
                 scored.append((score, candidate_params, train_outcome, validation_outcome))
             best = sorted(scored, key=lambda item: item[0], reverse=self.maximize)[0]
             _, best_params, train_outcome, validation_outcome = best
-            test_outcome = backtest_callback(test.copy(), best_params)
+            test_outcome = _scoped_outcome(backtest_callback(test.copy(), dict(best_params)), test)
             all_test_trades.extend(test_outcome.trades)
             folds.append(
                 WalkForwardFold(
@@ -151,13 +198,14 @@ class WalkForwardOptimizer:
                     train_metrics=train_outcome.metrics,
                     validation_metrics=validation_outcome.metrics,
                     test_metrics=test_outcome.metrics,
+                    temporal_audit=_temporal_audit(train, validation, test, train_outcome, validation_outcome, test_outcome),
                 )
             )
             fold_index += 1
             start += self.step_size
         if not folds:
             raise ValueError("not enough rows to create a walk-forward fold")
-        aggregate = calculate_metrics(all_test_trades)
+        aggregate = calculate_metrics(all_test_trades, initial_balance=self.initial_balance)
         return WalkForwardResult(
             folds=tuple(folds),
             aggregate_test_metrics=aggregate,
@@ -229,9 +277,11 @@ def run_walk_forward_for_symbols(
     """Run calendar walk-forward validation for one or more symbols."""
 
     cfg = settings or WalkForwardSettings()
-    params = [dict(item) for item in (parameter_grid or _default_parameter_grid())]
+    cfg.validate()
+    params = [dict(item) for item in (_default_parameter_grid() if parameter_grid is None else parameter_grid)]
     if not params:
         raise ValueError("parameter_grid cannot be empty")
+    _validate_parameter_grid(params)
     all_windows: list[dict[str, Any]] = []
     selected_rows: list[dict[str, Any]] = []
     by_symbol_rows: list[dict[str, Any]] = []
@@ -247,13 +297,13 @@ def run_walk_forward_for_symbols(
         for index, (train, validation, test) in enumerate(windows):
             scored: list[tuple[float, Mapping[str, Any], BacktestOutcome, BacktestOutcome]] = []
             for item in params:
-                train_outcome = _run_param_backtest(train, symbol, item)
-                validation_outcome = _run_param_backtest(validation, symbol, item)
+                train_outcome = _scoped_outcome(_run_param_backtest(train.copy(), symbol, dict(item)), train)
+                validation_outcome = _scoped_outcome(_run_param_backtest(validation.copy(), symbol, dict(item)), validation)
                 score = _objective_value(validation_outcome.metrics, cfg.objective_metric)
                 scored.append((score, item, train_outcome, validation_outcome))
             best = sorted(scored, key=lambda row: row[0], reverse=True)[0]
             _score, best_params, train_outcome, validation_outcome = best
-            test_outcome = _run_param_backtest(test, symbol, best_params)
+            test_outcome = _scoped_outcome(_run_param_backtest(test.copy(), symbol, dict(best_params)), test)
             symbol_test_trades.extend(test_outcome.trades)
             robust = robust_validation_score(
                 train_metrics=train_outcome.metrics,
@@ -285,6 +335,7 @@ def run_walk_forward_for_symbols(
                     "robust_score": robust.score,
                     "classification": robust.classification,
                     "reasons": "; ".join(robust.reasons),
+                    "temporal_audit": json.dumps(_temporal_audit(train, validation, test, train_outcome, validation_outcome, test_outcome), sort_keys=True),
                 }
             )
         aggregate = calculate_metrics(symbol_test_trades, initial_balance=cfg.initial_balance)
@@ -309,6 +360,14 @@ def run_walk_forward_for_symbols(
         "classification": final_classification,
         "execution_attempted": False,
         "reports_created": [],
+        "temporal_policy": "DISJOINT_TEST_PURGED_OUTCOMES_V1",
+        "warmup_bars": cfg.warmup_bars,
+        "purge_bars": cfg.purge_bars,
+        "test_used_for_selection": False,
+        "configurations_tested": len(params),
+        "parameter_grid": params,
+        "cost_scenarios_optimized": False,
+        "operationally_eligible": False,
     }
     if report_dir is not None:
         reports = write_walk_forward_reports(
@@ -355,14 +414,21 @@ def _normalize_for_split(candles: pd.DataFrame) -> pd.DataFrame:
         else:
             raise ValueError("candles require timestamp column or DatetimeIndex")
     bars["timestamp"] = pd.to_datetime(bars["timestamp"], utc=True)
+    if bars.empty or bars["timestamp"].isna().any():
+        raise ValueError("walk-forward requires non-empty valid timestamps")
+    if bars["timestamp"].duplicated().any():
+        raise ValueError("walk-forward timestamps must be unique")
     return bars.sort_values("timestamp").reset_index(drop=True)
 
 
 def _metric_value(metrics: BacktestMetrics, metric_name: str) -> float:
     value = getattr(metrics, metric_name)
     if value is None:
-        return float("-inf")
-    return float(value)
+        raise ValueError("selection metric is unavailable")
+    value = float(value)
+    if math.isnan(value):
+        raise ValueError("selection metric must not be NaN")
+    return value
 
 
 def _objective_value(metrics: BacktestMetrics, metric_name: str) -> float:
@@ -380,11 +446,11 @@ def _objective_value(metrics: BacktestMetrics, metric_name: str) -> float:
 
 
 def _first_ts(frame: pd.DataFrame) -> str:
-    return pd.Timestamp(frame.iloc[0]["timestamp"]).isoformat()
+    return str(frame.attrs.get("walk_forward_context", {}).get("evaluation_start_utc") or pd.Timestamp(frame.iloc[0]["timestamp"]).isoformat())
 
 
 def _last_ts(frame: pd.DataFrame) -> str:
-    return pd.Timestamp(frame.iloc[-1]["timestamp"]).isoformat()
+    return str(frame.attrs.get("walk_forward_context", {}).get("evaluation_end_utc") or pd.Timestamp(frame.iloc[-1]["timestamp"]).isoformat())
 
 
 def _metric_ratio(test_value: float, train_value: float) -> float:
@@ -395,9 +461,9 @@ def _metric_ratio(test_value: float, train_value: float) -> float:
 
 def _default_parameter_grid() -> tuple[Mapping[str, Any], ...]:
     return (
-        {"spread_points": 8.0, "slippage_points": 0.5, "trailing_distance_points": 60},
+        {"spread_points": 10.0, "slippage_points": 1.0, "trailing_distance_points": 60},
         {"spread_points": 10.0, "slippage_points": 1.0, "trailing_distance_points": 80},
-        {"spread_points": 12.0, "slippage_points": 1.5, "trailing_distance_points": 100},
+        {"spread_points": 10.0, "slippage_points": 1.0, "trailing_distance_points": 100},
     )
 
 
@@ -412,6 +478,7 @@ def _calendar_windows(
     candles: pd.DataFrame,
     settings: WalkForwardSettings,
 ) -> list[tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]]:
+    settings.validate()
     bars = _normalize_for_split(candles)
     start = pd.Timestamp(bars["timestamp"].min())
     last = pd.Timestamp(bars["timestamp"].max())
@@ -428,7 +495,12 @@ def _calendar_windows(
         validation = bars[(bars["timestamp"] >= train_end) & (bars["timestamp"] < validation_end)]
         test = bars[(bars["timestamp"] >= validation_end) & (bars["timestamp"] < test_end)]
         if not train.empty and not validation.empty and not test.empty:
-            windows.append((train.copy(), validation.copy(), test.copy()))
+            windows.append(tuple(
+                _window_input(bars, int(part.index[0]), int(part.index[-1]) + 1,
+                              stage=stage, warmup=settings.warmup_bars, purge=settings.purge_bars,
+                              initial_balance=settings.initial_balance)
+                for part, stage in ((train, "train"), (validation, "validation"), (test, "test"))
+            ))
         cursor += pd.Timedelta(days=settings.step_days)
     if not windows:
         raise ValueError("not enough data to create walk-forward windows")
@@ -436,7 +508,9 @@ def _calendar_windows(
 
 
 def _run_param_backtest(frame: pd.DataFrame, symbol: str, params: Mapping[str, Any]) -> BacktestOutcome:
+    context = frame.attrs.get("walk_forward_context", {})
     settings = BacktestSettings(
+        initial_balance=float(context.get("initial_balance", 10_000.0)),
         cost_model=CostModel(
             spread_points=float(params.get("spread_points", 10.0)),
             slippage_points=float(params.get("slippage_points", 1.0)),
@@ -448,7 +522,123 @@ def _run_param_backtest(frame: pd.DataFrame, symbol: str, params: Mapping[str, A
         trailing_distance_points=float(params.get("trailing_distance_points", 80)),
         max_bars_in_trade=int(params.get("max_bars_in_trade", 96)),
     )
-    return run_strategy_backtest(frame, symbol=symbol, settings=settings)
+    instrument = assumed_fx_spec(symbol)
+    settings = replace(settings, cost_model=settings.cost_model.with_instrument(instrument))
+    candidates = generate_strategy_candidates(
+        frame, symbol=symbol, timeframe="M5", config=BotConfig(),
+        point=instrument.point, instrument=instrument,
+    )
+    if context:
+        first, last = pd.Timestamp(context["evaluation_start_utc"]), pd.Timestamp(context["evaluation_end_utc"])
+        candidates = tuple(candidate for candidate in candidates
+                           if candidate.available_at_utc is not None
+                           and first <= pd.Timestamp(candidate.available_at_utc) <= last)
+    return Backtester(settings).run(frame, candidates)
+
+
+def _validate_count(value: int, name: str, *, positive: bool = False) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < (1 if positive else 0):
+        raise ValueError(f"{name} must be a {'positive' if positive else 'non-negative'} integer")
+
+
+def _validate_parameter_grid(params: list[Mapping[str, Any]]) -> None:
+    """Execution costs are scenario assumptions, never tunable strategy alpha."""
+    defaults = {"spread_points": 10.0, "slippage_points": 1.0, "commission": 0.0, "max_spread_points": 25.0}
+    reference = {name: float(params[0].get(name, value)) for name, value in defaults.items()}
+    if not all(math.isfinite(value) and value >= 0 for value in reference.values()):
+        raise ValueError("walk-forward cost assumptions must be finite and non-negative")
+    for candidate in params[1:]:
+        costs = {name: float(candidate.get(name, value)) for name, value in defaults.items()}
+        if costs != reference:
+            raise ValueError("execution costs must be fixed across the parameter grid; use a separate stress run")
+
+
+def _window_input(
+    bars: pd.DataFrame, first: int, stop: int, *, stage: str,
+    warmup: int, purge: int, initial_balance: float,
+) -> pd.DataFrame:
+    """Attach evaluation bounds while exposing only historical warmup to a callback.
+
+    Custom callbacks must use the attrs context to suppress entries in warmup.
+    Outcome sanitation is a second boundary: it cannot undo a callback that
+    independently reads future files or fits indicators using external data.
+    """
+    final = stop - purge
+    if final <= first:
+        raise ValueError("purge must leave rows in each evaluation window")
+    history_start = max(0, first - warmup)
+    result = bars.iloc[history_start:final].copy()
+    result.attrs["walk_forward_context"] = {
+        "stage": stage,
+        "evaluation_start_utc": pd.Timestamp(bars.iloc[first].timestamp).isoformat(),
+        "evaluation_end_utc": pd.Timestamp(bars.iloc[final - 1].timestamp).isoformat(),
+        "evaluation_end_inclusive": True,
+        "evaluation_rows": final - first,
+        "warmup_rows": first - history_start,
+        "purge_rows": purge,
+        "initial_balance": initial_balance,
+        "warmup_for_indicators_only": True,
+        "test_used_for_selection": False,
+    }
+    return result
+
+
+def _scoped_outcome(outcome: BacktestOutcome, frame: pd.DataFrame) -> BacktestOutcome:
+    """Recompute evidence solely from trades contained in the evaluable segment."""
+    context = frame.attrs["walk_forward_context"]
+    first = pd.Timestamp(context["evaluation_start_utc"])
+    last = pd.Timestamp(context["evaluation_end_utc"])
+    balance = float(context["initial_balance"])
+    valid = []
+    rejected = list(outcome.rejected_candidates)
+    for trade in outcome.trades:
+        reason = ""
+        try:
+            entry, exit_time = pd.Timestamp(trade.entry_time), pd.Timestamp(trade.exit_time)
+            if pd.isna(entry) or pd.isna(exit_time) or entry.tzinfo is None or exit_time.tzinfo is None or exit_time < entry:
+                reason = "WF_INVALID_TRADE_TIMESTAMPS"
+            elif entry < first:
+                reason = "WF_WARMUP_ENTRY"
+            elif entry > last or exit_time > last:
+                reason = "WF_CROSS_BOUNDARY"
+            elif trade.exit_reason == "END_OF_DATA" and (
+                outcome.settings.max_bars_in_trade is None
+                or trade.duration_bars < outcome.settings.max_bars_in_trade
+            ):
+                # The bar simulator uses the same reason for a completed known
+                # max-holding horizon and for an unknown exit cut by data end.
+                reason = "WF_TRUNCATED_EXIT"
+            elif not all(math.isfinite(value) for value in (trade.profit, trade.r_multiple, trade.duration_seconds, trade.mae, trade.mfe)):
+                reason = "WF_INVALID_TRADE_METRICS"
+        except (TypeError, ValueError, OverflowError):
+            reason = "WF_INVALID_TRADE_TIMESTAMPS"
+        if reason:
+            rejected.append({"signal_id": trade.signal_id, "symbol": trade.symbol,
+                             "timestamp": str(trade.entry_time), "reason": reason})
+        else:
+            valid.append(trade)
+    valid.sort(key=lambda trade: (pd.Timestamp(trade.exit_time), pd.Timestamp(trade.entry_time), trade.signal_id))
+    evaluation = frame.loc[frame.timestamp.between(first, last)].copy()
+    equity = build_equity_curve(valid, initial_balance=balance, candles=evaluation)
+    exposed = pd.Series(False, index=evaluation.index)
+    for trade in valid:
+        exposed |= evaluation.timestamp.between(pd.Timestamp(trade.entry_time), pd.Timestamp(trade.exit_time))
+    metrics = calculate_metrics(valid, initial_balance=balance, equity_curve=equity,
+                                total_bars=len(evaluation), exposed_bars=int(exposed.sum()))
+    return replace(outcome, settings=replace(outcome.settings, initial_balance=balance),
+                   trades=tuple(valid), rejected_candidates=tuple(rejected), metrics=metrics, equity_curve=equity)
+
+
+def _temporal_audit(train, validation, test, train_outcome, validation_outcome, test_outcome) -> dict[str, Any]:
+    results = {}
+    for stage, frame, outcome in (("train", train, train_outcome), ("validation", validation, validation_outcome), ("test", test, test_outcome)):
+        counts: dict[str, int] = {}
+        for rejected in outcome.rejected_candidates:
+            reason = str(rejected.get("reason", ""))
+            if reason.startswith("WF_"):
+                counts[reason] = counts.get(reason, 0) + 1
+        results[stage] = {**frame.attrs["walk_forward_context"], "purged_outcomes": counts}
+    return results
 
 
 def _combine_classifications(values: Iterable[str]) -> str:

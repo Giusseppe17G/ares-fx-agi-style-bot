@@ -755,3 +755,13 @@ Backtest summaries now carry `instrument_metadata_source` and `instrument_metada
 The parity report records `decision_parity_pct` and `equivalent_decision_count` over the shared stages, `stage_parity_pct` and `parity_gap_stage_ids` over the pipeline as a whole, the instrument spec used, the seed and the reference time. It is reproducible: the same fixture, clock and seed produce the same report and the same `run_id`.
 
 Baseline comparisons record the candidate alongside all three baselines and a `baseline_verdict`. `CANDIDATE_BEATS_ALL_BASELINES` is a necessary condition only; it does not establish out-of-sample validity and grants no promotion.
+
+### 2026-10-05 — Evidence scope correction
+
+The phase-82 component fixture does not invoke the complete forward/backtest
+loops. Read evidence_scope and full_pipeline_verified before interpreting its
+percentages. PARITY_INCOMPLETE does not authorize execution or promotion.
+The inventory now excludes three distinct adapters from shared implementations
+(5/16, 31.25%). Generated backtest trades retain source-bar timestamp,
+available_at_utc and entry_timing. Older results must be retained and reevaluated
+under engine 0.2.0. See testing/backtest-causality-validation.md.

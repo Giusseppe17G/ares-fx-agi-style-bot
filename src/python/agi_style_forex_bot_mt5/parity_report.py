@@ -35,6 +35,10 @@ def run_backtest_live_parity_report(*, output_dir: str | Path | None = None, ref
     summary = {
         "mode": "backtest-live-parity",
         "parity_status": parity["parity_status"],
+        "decision_parity_status": parity["decision_parity_status"],
+        "evidence_scope": parity["evidence_scope"],
+        "full_pipeline_verified": parity["full_pipeline_verified"],
+        "compared_decision_ids": parity["compared_decision_ids"],
         "decision_count": parity["decision_count"],
         "equivalent_decision_count": parity["equivalent_decision_count"],
         "decision_parity_pct": parity["decision_parity_pct"],
@@ -43,7 +47,7 @@ def run_backtest_live_parity_report(*, output_dir: str | Path | None = None, ref
         "shared_stage_count": parity["shared_stage_count"],
         "parity_gap_stage_count": parity["parity_gap_stage_count"],
         "parity_gap_stage_ids": parity["parity_gap_stage_ids"],
-        "stage_parity_pct": round(parity["shared_stage_count"] / parity["stage_count"] * 100.0, 4),
+        "stage_parity_pct": parity["stage_parity_pct"],
         "instrument_metadata_source": fixture.instrument.source,
         "reports_created": created,
     }

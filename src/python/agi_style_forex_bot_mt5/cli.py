@@ -190,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
             "mt5-diagnose",
             "backtest",
             "export-history",
+            "build-instrument-registry",
             "walk-forward",
             "monte-carlo",
             "stress-test",
@@ -342,6 +343,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Comma-separated symbols for mt5-data, mt5-diagnose, backtest, or export-history.",
     )
     parser.add_argument("--symbol", default="", help="Single symbol convenience override.")
+    parser.add_argument("--broker-symbol-map", type=Path, help="JSON mapping canonical symbols to exact broker names for metadata capture.")
+    parser.add_argument("--instrument-registry-output", type=Path, help="New snapshot JSON path; existing files are never overwritten.")
     parser.add_argument("--bars", type=int, default=260, help="Bars per timeframe for mt5-data.")
     parser.add_argument("--timeframes", default="M5,M15,H1", help="Comma-separated timeframes for export-history.")
     parser.add_argument("--data-dir", type=Path, default=Path("data/historical"), help="Historical CSV directory for backtest.")
@@ -546,6 +549,15 @@ def main(argv: list[str] | None = None) -> int:
     database = None if args.mode in direct_persistence_modes else (TelemetryDatabase(args.sqlite) if args.sqlite else None)
     try:
         selected_symbols = _selected_symbols(args.symbol, args.symbols)
+        if args.mode == "build-instrument-registry":
+            if args.broker_symbol_map is None or args.instrument_registry_output is None:
+                parser.error("metadata capture requires --broker-symbol-map and --instrument-registry-output")
+            from .instrument_snapshot_command import capture_instrument_snapshot
+            import MetaTrader5 as metadata_client
+            summary = capture_instrument_snapshot(client=metadata_client, symbol_map_path=args.broker_symbol_map, output_path=args.instrument_registry_output)
+            print(_json_dumps(summary))
+            return 0
+
         if args.mode == "db-migrate":
             summary = run_db_migrations(sqlite_path=args.sqlite, backup_dir=args.backup_dir)
             print(_json_dumps(summary))

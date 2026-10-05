@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from typing import Any, Mapping
+from dataclasses import replace
+from agi_style_forex_bot_mt5.data.strategy_features import build_strategy_features
 
 import pandas as pd
 
@@ -58,14 +60,14 @@ def probe_live_features(
                     "structure_state": _state(features.get("market_structure")),
                     "liquidity_state": _state(features.get("liquidity")),
                     "spread_points": features.get("spread_points"),
-                    "broker_fit": features.get("broker_fit", 100.0),
+                    "broker_fit": features.get("broker_readiness_score"),
                     "cost_fit": features.get("cost_fit", _cost_fit(features.get("spread_points"), config.max_spread_points_default)),
-                    "liquidity_fit": features.get("liquidity_fit", 50.0),
-                    "momentum_fit": features.get("momentum_fit", 50.0),
-                    "regime_fit": features.get("regime_fit", 50.0),
-                    "session_fit": features.get("session_fit", 50.0),
-                    "structure_fit": features.get("structure_fit", 50.0),
-                    "volatility_fit": features.get("volatility_fit", 50.0),
+                    "liquidity_fit": features.get("liquidity_fit"),
+                    "momentum_fit": features.get("momentum_fit"),
+                    "regime_fit": features.get("regime_fit"),
+                    "session_fit": features.get("session_fit"),
+                    "structure_fit": features.get("structure_fit"),
+                    "volatility_fit": features.get("volatility_fit"),
                     "blockers": (),
                     "feature_build_error_type": "",
                     "feature_build_exception": "",
@@ -141,59 +143,7 @@ def probe_live_features(
 
 
 def _features_from_bars(bars: pd.DataFrame, snapshot: Any, config: BotConfig) -> dict[str, Any]:
-    with_indicators = add_indicators(bars)
-    labeled = add_regime_labels(with_indicators, max_spread_points=config.max_spread_points_default)
-    latest = labeled.iloc[-1]
-    missing = [name for name in CRITICAL_FEATURES if pd.isna(latest[name])]
-    if missing:
-        raise ValueError(f"FEATURE_BUILD_FAILED: missing {', '.join(missing)}")
-    previous_close = float(labeled.iloc[-2]["close"]) if len(labeled) > 1 else float(latest["close"])
-    high_window = labeled.tail(20)["high"]
-    low_window = labeled.tail(20)["low"]
-    close = float(latest["close"])
-    structure_features = build_market_structure_features(labeled, point=snapshot.point)
-    spread_points = float(snapshot.spread_points)
-    return {
-        **structure_features,
-        "regime": str(latest["regime"]),
-        "close": close,
-        "previous_close": previous_close,
-        "ema20": float(latest["ema20"]),
-        "ema50": float(latest["ema50"]),
-        "ema200": float(latest["ema200"]),
-        "ema_fast": float(latest["ema20"]),
-        "ema_slow": float(latest["ema50"]),
-        "rsi": float(latest["rsi14"]),
-        "rsi14": float(latest["rsi14"]),
-        "atr": float(latest["atr14"]),
-        "atr14": float(latest["atr14"]),
-        "atr_points": float(latest["atr14"]) / snapshot.point,
-        "atr_mean_points": float(labeled.tail(50)["atr14"].mean()) / snapshot.point,
-        "atr_percent": float(latest["atr_percent"]),
-        "ema_slope": float(latest["ema_slope"]),
-        "trend_slope": float(latest["ema_slope"]),
-        "trend_strength": float(latest["trend_strength"]),
-        "momentum": float(latest["momentum"]),
-        "momentum_points": float(latest["momentum"]) / snapshot.point,
-        "range_points": float((high_window.max() - low_window.min()) / snapshot.point),
-        "body_ratio": float(abs(latest["candle_body"]) / max(latest["high"] - latest["low"], snapshot.point)),
-        "prior_high": float(high_window.iloc[:-1].max()) if len(high_window) > 1 else close,
-        "prior_low": float(low_window.iloc[:-1].min()) if len(low_window) > 1 else close,
-        "lower_wick": float(latest["lower_wick"]),
-        "upper_wick": float(latest["upper_wick"]),
-        "spread_points": spread_points,
-        "max_strategy_spread_points": config.max_spread_points_default,
-        "session": "LONDON",
-        "volatility": float(latest["volatility"]),
-        "broker_fit": 100.0,
-        "cost_fit": _cost_fit(spread_points, config.max_spread_points_default),
-        "liquidity_fit": 70.0,
-        "momentum_fit": 70.0 if abs(float(latest["momentum"])) > 0 else 45.0,
-        "regime_fit": 70.0,
-        "session_fit": 70.0,
-        "structure_fit": 70.0,
-        "volatility_fit": 70.0,
-    }
+    return build_strategy_features(bars, replace(snapshot, timeframe="M5"), max_spread_points=config.max_spread_points_default)
 
 
 def _cost_fit(spread_points: Any, max_spread_points: float) -> float:

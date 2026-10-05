@@ -12,6 +12,7 @@ from .registry import (
     spec_from_mapping,
     spec_from_symbol_info,
 )
+from .snapshot import InstrumentRegistrySnapshot, instrument_metadata_hash
 
 __all__ = [
     "ASSUMED_SOURCE",
@@ -19,6 +20,8 @@ __all__ = [
     "REQUIRED_SPEC_KEYS",
     "InstrumentRegistry",
     "InstrumentSpec",
+    "InstrumentRegistrySnapshot",
+    "instrument_metadata_hash",
     "assumed_fx_spec",
     "is_assumed",
     "resolve_registry",

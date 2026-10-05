@@ -10,7 +10,7 @@ from .scoring_engine import choose_direction, feature_float, none_signal, score_
 
 
 STRATEGY_NAME = "volatility_expansion"
-STRATEGY_VERSION = "0.2.0"
+STRATEGY_VERSION = "0.2.1"
 
 
 def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
@@ -64,5 +64,5 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
         threshold=64,
         min_margin=8,
         strategy_name=STRATEGY_NAME,
-        metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME, extra={"expansion_ratio": expansion_ratio}),
+        metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME, direction="BUY" if buy_score > sell_score else "SELL" if sell_score > buy_score else "", extra={"expansion_ratio": expansion_ratio}),
     )

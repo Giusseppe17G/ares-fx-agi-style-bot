@@ -7,7 +7,7 @@ calls `order_send`, never creates real/demo broker orders, and always returns
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -33,6 +33,7 @@ from .data_pipeline.live_data_contract import DIAGNOSTIC_MIN_BARS, normalize_ohl
 from .execution import MT5Connector, ShadowExecutionEngine, ShadowOrder
 from .market_structure import build_market_structure_features
 from .risk import RiskEngine, RiskRuntimeState
+from .data.strategy_features import build_strategy_features
 from .rejection_labeling import classify_rejection_event_type
 from .strategy import evaluate_ensemble
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
@@ -297,6 +298,7 @@ class MT5DataOnlyBot:
         if not check.accepted or snapshot is None:
             self._symbol_rejected(canonical_symbol, check.code, check.reason, check.payload, broker_symbol=broker_symbol)
             return False
+        snapshot = replace(snapshot, timeframe="M5")
         self._audit(
             severity=Severity.INFO,
             module="mt5",
@@ -545,65 +547,7 @@ class MT5DataOnlyBot:
         bars: pd.DataFrame,
         snapshot: MarketSnapshot,
     ) -> dict[str, Any]:
-        with_indicators = add_indicators(bars)
-        labeled = add_regime_labels(
-            with_indicators,
-            max_spread_points=self.config.max_spread_points_default,
-        )
-        latest = labeled.iloc[-1]
-        critical = [
-            "ema20",
-            "ema50",
-            "ema200",
-            "rsi14",
-            "atr14",
-            "atr_percent",
-            "ema_slope",
-            "trend_strength",
-            "momentum",
-            "volatility",
-        ]
-        if latest[critical].isna().any():
-            missing = [name for name in critical if pd.isna(latest[name])]
-            raise ValueError(f"critical indicator values missing: {', '.join(missing)}")
-        previous_close = float(labeled.iloc[-2]["close"]) if len(labeled) > 1 else float(latest["close"])
-        high_window = labeled.tail(20)["high"]
-        low_window = labeled.tail(20)["low"]
-        close = float(latest["close"])
-        structure_features = build_market_structure_features(labeled, point=snapshot.point)
-        return {
-            **structure_features,
-            "regime": str(latest["regime"]),
-            "close": close,
-            "previous_close": previous_close,
-            "ema20": float(latest["ema20"]),
-            "ema50": float(latest["ema50"]),
-            "ema200": float(latest["ema200"]),
-            "ema_fast": float(latest["ema20"]),
-            "ema_slow": float(latest["ema50"]),
-            "rsi": float(latest["rsi14"]),
-            "rsi14": float(latest["rsi14"]),
-            "atr": float(latest["atr14"]),
-            "atr14": float(latest["atr14"]),
-            "atr_points": float(latest["atr14"]) / snapshot.point,
-            "atr_mean_points": float(labeled.tail(50)["atr14"].mean()) / snapshot.point,
-            "atr_percent": float(latest["atr_percent"]),
-            "ema_slope": float(latest["ema_slope"]),
-            "trend_slope": float(latest["ema_slope"]),
-            "trend_strength": float(latest["trend_strength"]),
-            "momentum": float(latest["momentum"]),
-            "momentum_points": float(latest["momentum"]) / snapshot.point,
-            "range_points": float((high_window.max() - low_window.min()) / snapshot.point),
-            "body_ratio": float(abs(latest["candle_body"]) / max(latest["high"] - latest["low"], snapshot.point)),
-            "prior_high": float(high_window.iloc[:-1].max()) if len(high_window) > 1 else close,
-            "prior_low": float(low_window.iloc[:-1].min()) if len(low_window) > 1 else close,
-            "lower_wick": float(latest["lower_wick"]),
-            "upper_wick": float(latest["upper_wick"]),
-            "spread_points": snapshot.spread_points,
-            "max_strategy_spread_points": self.config.max_spread_points_default,
-            "session": "LONDON",
-            "volatility": float(latest["volatility"]),
-        }
+        return build_strategy_features(bars, snapshot, max_spread_points=self.config.max_spread_points_default)
 
     def _trade_signal_from_strategy(self, snapshot: MarketSnapshot, strategy_signal: Any) -> TradeSignal:
         direction = Direction.BUY if strategy_signal.action == SignalAction.BUY else Direction.SELL

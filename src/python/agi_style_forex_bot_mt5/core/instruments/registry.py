@@ -19,8 +19,10 @@ substitutes a default for metadata it does not have.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 from ..operational_state.errors import InstrumentError
@@ -49,24 +51,23 @@ class InstrumentSpec:
     currency_base: str
     currency_quote: str
     source: str = ""
+    currency_margin: str | None = None
 
     def validate(self) -> "InstrumentSpec":
         """Reject any spec that cannot be used for sizing or rounding."""
 
-        if not self.symbol or not self.canonical_symbol or not self.broker_symbol:
-            raise InstrumentError("symbol, canonical_symbol and broker_symbol are required", source="instrument_registry", detail={"symbol": self.symbol})
-        if self.digits < 0:
-            raise InstrumentError(f"{self.symbol}: digits must be non-negative", source="instrument_registry")
+        for name in ("symbol", "canonical_symbol", "broker_symbol"):
+            _text(getattr(self, name), name)
+        for name in ("digits", "stops_level_points", "freeze_level_points"):
+            _nonnegative_integer(getattr(self, name), name)
         for name in ("point", "tick_size", "tick_value", "contract_size", "min_volume", "max_volume", "volume_step"):
-            value = getattr(self, name)
-            if not isinstance(value, (int, float)) or value != value or value <= 0:
-                raise InstrumentError(f"{self.symbol}: {name} must be a positive number, got {value!r}", source="instrument_registry")
+            _positive_number(getattr(self, name), name)
         if self.min_volume > self.max_volume:
             raise InstrumentError(f"{self.symbol}: min_volume cannot exceed max_volume", source="instrument_registry")
-        if self.stops_level_points < 0 or self.freeze_level_points < 0:
-            raise InstrumentError(f"{self.symbol}: stops and freeze levels cannot be negative", source="instrument_registry")
-        if not self.currency_base or not self.currency_quote:
-            raise InstrumentError(f"{self.symbol}: base and quote currencies are required", source="instrument_registry")
+        for name in ("currency_base", "currency_quote"):
+            _currency(getattr(self, name), name)
+        if self.currency_margin is not None:
+            _currency(self.currency_margin, "currency_margin")
         return self
 
     def round_price(self, price: float) -> float:
@@ -88,6 +89,14 @@ class InstrumentRegistry:
     """Read-only lookup of instrument specs, keyed by canonical symbol."""
 
     specs: Mapping[str, InstrumentSpec]
+
+    def __post_init__(self) -> None:
+        validated: dict[str, InstrumentSpec] = {}
+        for key, spec in self.specs.items():
+            if not isinstance(spec, InstrumentSpec) or key != _key(spec.canonical_symbol):
+                raise InstrumentError("instrument registry key must match canonical_symbol", source="instrument_registry")
+            validated[key] = spec.validate()
+        object.__setattr__(self, "specs", MappingProxyType(validated))
 
     def has(self, symbol: str) -> bool:
         """CCXT-style capability discovery: is this instrument actually known?"""
@@ -113,12 +122,26 @@ class InstrumentRegistry:
 
     @classmethod
     def from_specs(cls, specs: Iterable[InstrumentSpec]) -> "InstrumentRegistry":
-        return cls(specs={_key(spec.canonical_symbol): spec.validate() for spec in specs})
+        entries: dict[str, InstrumentSpec] = {}
+        for spec in specs:
+            key = _key(spec.validate().canonical_symbol)
+            if key in entries:
+                raise InstrumentError("duplicate canonical instrument symbol", source="instrument_registry")
+            entries[key] = spec
+        return cls(specs=entries)
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any], *, source: str = "mapping") -> "InstrumentRegistry":
-        entries = payload.get("instruments") if isinstance(payload.get("instruments"), Mapping) else payload
-        return cls.from_specs(spec_from_mapping(symbol, dict(values), source=source) for symbol, values in entries.items())
+        if not isinstance(payload, Mapping):
+            raise InstrumentError("instrument metadata must be a mapping", source="instrument_registry")
+        if any(key in payload for key in ("schema_version", "metadata_hash", "snapshot_hash", "captured_at_utc")):
+            from .snapshot import InstrumentRegistrySnapshot
+
+            return InstrumentRegistrySnapshot.from_mapping(payload).registry
+        entries = payload.get("instruments", payload)
+        if not isinstance(entries, Mapping):
+            raise InstrumentError("instruments must be a mapping", source="instrument_registry")
+        return cls.from_specs(spec_from_mapping(symbol, values, source=source) for symbol, values in entries.items())
 
     @classmethod
     def from_dataset(cls, data_dir: str | Path, *, filename: str = DATASET_METADATA_FILENAME) -> "InstrumentRegistry":
@@ -137,9 +160,9 @@ class InstrumentRegistry:
                 detail={"expected_path": str(path)},
             )
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            raise InstrumentError(f"cannot read instrument metadata at {path}: {error}", source="instrument_registry") from error
+            payload = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_json_object)
+        except (OSError, ValueError, UnicodeError) as error:
+            raise InstrumentError("cannot read valid instrument metadata", source="instrument_registry") from None
         if not isinstance(payload, Mapping):
             raise InstrumentError(f"instrument metadata at {path} must be a JSON object", source="instrument_registry")
         return cls.from_mapping(payload, source=f"dataset:{path.name}")
@@ -150,13 +173,17 @@ class InstrumentRegistry:
 
         broker_symbols = broker_symbols or {}
         return cls.from_specs(
-            spec_from_symbol_info(canonical, info, broker_symbol=broker_symbols.get(canonical, canonical))
+            spec_from_symbol_info(canonical, info, broker_symbol=broker_symbols.get(canonical, ""))
             for canonical, info in symbol_infos.items()
         )
 
 
 def spec_from_mapping(symbol: str, values: Mapping[str, Any], *, source: str = "mapping") -> InstrumentSpec:
-    canonical = str(values.get("canonical_symbol") or symbol).upper()
+    if not isinstance(values, Mapping):
+        raise InstrumentError("instrument entry must be a mapping", source="instrument_registry")
+    canonical = _text(values.get("canonical_symbol", symbol), "canonical_symbol").upper()
+    if canonical != _text(symbol, "symbol").upper():
+        raise InstrumentError("instrument key does not match canonical_symbol", source="instrument_registry")
     missing = [key for key in REQUIRED_SPEC_KEYS if key not in values]
     if missing:
         raise InstrumentError(
@@ -165,22 +192,23 @@ def spec_from_mapping(symbol: str, values: Mapping[str, Any], *, source: str = "
             detail={"symbol": canonical, "missing": sorted(missing)},
         )
     return InstrumentSpec(
-        symbol=str(values.get("symbol") or symbol).upper(),
+        symbol=_text(values.get("symbol", symbol), "symbol").upper(),
         canonical_symbol=canonical,
-        broker_symbol=str(values.get("broker_symbol") or canonical),
-        digits=int(values["digits"]),
-        point=float(values["point"]),
-        tick_size=float(values["tick_size"]),
-        tick_value=float(values["tick_value"]),
-        contract_size=float(values["contract_size"]),
-        min_volume=float(values["min_volume"]),
-        max_volume=float(values["max_volume"]),
-        volume_step=float(values["volume_step"]),
-        stops_level_points=int(values["stops_level_points"]),
-        freeze_level_points=int(values["freeze_level_points"]),
-        currency_base=str(values["currency_base"]).upper(),
-        currency_quote=str(values["currency_quote"]).upper(),
-        source=str(values.get("source") or source),
+        broker_symbol=_text(values.get("broker_symbol", canonical), "broker_symbol"),
+        digits=_nonnegative_integer(values["digits"], "digits"),
+        point=_positive_number(values["point"], "point"),
+        tick_size=_positive_number(values["tick_size"], "tick_size"),
+        tick_value=_positive_number(values["tick_value"], "tick_value"),
+        contract_size=_positive_number(values["contract_size"], "contract_size"),
+        min_volume=_positive_number(values["min_volume"], "min_volume"),
+        max_volume=_positive_number(values["max_volume"], "max_volume"),
+        volume_step=_positive_number(values["volume_step"], "volume_step"),
+        stops_level_points=_nonnegative_integer(values["stops_level_points"], "stops_level_points"),
+        freeze_level_points=_nonnegative_integer(values["freeze_level_points"], "freeze_level_points"),
+        currency_base=_currency(values["currency_base"], "currency_base"),
+        currency_quote=_currency(values["currency_quote"], "currency_quote"),
+        source=_text(values.get("source") or source, "source"),
+        currency_margin=None if values.get("currency_margin") is None else _currency(values["currency_margin"], "currency_margin"),
     ).validate()
 
 
@@ -196,24 +224,15 @@ def spec_from_symbol_info(canonical: str, info: Any, *, broker_symbol: str = "")
             raise InstrumentError(f"{canonical}: MT5 symbol_info has no {name}", source="instrument_registry")
         return getattr(info, name)
 
-    return InstrumentSpec(
-        symbol=canonical.upper(),
-        canonical_symbol=canonical.upper(),
-        broker_symbol=str(broker_symbol or attribute("name")),
-        digits=int(attribute("digits")),
-        point=float(attribute("point")),
-        tick_size=float(attribute("trade_tick_size")),
-        tick_value=float(attribute("trade_tick_value")),
-        contract_size=float(attribute("trade_contract_size")),
-        min_volume=float(attribute("volume_min")),
-        max_volume=float(attribute("volume_max")),
-        volume_step=float(attribute("volume_step")),
-        stops_level_points=int(attribute("trade_stops_level")),
-        freeze_level_points=int(attribute("trade_freeze_level")),
-        currency_base=str(attribute("currency_base")).upper(),
-        currency_quote=str(attribute("currency_profit")).upper(),
-        source="mt5:symbol_info",
-    ).validate()
+    reported_name = _text(attribute("name"), "name")
+    if broker_symbol and broker_symbol != reported_name:
+        raise InstrumentError("MT5 symbol_info name does not match requested broker symbol", source="instrument_registry")
+    values = {target: attribute(origin) for target, origin in MT5_SPEC_FIELDS.items()}
+    values.update(broker_symbol=reported_name, source="mt5:symbol_info")
+    margin = info.get("currency_margin") if isinstance(info, Mapping) else getattr(info, "currency_margin", None)
+    if margin is not None:
+        values["currency_margin"] = margin
+    return spec_from_mapping(canonical, values)
 
 
 REQUIRED_SPEC_KEYS = (
@@ -234,6 +253,53 @@ REQUIRED_SPEC_KEYS = (
 
 def _key(symbol: str) -> str:
     return str(symbol or "").upper()
+
+
+MT5_SPEC_FIELDS = {
+    "digits": "digits", "point": "point", "tick_size": "trade_tick_size",
+    "tick_value": "trade_tick_value", "contract_size": "trade_contract_size",
+    "min_volume": "volume_min", "max_volume": "volume_max", "volume_step": "volume_step",
+    "stops_level_points": "trade_stops_level", "freeze_level_points": "trade_freeze_level",
+    "currency_base": "currency_base", "currency_quote": "currency_profit",
+}
+
+
+def _text(value: Any, name: str) -> str:
+    if not isinstance(value, str) or not value or value != value.strip() or not value.isprintable():
+        raise InstrumentError(f"{name} must be a nonempty printable string without outer whitespace", source="instrument_registry")
+    return value
+
+
+def _currency(value: Any, name: str) -> str:
+    text = _text(value, name).upper()
+    if len(text) != 3 or not text.isascii() or not text.isalpha():
+        raise InstrumentError(f"{name} must be a three-letter currency code", source="instrument_registry")
+    return text
+
+
+def _nonnegative_integer(value: Any, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise InstrumentError(f"{name} must be a nonnegative integer", source="instrument_registry")
+    return value
+
+
+def _positive_number(value: Any, name: str) -> float:
+    try:
+        valid = not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value) and value > 0
+    except OverflowError:
+        valid = False
+    if not valid:
+        raise InstrumentError(f"{name} must be a finite positive number", source="instrument_registry")
+    return float(value)
+
+
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in values:
+            raise ValueError("duplicate JSON object key")
+        values[key] = value
+    return values
 
 
 # --------------------------------------------------------------------------- declared assumptions

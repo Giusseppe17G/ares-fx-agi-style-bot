@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from configparser import ConfigParser
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,13 @@ def _int_tuple(value: Any, default: tuple[int, ...]) -> tuple[int, ...]:
             continue
         result.append(int(item))
     return tuple(result) if result else default
+
+
+def _config_bool(values: dict[str, Any], key: str, default: bool) -> bool:
+    value = values.get(key, default)
+    if type(value) is not bool:
+        raise ValueError(f"{key} must be an explicit boolean")
+    return value
 
 
 @dataclass(frozen=True)
@@ -89,6 +97,7 @@ class BotConfig:
     profile_type: str = ""
     requires_robustness_rerun: bool = False
     paper_only: bool = False
+    paper_allow_disabled_ml: bool = False
     max_open_paper_trades: int = 10
     max_paper_trades_per_day: int = 50
     cooldown_after_loss_minutes: int = 0
@@ -103,6 +112,28 @@ class BotConfig:
     def validate_safety(self) -> None:
         """Raise ValueError when config weakens mandatory safety defaults."""
 
+        for name in ("demo_only", "live_trading_approved", "require_sl", "require_tp", "paper_allow_disabled_ml"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be an explicit boolean")
+        for name, ceiling in (
+            ("max_open_risk_pct", 5.0), ("max_risk_per_trade_pct", 0.5),
+            ("max_daily_drawdown_pct", 3.0), ("max_floating_drawdown_pct", 5.0),
+            ("max_market_snapshot_age_seconds", 5), ("max_tick_age_seconds", 5),
+            ("max_signal_age_seconds", 30), ("paper_risk_multiplier", 1.0),
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 < value <= ceiling:
+                raise ValueError(f"{name} must be finite and in (0, {ceiling}]")
+        for name, ceiling in (("max_open_trades", 10), ("max_open_paper_trades", 10)):
+            value = getattr(self, name)
+            if type(value) is not int or not 0 < value <= ceiling:
+                raise ValueError(f"{name} must be a positive integer no greater than {ceiling}")
+        for name in ("max_paper_trades_per_day", "cooldown_after_loss_minutes", "cooldown_after_drawdown_halt_minutes"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        if isinstance(self.max_spread_points_default, bool) or not isinstance(self.max_spread_points_default, (int, float)) or not math.isfinite(self.max_spread_points_default) or self.max_spread_points_default <= 0:
+            raise ValueError("spread limit must be positive and finite")
         if not self.demo_only:
             raise ValueError("DEMO_ONLY must remain True in the initial release")
         if self.live_trading_approved:
@@ -163,8 +194,8 @@ def load_config(path: str | Path | None = None) -> BotConfig:
         int(item.strip()) for item in allowed.split(",") if item.strip().isdigit()
     )
     cfg = BotConfig(
-        demo_only=bool(values.get("DEMO_ONLY", True)),
-        live_trading_approved=bool(values.get("LIVE_TRADING_APPROVED", False)),
+        demo_only=_config_bool(values, "DEMO_ONLY", True),
+        live_trading_approved=_config_bool(values, "LIVE_TRADING_APPROVED", False),
         allowed_account_logins=allowed_logins,
         max_open_trades=int(values.get("MAX_OPEN_TRADES", 10)),
         max_open_risk_pct=float(values.get("MAX_OPEN_RISK_PCT", 5.0)),
@@ -174,8 +205,8 @@ def load_config(path: str | Path | None = None) -> BotConfig:
         trading_halted_until_next_day_on_dd=bool(
             values.get("TRADING_HALTED_UNTIL_NEXT_DAY_ON_DD", True)
         ),
-        require_sl=bool(values.get("REQUIRE_SL", True)),
-        require_tp=bool(values.get("REQUIRE_TP", True)),
+        require_sl=_config_bool(values, "REQUIRE_SL", True),
+        require_tp=_config_bool(values, "REQUIRE_TP", True),
         max_spread_points_default=float(values.get("MAX_SPREAD_POINTS_DEFAULT", 25.0)),
         max_market_snapshot_age_seconds=int(values.get("MAX_MARKET_SNAPSHOT_AGE_SECONDS", 5)),
         max_signal_age_seconds=int(values.get("MAX_SIGNAL_AGE_SECONDS", 30)),
@@ -210,6 +241,7 @@ def load_config(path: str | Path | None = None) -> BotConfig:
         profile_type=str(values.get("PROFILE_TYPE", "")),
         requires_robustness_rerun=bool(values.get("REQUIRES_ROBUSTNESS_RERUN", False)),
         paper_only=bool(values.get("PAPER_ONLY", False)),
+        paper_allow_disabled_ml=_config_bool(values, "PAPER_ALLOW_DISABLED_ML", False),
         max_open_paper_trades=int(values.get("MAX_OPEN_PAPER_TRADES", values.get("MAX_OPEN_TRADES", 10))),
         max_paper_trades_per_day=int(values.get("MAX_PAPER_TRADES_PER_DAY", 50)),
         cooldown_after_loss_minutes=int(values.get("COOLDOWN_AFTER_LOSS_MINUTES", 0)),
