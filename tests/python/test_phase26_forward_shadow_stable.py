@@ -11,6 +11,9 @@ from agi_style_forex_bot_mt5.observability import HeartbeatWriter
 from agi_style_forex_bot_mt5.paper_trading import ForwardShadowBot, PaperTrade, build_stable_health, detect_stable_forward_drift
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase
 from agi_style_forex_bot_mt5.telegram_command_center import TelegramCommandCenter
+from agi_style_forex_bot_mt5.core import workspace_paths
+
+PROJECT_SCRIPTS = workspace_paths().scripts_dir
 
 
 def test_forward_shadow_balanced_stable_blocks_without_gate(tmp_path: Path, capsys) -> None:
@@ -157,9 +160,9 @@ def test_stable_health_reports_ok_with_heartbeat(tmp_path: Path) -> None:
 
 
 def test_stable_scripts_include_profile_and_gate() -> None:
-    run_script = Path("scripts/run_forward_shadow_balanced_stable.ps1").read_text(encoding="utf-8")
-    status_script = Path("scripts/status_forward_shadow_stable.ps1").read_text(encoding="utf-8")
-    daily_script = Path("scripts/daily_summary_stable.ps1").read_text(encoding="utf-8")
+    run_script = (PROJECT_SCRIPTS / "run_forward_shadow_balanced_stable.ps1").read_text(encoding="utf-8")
+    status_script = (PROJECT_SCRIPTS / "status_forward_shadow_stable.ps1").read_text(encoding="utf-8")
+    daily_script = (PROJECT_SCRIPTS / "daily_summary_stable.ps1").read_text(encoding="utf-8")
 
     assert "BALANCED_STABLE" in run_script
     assert "--stable-gate" in run_script

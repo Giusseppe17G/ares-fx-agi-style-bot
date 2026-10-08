@@ -1,4 +1,4 @@
-﻿# QA Implementation Report
+# QA Implementation Report
 ## FASE 33 - Weekend Offline Readiness, Clean-State Validation & EC2 Prep
 
 Added offline readiness tooling for closed-market operation:
@@ -1883,3 +1883,115 @@ Implemented `micro_v2_post_reset_relaunch` with read-only SQLite state inspectio
 ### FASE 78 - QA Implementation Note
 
 Implemented `micro_v2_sqlite_halt_forensics` with read-only SQLite schema discovery, halt-event scanning across real tables, JSONL comparison, current `_is_halt_event()` miss diagnostics, query manifest, CSV/JSON/HTML reports, CLI registration without `TelemetryDatabase` migration, and tests for schema discovery, halt detection, detector misses, SQLite-vs-JSONL comparison, invalid timestamps, read-only CLI behavior, and safety invariants.
+
+
+### FASE 80 - QA Implementation Note
+
+Implemented `agi_style_forex_bot_mt5.core` with `SafetyEnvelope` (contradiction-rejecting safety contract, `seal_report`, `assert_safety_flags`), `WorkspacePaths` (project/data roots, environment overrides, `resolve_path`), `Clock` (`SystemClock`, `FrozenClock`, `resolve_clock`) and `RunManifest` (input-derived `run_id`, git/config/dataset hashes, secret redaction), plus the `core-invariants` CLI mode.
+
+Repaired the CWD coupling found by the FASE 79 architectural audit: `operator_drill.py` resolved its EC2 script checks against the process working directory, so a readiness verdict changed with the launch directory. `create_backup` and the Telegram `/backup` command now resolve the rotation destination through the workspace instead of a CWD-relative default.
+
+Added `tests/python/conftest.py`, which runs the whole session from a temporary directory with a sandboxed `AGI_FX_DATA_ROOT`. This stops the suite writing into production evidence (it previously overwrote `data/backups/backup_report.json` and created backup files in the repository) and exposes any remaining CWD coupling instead of hiding it.
+
+`tests/python/test_phase80_core_invariants.py` covers the four contracts, CWD independence of the operator drill and CLI, backtest plus manifest reproducibility under a frozen clock, secret redaction, and the no-production-writes invariant. Full suite: 876 passed, identical from the repository root and from an alternative working directory, with the repository `data/` fingerprint unchanged.
+
+
+### FASE 81 - QA Implementation Note
+
+Implemented `core.operational_state` with `states.py` (halt kind/age, evidence quality, paper state status, relaunch decision), `halt_detector.py` (the single halt authority), `paper_state.py` (canonical paper model), `relaunch_gate.py` (the single `relaunch_allowed` decision), `errors.py` (structured error hierarchy) and `equivalence.py` (the legacy-versus-canonical harness), plus the `unified-operational-state` CLI mode.
+
+Audited the 22 modules referencing halt tokens and the 6 relaunch-gate implementations. Seven legacy halt rules are callable as functions and were compared against the canonical detector on 11 scenarios: 53 comparisons, 48 identical, 5 differences, 0 unexplained. Four legacy relaunch gates were compared on 7 scenarios: 28 comparisons, 28 identical, 0 differences.
+
+Adjudicated differences. Three are `LEGACY_BEHAVIOR_BUG` in the forensics scanner, which deliberately models the pre-FASE-79 detector for diagnostic purposes and is therefore not delegated. Two are `CANONICAL_WIDER_SCOPE` in the drawdown recovery loaders, which keep a drawdown-only scope by design. Before delegation the harness reported ten differences, including a case-sensitivity bug in both recovery loaders and a `payload.error` coverage gap in the FASE 79 reset detector; delegating those three modules to the canonical detector removed five of them.
+
+Delegated without deleting anything: `daily_halt_status_audit.audit_daily_halt_status` returns the canonical verdict, the two drawdown loaders delegate token matching, and three hardcoded `<= -3.0` thresholds read the canonical constant. The primary relaunch gate was left intact: its `_paper_state_block` cutoff rule is not represented in the canonical gate, so delegating it is not yet demonstrably safe.
+
+`tests/python/test_phase81_unified_operational_state.py` adds 52 tests covering halt precedence, timestamp ordering, SQLite/JSONL merge, stale and active halts, malformed evidence, field and token coverage, paper state, the relaunch gate, the error hierarchy, legacy equivalence and the no-production-writes invariant. Full suite: 928 passed, identical from the repository root and from an alternative working directory, repository `data/` fingerprint unchanged.
+
+
+### FASE 82 - QA Implementation Note
+
+Audited both pipelines stage by stage from the running code and recorded the map in `core.parity.pipeline_stages`: 16 stages, 8 shared, 8 not. Six run only in forward-shadow (risk engine, ML filter, signal ranker, portfolio guard, dynamic risk allocator, paper trade limits) and two only in backtest (profile thresholds, stable filters). Every gap carries its reason in the stage map.
+
+Implemented `core.instruments` (InstrumentRegistry, InstrumentSpec, MT5 and dataset providers, fail-closed validation, declared placeholder specs), `core.execution.SharedFillModel`, `core.parity` (deterministic fixture and decision comparison) and `core.validation.baselines` (buy-and-hold, random entry, permuted signal), plus the `backtest-live-parity` CLI mode.
+
+Removed the invented instrument metadata from the backtester. Before delegating the execution model, both implementations were measured on identical inputs across BUY/SELL entry and exit: prices were identical to the instrument's digits, and the full suite stayed green after the change, so no historical backtest result moved.
+
+Found and worked around a defect in `execution_simulation.SpreadModel`: its estimator falls back to `max_spread_points` when every input is falsy, so a zero-spread bar is classified EXTREME. The backtest replay path feeds the model the bar's observed spread instead of relying on that fallback. The defect itself was left alone because fixing it changes paper-trading behaviour and there is no real-data evidence yet.
+
+`tests/python/test_phase82_backtest_live_parity.py` adds 43 tests covering the registry, missing and invalid metadata, MT5 and dataset providers, rounding, resolution order and strict mode, execution-model equivalence across spreads and directions, the replay context, the stage map, parity on a deterministic fixture, reproducibility, the CLI, baselines and the no-production-writes invariant. Full suite: 971 passed, identical from the repository root and from an alternative working directory, repository `data/` fingerprint unchanged.
+
+### 2026-10-05 — Backtest causality and parity correction
+
+The phase-82 note above is historical. The zero-spread workaround is now removed,
+entry and exit costs share the adapter, and generated bar-close decisions cannot
+fill at their source-bar opening. The old 8/16 shared classification included
+three different implementations: data, persistence and metrics. The corrected
+inventory is 5/16 (31.25%). Comparable-component success is PARITY_INCOMPLETE for
+the complete pipeline, with full_pipeline_verified=false.
+
+54 new regressions; 1025 tests pass from both repository root and another CWD.
+See testing/backtest-causality-validation.md, the dated architecture decision,
+and EXTERNAL_TRADING_BENCHMARK_2026-10-05.md. Full phase 82B remains incomplete.
+
+### 2026-10-05 — Shared decisions, stateful paper replay and release lock
+
+The current implementation and limits are documented in
+`IMPLEMENTATION_STATUS_2026-10-05.md`. Code commit:
+`9aba3529306da2fc31948850807f5c54ec542dec`. Full Python suite: 1763 passed from
+the project root and 1763 passed from an alternate CWD. Evidence logs reside in
+`testing/evidence/2026-10-05-shared-pipeline/`.
+
+Forward uses the shared decision core and verified paper ledger. A separate
+explicit-quote replay now carries actual paper positions, equity and risk through
+time using those same components. Independent review covers audit failure,
+causality, risk with existing exposure, economic determinism and daily boundaries.
+This verifies software on fixtures, not market profitability or broker fills.
+
+The legacy OHLC inventory is now 7/16 shared stages after shared features/profile
+policy; nine gaps remain in that path. Its results must not be presented as a
+stateful portfolio backtest or as global parity. All broker execution capabilities
+in the supported adapter are blocked until a future reviewed release. MQL5 source
+files were empty placeholders at that commit; no native compilation was claimed.
+
+### 2026-10-05 — Corrected metrics, strict reports and native observer
+
+Code commit `7abf90e4cc1cc35c9c66ce8d7f215cf7145ae1d3`: full suite **1940 passed**.
+Engine 0.3.1 retains the initial capital and first calendar period, groups equal
+close timestamps and computes recovery from monetary drawdown. Consolidation
+report 2.0 rejects missing/invalid/unknown evidence as grounds for approval and
+declares its observational scope and lack of promotion/execution authority.
+
+The native observation EA and fixture harness compiled with MetaEditor
+5.0.0.5833, zero errors/warnings. Source hashes match the compile manifest.
+The harness was not run, no terminal was started and no binaries were installed.
+Native strategy/risk and runtime behavior remain unverified. Both Python and
+native release gates block broker execution.
+
+The new historical diagnostic ran from another CWD, verified code/script/data
+hashes, and preserved trades byte-for-byte versus 9aba352. All three symbols
+remain net negative (PF approximately 0.866/0.721/0.806). These are development
+data with assumed broker metadata and unverified spread/cost provenance, not
+OOS or full-state portfolio evidence. See the central implementation status and
+`testing/evidence/2026-10-05-shared-pipeline/diagnostic-7abf90e/`.
+
+### 2026-10-05 — Shared paper lifecycle and honest synthetic evidence
+
+Full suite: **2101 passed in 97.89 seconds**, with isolated temporary data.
+The real forward run and quote replay now share one economic cycle. Independent
+regressions cover account/connection changes, incomplete book marks, stale dated
+quality evidence, required audit failure and durable restart blocking. Controlled
+positive economic parity is exercised for ACTIVE, not all profile combinations.
+
+Managed protection respects tick size, derived spreads use decimal price units,
+and inferred hour offsets cannot turn a future Python timestamp into fresh data.
+Monte Carlo evaluates the actual permuted sequence; post-trade stress labels
+unsupported operational scenarios NOT_MODELED and records reproducible inputs.
+Research consumers now handle these explicit absences and cannot approve labels
+whose parameters were not applied or whose train/test samples are identical.
+
+An initial full run found one incompatible legacy consumer (2086 passed, one
+failed); the corrected final run and initial log are preserved under
+`testing/evidence/2026-10-05-shared-pipeline/tests-lifecycle-root*.txt`.
+No broker calls, native runtime verification, financial edge or promotion follow
+from these software checks. The original checkout remains unmodified.

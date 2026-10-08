@@ -18,7 +18,7 @@ from .scoring_engine import (
 
 
 STRATEGY_NAME = "liquidity_sweep"
-STRATEGY_VERSION = "0.2.0"
+STRATEGY_VERSION = "0.2.1"
 
 
 def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
@@ -79,5 +79,5 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
         threshold=64,
         min_margin=8,
         strategy_name=STRATEGY_NAME,
-        metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME, extra={"prev_high": prev_high, "prev_low": prev_low}),
+        metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME, direction="BUY" if buy_score > sell_score else "SELL" if sell_score > buy_score else "", extra={"prev_high": prev_high, "prev_low": prev_low}),
     )

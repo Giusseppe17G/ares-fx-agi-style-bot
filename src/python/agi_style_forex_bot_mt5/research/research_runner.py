@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import math
+from numbers import Real
 from pathlib import Path
 from typing import Any, Iterable
 
 from ..backtesting import BacktestSettings, CostModel, load_historical_csv, run_strategy_backtest
-from ..backtesting.stress_tester import StressTester
+from ..backtesting.stress_tester import APPROXIMATION_SCOPE, StressResult, StressTester
+from ..core.safety import seal_report
 from ..data_pipeline import resolve_historical_data
 from .candidate_registry import CandidateRegistry
 from .objective_functions import composite_score
@@ -35,6 +38,7 @@ def run_research(
     data_fingerprint = str(data_quality.get("dataset_fingerprint", "unknown"))
     cost_fingerprint = _fingerprint(cost_profile)
     registry = CandidateRegistry()
+    stress_summaries = []
     tested = 0
     for symbol in [item.strip().upper() for item in symbols if item.strip()]:
         csv_path = _find_csv(data_path, symbol)
@@ -68,8 +72,9 @@ def run_research(
                 "max_allowed_spread_points": spread,
             }
             metrics["composite_score"] = composite_score(metrics)
-            stress_results = StressTester().comprehensive(outcome.trades)
-            stress_summary = {"classification": "REJECTED" if any(row.metrics.net_profit < 0 for row in stress_results) else "WATCHLIST"}
+            stress_results = StressTester(initial_balance=settings.initial_balance).comprehensive(outcome.trades)
+            stress_summary = _stress_evidence_summary(stress_results)
+            stress_summaries.append(stress_summary)
             assessment = assess_overfit(
                 train_metrics=metrics,
                 test_metrics=metrics,
@@ -77,15 +82,25 @@ def run_research(
                 stress_summary=stress_summary,
             )
             status = assessment.recommended_status
-            if status == "APPROVED_FOR_SHADOW_OBSERVATION" and metrics["composite_score"] < 80:
+            # This legacy runner supplies the same observed sample to both
+            # assessment inputs and has not wired candidate-specific parameters.
+            # A favorable score cannot become evidence of independent validation.
+            if status == "APPROVED_FOR_SHADOW_OBSERVATION":
                 status = "WATCHLIST"
-            if outcome.metrics.trades_total == 0:
+            if (outcome.metrics.trades_total == 0 or stress_summary["invalid_scenario_count"]
+                    or not stress_summary["completed_scenario_count"]):
                 status = "REJECTED"
+            limitations = ["OOS_NOT_EVALUATED", "CANDIDATE_PARAMETERS_NOT_APPLIED"]
+            if stress_summary["evidence_status"] != "COMPLETE_POST_TRADE_ONLY":
+                limitations.append("STRESS_EVIDENCE_INCOMPLETE")
             updated = candidate.with_status(
                 status,
-                rejection_reason="; ".join(assessment.reasons) if status == "REJECTED" else "",
+                rejection_reason="; ".join((*assessment.reasons, *limitations)) if status == "REJECTED" else "",
                 metrics_summary=metrics,
-                validation_artifacts={"overfit_risk": assessment.overfit_risk},
+                validation_artifacts={"overfit_risk": assessment.overfit_risk,
+                    "stress_summary": stress_summary, "validation_limitations": limitations,
+                    "oos_status": "OOS_NOT_EVALUATED", "candidate_parameter_application": False,
+                    "evidence_scope": "IN_SAMPLE_OBSERVATIONAL_DIAGNOSTIC", "promotion_eligible": False},
             )
             registry.add(updated)
             tested += 1
@@ -100,13 +115,64 @@ def run_research(
         "rejected": len(registry.list(status="REJECTED")),
         "best_candidates": [item.to_dict() for item in registry.top(limit=5)],
         "classification": _classification(registry),
+        "evidence_scope": "IN_SAMPLE_OBSERVATIONAL_DIAGNOSTIC",
+        "classification_scope": "OBSERVATIONAL_DIAGNOSTIC_ONLY",
+        "oos_status": "OOS_NOT_EVALUATED",
+        "candidate_parameter_application": False,
+        "promotion_eligible": False,
+        "operational_scenarios_tested": False,
+        "stress_evidence_status": ("NOT_EVALUATED" if not stress_summaries else
+            "INCOMPLETE" if any(item["evidence_status"] != "COMPLETE_POST_TRADE_ONLY" for item in stress_summaries)
+            else "COMPLETE_POST_TRADE_ONLY"),
+        "candidates_with_incomplete_stress": sum(item["evidence_status"] != "COMPLETE_POST_TRADE_ONLY" for item in stress_summaries),
+        "stress_scenario_counts": {key: sum(item[key] for item in stress_summaries) for key in (
+            "completed_scenario_count", "not_modeled_scenario_count", "no_input_scenario_count",
+            "insufficient_input_scenario_count", "invalid_scenario_count")},
         "execution_attempted": False,
         "reports_created": [],
     }
+    summary = seal_report(summary, full=True)
     reports = write_research_reports(output_dir=output, registry=registry, recommended_mix=mix, summary=summary)
     summary["reports_created"] = reports
     (output / "research_summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
     return summary
+
+
+def _stress_evidence_summary(results: Iterable[StressResult]) -> dict[str, Any]:
+    """Classify consumed evidence without treating unmodeled checks as passed."""
+    counts = {key: 0 for key in ("completed_scenario_count", "not_modeled_scenario_count",
+        "no_input_scenario_count", "insufficient_input_scenario_count", "invalid_scenario_count")}
+    status_counts = {"NOT_MODELED": "not_modeled_scenario_count", "NO_INPUT": "no_input_scenario_count",
+        "INSUFFICIENT_INPUT": "insufficient_input_scenario_count"}
+    scenarios = []
+    negative = 0
+    for result in results:
+        valid = isinstance(result, StressResult)
+        status = result.status if valid and isinstance(result.status, str) else "INVALID"
+        profit = getattr(result.metrics, "net_profit", None) if valid and result.metrics is not None else None
+        finite_profit = isinstance(profit, Real) and not isinstance(profit, bool) and math.isfinite(profit)
+        if status == "COMPLETED" and finite_profit and result.evidence_scope == APPROXIMATION_SCOPE:
+            counts["completed_scenario_count"] += 1
+            profit = float(profit)
+            negative += int(profit < 0)
+        elif status in status_counts and result.metrics is None:
+            counts[status_counts[status]] += 1
+            profit = None
+        else:
+            status, profit = "INVALID", None
+            counts["invalid_scenario_count"] += 1
+        scenarios.append({"scenario": result.scenario if valid else "UNKNOWN", "status": status,
+            "evidence_scope": result.evidence_scope if valid else "UNKNOWN", "net_profit": profit})
+    incomplete = any(counts[key] for key in counts if key != "completed_scenario_count")
+    usable = counts["completed_scenario_count"] > 0
+    return {
+        "classification": "REJECTED" if negative or counts["invalid_scenario_count"] or not usable else "WATCHLIST",
+        "evidence_status": "INVALID" if counts["invalid_scenario_count"] else "NO_COMPLETED_EVIDENCE" if not usable
+            else "INCOMPLETE" if incomplete else "COMPLETE_POST_TRADE_ONLY",
+        **counts, "scenario_count": len(scenarios), "negative_completed_scenario_count": negative,
+        "scenarios": scenarios, "classification_scope": "OBSERVATIONAL_DIAGNOSTIC_ONLY",
+        "operational_scenarios_tested": False, "promotion_eligible": False,
+    }
 
 
 def _find_csv(data_dir: Path, symbol: str) -> Path:

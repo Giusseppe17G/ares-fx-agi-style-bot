@@ -1,8 +1,7 @@
-"""MT5 broker/server time normalization helpers.
+"""Validate raw MT5 Python UTC tick times; inferred offsets are hints only.
 
-The MetaTrader5 Python API may expose tick timestamps in broker server time
-instead of true UTC.  This module normalizes only well-known, fresh-looking
-future offsets and keeps all ambiguous cases fail-closed.
+The documented Python API returns UTC timestamps. Closeness to an hour offset
+does not establish provenance or freshness, so it never authorizes conversion.
 """
 
 from __future__ import annotations
@@ -28,7 +27,11 @@ def normalize_tick_time(
     now_utc: datetime,
     config: Any | None = None,
 ) -> dict[str, Any]:
-    """Normalize an MT5 tick timestamp and return JSON-safe diagnostics."""
+    """Return UTC diagnostics without promoting inferred offsets to evidence.
+
+    Legacy normalization flags now enable diagnostic suggestions only. Returned
+    timestamps preserve the selected raw epoch and timestamp_normalized is False.
+    """
 
     now = _as_utc(now_utc)
     max_age = int(getattr(config, "max_tick_age_seconds", DEFAULT_MAX_TICK_AGE_SECONDS))
@@ -52,6 +55,7 @@ def normalize_tick_time(
     normalized = selected_raw
     offset = 0
     timestamp_normalized = False
+    suggested_offset = None
     reason = "raw tick timestamp accepted"
     status = "FRESH"
     reject_code = None
@@ -68,36 +72,19 @@ def normalize_tick_time(
         reason = "tick timestamp is too far in the future"
         reject_code = "MARKET_DATA_INVALID"
         reject_reason = reason
-    elif abs(raw_age) <= max_age:
+    elif 0 <= raw_age <= max_age:
         status = "FRESH"
         reason = "raw tick timestamp is fresh"
-    elif raw_age < -max_age:
-        detected = (
+    elif raw_age < 0:
+        suggested_offset = (
             detect_broker_time_offset(selected_raw, now, known_offsets)
             if normalize_enabled and detection_enabled
             else None
         )
-        if detected is None:
-            status = "FUTURE_TOO_FAR"
-            reason = "future tick offset is not in known broker offsets"
-            reject_code = "MARKET_DATA_INVALID"
-            reject_reason = reason
-        else:
-            offset = int(detected)
-            normalized = selected_raw.timestamp() - offset
-            normalized_dt = datetime.fromtimestamp(normalized, timezone.utc)
-            normalized_age = (now - normalized_dt).total_seconds()
-            timestamp_normalized = True
-            if abs(normalized_age) <= max_age:
-                status = "NORMALIZED_FRESH"
-                reason = f"broker server time offset normalized by {offset} seconds"
-                normalized = normalized_dt
-            else:
-                status = "NORMALIZED_STALE"
-                reason = "tick timestamp remains stale after broker offset normalization"
-                reject_code = "MARKET_DATA_INVALID"
-                reject_reason = reason
-                normalized = normalized_dt
+        status = "FUTURE_TOO_FAR"
+        reason = "BROKER_TIME_OFFSET_UNVERIFIED" if suggested_offset is not None else "tick timestamp is in the future"
+        reject_code = "MARKET_DATA_INVALID"
+        reject_reason = reason
     else:
         status = "STALE"
         reason = "tick timestamp is stale"
@@ -117,6 +104,8 @@ def normalize_tick_time(
         "selected_tick_time_utc": _iso(normalized_dt),
         "timestamp_normalized": timestamp_normalized,
         "broker_time_offset_seconds": offset if timestamp_normalized else 0,
+        "suggested_broker_time_offset_seconds": suggested_offset,
+        "broker_time_offset_verified": False,
         "tick_age_seconds_raw": raw_age,
         "tick_age_seconds_normalized": normalized_age,
         "tick_age_seconds": normalized_age,
@@ -135,7 +124,7 @@ def detect_broker_time_offset(
     now_utc: datetime,
     known_offsets_seconds: Iterable[int] = DEFAULT_KNOWN_OFFSETS_SECONDS,
 ) -> int | None:
-    """Return the nearest known broker offset when the raw tick is ahead."""
+    """Suggest a nearby offset for diagnostics; this does not verify an offset."""
 
     raw = _as_utc(raw_tick_dt_utc)
     now = _as_utc(now_utc)
@@ -158,24 +147,21 @@ def classify_tick_time(
     max_tick_age_seconds: int,
     max_future_offset_seconds: int,
 ) -> str:
-    """Classify raw/normalized tick freshness without mutating inputs."""
+    """Classify raw UTC freshness; a supplied normalized value is not evidence.
+
+    Legacy parameters remain accepted, but cannot authorize clock conversion.
+    """
 
     now = _as_utc(now_utc)
     if raw_tick_dt_utc is None or normalized_tick_dt_utc is None:
         return "INVALID_TIMESTAMP"
     raw = _as_utc(raw_tick_dt_utc)
-    normalized = _as_utc(normalized_tick_dt_utc)
     raw_age = (now - raw).total_seconds()
-    normalized_age = (now - normalized).total_seconds()
-    if raw_age < -max_future_offset_seconds:
+    if raw_age < 0:
         return "FUTURE_TOO_FAR"
-    if abs(raw_age) <= max_tick_age_seconds:
+    if 0 <= raw_age <= max_tick_age_seconds:
         return "FRESH"
-    if abs(normalized_age) <= max_tick_age_seconds:
-        return "NORMALIZED_FRESH"
-    if normalized_age > max_tick_age_seconds:
-        return "NORMALIZED_STALE"
-    return "FUTURE_TOO_FAR"
+    return "STALE"
 
 
 def build_time_diagnostics(

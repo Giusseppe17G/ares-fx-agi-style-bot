@@ -7,6 +7,7 @@ from typing import Any
 
 from agi_style_forex_bot_mt5.observability.metrics_collector import MetricsCollector
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
+from agi_style_forex_bot_mt5.core.operational_state import DEFAULT_DAILY_DRAWDOWN_LIMIT
 
 
 def build_status(database: TelemetryDatabase) -> dict[str, Any]:
@@ -32,7 +33,7 @@ def build_status(database: TelemetryDatabase) -> dict[str, Any]:
         "weekend_readiness_status": _load_json_value("data/reports/weekend_readiness/weekend_readiness_summary.json", "weekend_readiness_status"),
         "market_open_next_action": _load_json_value("data/reports/weekend_readiness/weekend_readiness_summary.json", "market_open_next_action") or _load_json_value("data/reports/market_open_checklist/market_open_checklist_summary.json", "market_open_next_action"),
         "ec2_readiness_status": _load_json_value("data/reports/ec2_readiness/ec2_readiness_summary.json", "ec2_readiness_status"),
-        "daily_drawdown_status": "PAPER_DAILY_DRAWDOWN" if float(metrics.get("drawdown_paper", 0.0) or 0.0) <= -3.0 else "OK",
+        "daily_drawdown_status": "PAPER_DAILY_DRAWDOWN" if float(metrics.get("drawdown_paper", 0.0) or 0.0) <= DEFAULT_DAILY_DRAWDOWN_LIMIT else "OK",
         "evidence_parse_status": _load_evidence_parse_status(),
         "all_symbols_rejected_count": 1 if int(metrics.get("symbols_seen", 0) or 0) > 0 and int(metrics.get("symbols_rejected", 0) or 0) >= int(metrics.get("symbols_seen", 0) or 0) else 0,
         "symbol_rejection_error_count": sum(1 for reason in metrics.get("rejected_signals_by_reason", {}) if "arg must be" in str(reason)),

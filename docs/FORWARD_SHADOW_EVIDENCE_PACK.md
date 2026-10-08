@@ -728,3 +728,82 @@ Forward evidence may surface `micro_v2_relaunch_status`, `micro_v2_relaunch_allo
 The SQLite halt forensics pack writes `sqlite_halt_forensics_summary.json`, `schema_inventory.json`, `halt_detector_diagnostics.json`, `sqlite_vs_jsonl_comparison.json`, `halt_events.csv`, `queries_used.sql`, and `report.html` under `data/reports/micro_v2_sqlite_halt_forensics/`.
 
 The pack documents real SQLite schemas, halt event locations, timestamps/timezone quality, duplicate/gap indicators, and detector miss reasons. It is evidence only and must not be used to bypass risk gates or relaunch V2.
+
+
+### FASE 80 - Run Manifest and Sealed Safety Evidence
+
+Reports built through `RunManifest.attach()` carry a `run_manifest` block alongside the sealed safety flags. The manifest records `manifest_version`, `mode`, `run_id`, `git_commit_sha`, `git_dirty`, `project_root`, `data_root`, `config_hash`, `dataset_hash`, `reference_time_utc`, `python_version`, `package_versions`, `symbols`, `timeframe`, `seed` and the safety envelope.
+
+`run_id` is a digest of the run's own inputs, not a timestamp, so two runs with the same mode, config, dataset, reference time and seed are provably the same run. `dataset_hash` is a content hash over the input files, so a changed dataset changes the run identity. Credentials are redacted before the config digest is computed and never appear in the manifest.
+
+Evidence sealed with `seal_report()` cannot contradict the envelope: a stale copied `execution_attempted: true` literal is overwritten with the envelope's value rather than trusted. This is evidence provenance only; it grants no execution authority and does not override any risk or acceptance gate.
+
+
+### FASE 81 - Canonical Halt and Relaunch Evidence
+
+Halt evidence now carries the canonical vocabulary alongside the legacy fields: `halt_kind`, `halt_age`, `evidence_quality`, `halt_source`, `severity` and `halt_operational_day`, in addition to `daily_halt_active`, `latest_halt_utc` and `daily_reset_occurred`.
+
+`evidence_quality` is the field to read when a verdict looks surprising. `EVIDENCE_OK` means every halt record had a usable timestamp; `EVIDENCE_PARTIAL` means some did not and the verdict rests on the ones that did; `EVIDENCE_MALFORMED` means halt evidence exists but nothing can be dated, in which case the halt is reported as active and relaunch is blocked by the `evidence_quality` gate.
+
+Relaunch evidence records `relaunch_decision`, `relaunch_allowed`, `blocking_gate_ids`, per-gate reasons, and `evidence_references` pointing at the halt timestamp, operational day and source behind the decision. This is evidence only: it authorizes nothing, and a blocked verdict may never be overridden by a downstream report.
+
+
+### FASE 82 - Parity and Instrument Provenance Evidence
+
+Backtest summaries now carry `instrument_metadata_source` and `instrument_metadata_assumed`. Evidence produced with `instrument_metadata_assumed = true` rests on placeholder instrument metadata and must not be used to support an acceptance decision.
+
+The parity report records `decision_parity_pct` and `equivalent_decision_count` over the shared stages, `stage_parity_pct` and `parity_gap_stage_ids` over the pipeline as a whole, the instrument spec used, the seed and the reference time. It is reproducible: the same fixture, clock and seed produce the same report and the same `run_id`.
+
+Baseline comparisons record the candidate alongside all three baselines and a `baseline_verdict`. `CANDIDATE_BEATS_ALL_BASELINES` is a necessary condition only; it does not establish out-of-sample validity and grants no promotion.
+
+### 2026-10-05 — Evidence scope correction
+
+The phase-82 component fixture does not invoke the complete forward/backtest
+loops. Read evidence_scope and full_pipeline_verified before interpreting its
+percentages. PARITY_INCOMPLETE does not authorize execution or promotion.
+The inventory now excludes three distinct adapters from shared implementations
+(5/16, 31.25%). Generated backtest trades retain source-bar timestamp,
+available_at_utc and entry_timing. Older results must be retained and reevaluated
+under engine 0.2.0. See testing/backtest-causality-validation.md.
+
+### 2026-10-05 — Current evidence supersedes prior readiness claims
+
+See `IMPLEMENTATION_STATUS_2026-10-05.md` and code commit
+`9aba3529306da2fc31948850807f5c54ec542dec`. The legacy OHLC inventory is now 7/16
+shared contracts (43.75%), with nine gaps; it is not globally PARITY_OK. The new
+stateful explicit-quote adapter and recorded-context adapter have separate scope
+labels and cannot silently promote old reports. Both full-suite invocations passed
+1763 tests. Strategy promotion and all broker orders remain blocked.
+
+Paper equity/drawdown now require a fresh persisted ledger matching the complete
+book. Missing evidence is UNKNOWN, never zero. New trades use approved-lot PnL
+once and reconcile costs/tick rounding before opening. Legacy paper history needs
+explicit reconciliation before new entries and is not automatically rewritten.
+
+### 2026-10-05 — Latest code and diagnostic evidence
+
+Commit `7abf90e4cc1cc35c9c66ce8d7f215cf7145ae1d3` passes 1940 Python tests.
+Corrected realized metrics and strict report consolidation do not change the
+parity inventory or authorize promotion. The repeated development diagnostic
+remains negative in EURUSD, GBPUSD and USDJPY; all trade CSVs match 9aba352 byte
+for byte. Zero spreads and assumed broker metadata remain explicit limitations.
+
+An observation-only native EA now compiles cleanly; it cannot place orders and
+does not implement the Python strategies or prove runtime/parity. Native harness
+assertions were compiled, not executed. This evidence pack does not satisfy the
+Strategy Promotion Gate. Current details: `IMPLEMENTATION_STATUS_2026-10-05.md`.
+
+### 2026-10-05 — Shared lifecycle integration
+
+The corrected run loop and explicit quote replay share account/quote validation,
+book management, audited decisions, paper fills, valuations and pause ownership.
+Required audit failures survive restart as incomplete evidence and block further
+entries. Full Python suite: **2101 passed**. Controlled ACTIVE episodes compare
+traces and economics through actual forward acquisition; this is not broker or
+all-profile parity. See `testing/forward-replay-lifecycle.md`.
+
+UTC freshness no longer accepts inferred offsets, and managed stops remain on
+the broker tick grid. Synthetic risk reports preserve their actual sequence and
+declare unmodeled operational stress. These corrections leave the execution lock
+and Strategy Promotion Gate intact. Negative preserved development results still
+do not supply a statistical edge or a final holdout.

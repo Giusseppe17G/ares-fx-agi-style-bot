@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from agi_style_forex_bot_mt5.config import BotConfig
+from agi_style_forex_bot_mt5.core import WorkspacePaths, workspace_paths
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 
 
@@ -22,7 +23,7 @@ EC2_SCRIPTS = (
 )
 
 
-def run_operator_drill(*, reports_root: str | Path, output_dir: str | Path, config: BotConfig) -> dict[str, Any]:
+def run_operator_drill(*, reports_root: str | Path, output_dir: str | Path, config: BotConfig, workspace: WorkspacePaths | None = None) -> dict[str, Any]:
     """Simulate the operator market-open runbook without touching MT5."""
 
     reports = Path(reports_root)
@@ -56,6 +57,7 @@ def run_dry_run_market_open(
     reports_root: str | Path,
     output_dir: str | Path,
     config: BotConfig,
+    workspace: WorkspacePaths | None = None,
 ) -> dict[str, Any]:
     """Validate market-open prerequisites offline without connecting to MT5."""
 
@@ -69,8 +71,11 @@ def run_dry_run_market_open(
     _check(checks, "ec2_commands_exist", (reports / "ec2_deployment_pack" / "EC2_COMMANDS.ps1").exists(), str(reports / "ec2_deployment_pack" / "EC2_COMMANDS.ps1"))
     _check(checks, "stable_gate_exists", (reports / "stable_gate" / "stable_gate_summary.json").exists(), str(reports / "stable_gate" / "stable_gate_summary.json"))
     _check(checks, "profile_config_exists", (reports / "stability_repair" / "balanced_stable.ini").exists(), str(reports / "stability_repair" / "balanced_stable.ini"))
+    scripts_dir = (workspace or workspace_paths()).scripts_dir
     for script in EC2_SCRIPTS:
-        _check(checks, f"script_{script}", (Path("scripts") / script).exists(), str(Path("scripts") / script))
+        # Resolved from the project root, never the process CWD: a readiness
+        # verdict must not depend on where Python was launched from.
+        _check(checks, f"script_{script}", (scripts_dir / script).exists(), str(scripts_dir / script))
 
     state: dict[str, Any] = {}
     open_trades = 0

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from agi_style_forex_bot_mt5.micro_v2_dry_run_monitor.dry_run_loader import load_dry_run_dataset
+from agi_style_forex_bot_mt5.core.operational_state import HaltKind, halt_kind_of
 
 
 def load_drawdown_recovery_inputs(
@@ -40,13 +41,17 @@ def load_drawdown_recovery_inputs(
 
 
 def drawdown_halt_events(dataset: dict[str, Any]) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-    for event in dataset.get("events", []):
-        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
-        text = " ".join(str(item) for item in (event.get("event_type"), event.get("message"), payload.get("halt_reason"), payload.get("alert_code"), payload.get("error")))
-        if "PAPER_DAILY_DRAWDOWN" in text or "PAPER_DAILY_DRAWDOWN_HALT" in text:
-            events.append(dict(event))
-    return events
+    """Drawdown halt events only. Token matching delegates to the canonical detector.
+
+    This report is about drawdown recovery, so the drawdown-only scope is kept
+    deliberately; what the delegation fixes is the old case-sensitive text match.
+    """
+
+    return [
+        dict(event)
+        for event in dataset.get("events", [])
+        if isinstance(event, dict) and halt_kind_of(event) is HaltKind.DAILY_DRAWDOWN
+    ]
 
 
 def safety_flags(dataset: dict[str, Any]) -> bool:

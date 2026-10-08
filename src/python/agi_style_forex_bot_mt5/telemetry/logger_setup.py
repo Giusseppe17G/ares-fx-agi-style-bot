@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from hashlib import sha256
 from dataclasses import asdict, is_dataclass
@@ -35,6 +36,11 @@ LONG_IDENTIFIER_RE = re.compile(r"\b\d{6,}\b")
 ISO_TIMESTAMP_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})\b")
 WINDOWS_PATH_RE = re.compile(r"\b[A-Za-z]:\\[^\s\"']+")
 POSIX_HOME_PATH_RE = re.compile(r"(?<!\w)/(?:Users|home)/[^\s\"']+")
+
+# Typed financial audit fields are not account identifiers. Keep the default
+# redaction for arbitrary strings, nested secrets and all unknown field names.
+AUDIT_CHECK_FIELDS = frozenset({"account_equity", "account_known", "account_trade_allowed"})
+AUDIT_HASH_FIELDS = frozenset({"profile_hash", "stable_profile_hash"})
 
 
 def utc_now_iso() -> str:
@@ -104,7 +110,13 @@ def redact_secrets(value: Any, *, parent_key: str = "") -> Any:
         for key, item in value.items():
             key_text = str(key)
             lowered = key_text.lower()
-            if any(part in lowered for part in SENSITIVE_KEY_PARTS):
+            if lowered == "risk_amount_account_currency" and isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(item):
+                redacted[key_text] = item
+            elif lowered in AUDIT_HASH_FIELDS and isinstance(item, str) and re.fullmatch(r"[0-9a-f]{64}", item):
+                redacted[key_text] = item
+            elif lowered in AUDIT_CHECK_FIELDS and isinstance(item, Mapping):
+                redacted[key_text] = redact_secrets(item, parent_key=key_text)
+            elif any(part in lowered for part in SENSITIVE_KEY_PARTS):
                 redacted[key_text] = _mask(item)
             else:
                 redacted[key_text] = redact_secrets(item, parent_key=key_text)
@@ -170,8 +182,12 @@ def event_to_record(event: Event | Mapping[str, Any]) -> dict[str, Any]:
     if "timestamp_utc" not in record:
         record["timestamp_utc"] = utc_now_iso()
     record["message"] = redact_text(str(record.get("message", "")))
+    # Redact structured fields before serialization. Treating serialized JSON
+    # as free text can replace digits inside a number (or quotes inside a path)
+    # and corrupt the durable payload, including otherwise valid risk amounts.
+    record = redact_secrets(record)
     record["payload_json"] = compact_json(redact_secrets(payload))
-    return redact_secrets(record)
+    return record
 
 
 class JsonlAuditLogger:

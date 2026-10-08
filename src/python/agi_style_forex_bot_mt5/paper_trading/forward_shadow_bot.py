@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass, replace
+from datetime import datetime
+from hashlib import sha256
 from time import sleep
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 from uuid import uuid4
 
 from agi_style_forex_bot_mt5.config import BotConfig
-from agi_style_forex_bot_mt5.contracts import AccountState, Environment, Event, RiskDecision, Severity, SignalAction
+from agi_style_forex_bot_mt5.core.clock import Clock, resolve_clock
+from agi_style_forex_bot_mt5.core.decision import DecisionContext, PipelineDecision, SharedDecisionPipeline, build_trade_signal
+from agi_style_forex_bot_mt5.calibration.decision_policy import resolve_signal_profile
+from agi_style_forex_bot_mt5.contracts import AccountState, Environment, Event, Severity, SignalAction
 from agi_style_forex_bot_mt5.calibration import effective_profile_config
 from agi_style_forex_bot_mt5.execution import MT5Connector
 from agi_style_forex_bot_mt5.mt5_data_bot import MT5DataOnlyBot
@@ -17,16 +22,19 @@ from agi_style_forex_bot_mt5.ml import MLFilter
 from agi_style_forex_bot_mt5.ml.prediction_audit import audit_ml_prediction
 from agi_style_forex_bot_mt5.observability import AlertRuleEngine, DailySummary, HeartbeatWriter, MetricsCollector
 from agi_style_forex_bot_mt5.paper_risk_calibration import evaluate_paper_trade_limits
+from agi_style_forex_bot_mt5.paper_risk_calibration.paper_trade_limit_policy import PaperRiskLimits
 from agi_style_forex_bot_mt5.paper_daily_risk_state import validate_micro_daily_risk
 from agi_style_forex_bot_mt5.paper_risk_review import validate_micro_resume_clearance
 from agi_style_forex_bot_mt5.portfolio import DynamicRiskAllocator, PortfolioGuard, SignalRanker
 from agi_style_forex_bot_mt5.persistence import RecoveryManager
 from agi_style_forex_bot_mt5.rejection_labeling import classify_rejection_event_type
-from agi_style_forex_bot_mt5.risk import RiskRuntimeState
+from agi_style_forex_bot_mt5.risk import RiskEngine
 from agi_style_forex_bot_mt5.strategy import evaluate_ensemble
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase, TelegramNotifier
 from agi_style_forex_bot_mt5.telegram_command_center import TelegramCommandCenter
 
+from .lifecycle import (PaperAccountObservation, PaperCandidate, PaperCycleInput, PaperCycleRejected,
+    PaperEvidence, PaperCycleAuditError, process_paper_cycle, halt_paper_cycle, validate_evidence, validate_account)
 from .paper_fill_model import PaperFillModel
 from .paper_pnl_engine import extract_paper_risk_multiplier
 from .paper_position_manager import PaperPositionManager
@@ -38,7 +46,7 @@ class ForwardShadowSummary:
     mode: str
     mt5_connected: bool
     cycles_completed: int
-    open_trades: int
+    open_trades: int | None
     paper_trades_opened: int
     paper_trades_closed: int
     heartbeat_written: bool = False
@@ -55,6 +63,9 @@ class ForwardShadowSummary:
     paper_shadow_paused: bool = False
     critical_alerts_recent: tuple[str, ...] = ()
     next_recommended_command: str = ""
+    audit_complete: bool = True
+    lifecycle_halted: bool = False
+    paper_state_available: bool = True
 
 
 class ForwardShadowBot:
@@ -74,6 +85,9 @@ class ForwardShadowBot:
         report_dir: str = "data/reports/forward_shadow",
         stable_gate_confirmed: bool = False,
         stable_gate_decision: str = "",
+        clock: Clock | None = None,
+        decision_evidence_provider: Callable[..., Mapping[str, Any]] | None = None,
+        ml_filter: Any | None = None,
     ) -> None:
         self.config = config or BotConfig()
         self.config.validate_safety()
@@ -87,149 +101,114 @@ class ForwardShadowBot:
         self.report_dir = report_dir
         self.stable_gate_confirmed = bool(stable_gate_confirmed)
         self.stable_gate_decision = stable_gate_decision
+        self.clock = resolve_clock(clock)
+        self.decision_evidence_provider = decision_evidence_provider
         self.run_id = f"forward_{uuid4().hex}"
         self.connector: MT5Connector | None = None
-        self.manager = PaperPositionManager(database=database, fill_model=PaperFillModel(max_spread_points=self.config.max_spread_points_default), profile_config=self.config.profile_config or None)
+        self.paper_cycle_results = []
+        self.paper_lifecycle_halted = False
+        self.audit_failed = False
+        self.manager = PaperPositionManager(database=database, fill_model=PaperFillModel(max_spread_points=self.config.max_spread_points_default, clock=self.clock, max_tick_age_seconds=self.config.max_market_snapshot_age_seconds), profile_config=self.config.profile_config or None)
         self.heartbeat = HeartbeatWriter(database)
         self.alerts = AlertRuleEngine(database)
-        self.metrics = MetricsCollector(database)
+        self.metrics = MetricsCollector(database, clock=self.clock)
         self.command_center = TelegramCommandCenter(
             database=database,
             audit_logger=audit_logger,
             daily_report_dir=f"{self.report_dir}/daily",
             run_id=self.run_id,
         )
-        self.ml_filter = MLFilter.load_latest_model()
+        self.ml_filter = ml_filter if ml_filter is not None else MLFilter.load_latest_model()
         self.signal_ranker = SignalRanker()
         self.portfolio_guard = PortfolioGuard()
         self.dynamic_risk_allocator = DynamicRiskAllocator()
         self.recovery_manager = RecoveryManager(database=database, audit_logger=audit_logger, run_id=self.run_id)
 
     def run(self) -> ForwardShadowSummary:
-        opened = 0
-        closed = 0
-        cycles = 0
-        alerts_emitted = 0
-        commands_processed = 0
-        heartbeat_written = False
-        self._audit("FORWARD_SHADOW_STARTED", Severity.INFO, {"execution_attempted": False}, notify=True)
-        recovery = self.recovery_manager.recover()
-        if recovery.get("status") != "OK":
-            self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"reason": "recovery failed", "recovery": recovery, "execution_attempted": False}, notify=True)
-            return self._summary(False, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, exit_reason="CONFIG_ERROR", halt_reason="RECOVERY_FAILED")
-        if not self._connect():
-            self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"execution_attempted": False}, notify=True)
-            return self._summary(False, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, exit_reason="CONFIG_ERROR", halt_reason="MT5_CONNECT_FAILED")
-        account = self._read_account()
-        if account is None:
-            self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"reason": "account_info unavailable", "execution_attempted": False}, notify=True)
-            return self._summary(True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, exit_reason="CONFIG_ERROR", halt_reason="ACCOUNT_INFO_UNAVAILABLE")
-        if self.config.demo_only and not account.is_demo:
-            self._audit(
-                "ACCOUNT_REAL_DETECTED_READ_ONLY",
-                Severity.CRITICAL,
-                {"trade_mode": account.trade_mode, "is_demo": account.is_demo, "execution_attempted": False},
-                notify=True,
-            )
-            return self._summary(True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, exit_reason="CONFIG_ERROR", halt_reason="ACCOUNT_REAL_DETECTED_READ_ONLY")
-        if self.config.signal_profile == "BALANCED_STABLE_MICRO":
-            multiplier = extract_paper_risk_multiplier(self.config.profile_config or None)
-            if multiplier is None:
-                self._audit("PAPER_PNL_SCALING_CONFIG_MISSING", Severity.CRITICAL, {"signal_profile_used": self.config.signal_profile, "profile_config": self.config.profile_config, "execution_attempted": False}, notify=True)
-                return self._summary(True, 0, 0, 0, 0, heartbeat_written, alerts_emitted, commands_processed, exit_reason="PAPER_PNL_SCALING_CONFIG_MISSING", halt_reason="PAPER_PNL_SCALING_CONFIG_MISSING")
-            self._audit("PAPER_PNL_SCALING_ACTIVE", Severity.INFO, {"paper_risk_multiplier": multiplier, "pnl_formula_version": "paper_pnl_scaled_v1", "execution_attempted": False}, notify=True)
+        opened = closed = cycles = alerts_emitted = commands_processed = 0
+        heartbeat_written = connected = False
+        event_id = "startup"
         try:
+            self._audit("FORWARD_SHADOW_STARTED", Severity.INFO, {"execution_attempted": False}, notify=True)
+            recovery = self.recovery_manager.recover()
+            if recovery.get("status") != "OK":
+                raise PaperCycleRejected("RECOVERY_FAILED", "startup recovery failed")
+            if not self._connect():
+                raise PaperCycleRejected("MT5_CONNECT_FAILED", "read-only connection failed")
+            if self.config.signal_profile == "BALANCED_STABLE_MICRO":
+                multiplier = extract_paper_risk_multiplier(self.config.profile_config or None)
+                if multiplier is None:
+                    raise PaperCycleRejected("PAPER_PNL_SCALING_CONFIG_MISSING", "micro sizing multiplier is unavailable")
+                self._audit("PAPER_PNL_SCALING_ACTIVE", Severity.INFO, {"paper_risk_multiplier": multiplier,
+                    "pnl_formula_version": "paper_pnl_approved_lot_v1", "execution_attempted": False}, notify=True)
             while self.max_cycles is None or cycles < self.max_cycles:
+                event_id = f"cycle-{cycles+1}"
                 commands_processed += self.command_center.poll_and_process() if self.telegram_notifier is not None else 0
-                for trade in self.manager.load_open_trades():
-                    snapshot = self._snapshot_for(trade.broker_symbol, trade.symbol)
-                    if snapshot is None:
-                        continue
-                    updated = self.manager.update_with_snapshot(trade, snapshot)
-                    if updated.status == "CLOSED":
-                        closed += 1
-                        self._audit("PAPER_TRADE_CLOSED", Severity.INFO, updated.to_dict(), symbol=updated.symbol, notify=True)
-                shadow_paused = self.database.get_shadow_paused()
-                stale_pause_cleared = self._stale_shadow_pause_cleared() if shadow_paused else False
-                if shadow_paused and not stale_pause_cleared:
-                    self._audit("SHADOW_PAUSED", Severity.INFO, {"reason": self.database.get_operational_state().get("paused_reason", ""), "execution_attempted": False})
-                else:
-                    if shadow_paused and stale_pause_cleared:
-                        self._audit("PAPER_DAILY_RISK_LEDGER_ACCEPTED", Severity.INFO, {"reason": "stale drawdown halt reviewed for micro paper/shadow", "execution_attempted": False})
-                    if self._manage_open_trades_only_enabled():
-                        self._audit(
-                            "PAPER_DAILY_RISK_RESUME_MANAGE_OPEN_TRADES_ONLY",
-                            Severity.WARNING,
-                            {
-                                "paper_resume_mode": "MANAGE_OPEN_TRADES_ONLY",
-                                "new_entries_blocked": True,
-                                "new_paper_trades_blocked": True,
-                                "paper_exit_evaluation_allowed": True,
-                                "execution_attempted": False,
-                            },
-                            notify=True,
-                        )
-                    else:
-                        opened += self._scan_new_paper_trades(account)
-                after_open = len(self.manager.load_open_trades())
+                observation = self._observe_account()
+                connected = observation.connected is True
+                validate_account(observation, self.clock.now_utc(), self.config)
+                cycle = self._acquire_paper_cycle(observation, event_id=event_id)
+                result = self.process_paper_cycle(cycle)
+                opened += result.opened
+                closed += result.closed
+                if result.halted:
+                    break
                 cycles += 1
-                heartbeat = self.heartbeat.write(
-                    {
-                        "mode": "forward-shadow",
-                        "mt5_connected": True,
-                        "symbols_seen": len(self.symbols),
-                        "symbols_rejected": 0,
-                        "open_paper_trades": after_open,
-                        "closed_paper_trades_today": closed,
-                        "last_error": "",
-                        "shadow_paused": shadow_paused and not stale_pause_cleared,
-                        "signal_profile_used": self.config.signal_profile,
-                        "stable_gate_confirmed": self.stable_gate_confirmed,
-                        "stable_gate_decision": self.stable_gate_decision,
-                        "execution_attempted": False,
-                    }
-                )
+                heartbeat = self.heartbeat.write({"mode": "forward-shadow", "mt5_connected": connected,
+                    "symbols_seen": len(self.symbols), "symbols_rejected": len(result.rejections),
+                    "open_paper_trades": result.valuation["open_positions"], "closed_paper_trades_today": closed,
+                    "last_error": "", "shadow_paused": result.paused,
+                    "signal_profile_used": self.config.signal_profile, "stable_gate_confirmed": self.stable_gate_confirmed,
+                    "stable_gate_decision": self.stable_gate_decision, "execution_attempted": False})
                 heartbeat_written = True
-                metrics = {**self.metrics.collect(), "mt5_connected": True, "sqlite_status": "OK", "jsonl_status": "OK"}
-                metrics = self._micro_legacy_drawdown_adjusted_metrics(metrics)
+                # Economic pause decisions belong to the shared lifecycle;
+                # these transport/operational alerts cannot change its ledger.
+                metrics = {**self.metrics.collect(), "mt5_connected": connected, "sqlite_status": "OK", "jsonl_status": "OK"}
                 cycle_alerts = self.alerts.evaluate(metrics)
                 alerts_emitted += self.alerts.persist(cycle_alerts)
                 if cycle_alerts:
-                    self._audit("OPERATIONAL_ALERTS", Severity.WARNING, {"alerts": [alert.to_dict() for alert in cycle_alerts], "execution_attempted": False}, notify=True)
-                    halt_alerts = [alert for alert in cycle_alerts if alert.alert_code == "PAPER_DAILY_DRAWDOWN"]
-                    if halt_alerts:
-                        self.database.set_shadow_paused(True, reason="PAPER_DAILY_DRAWDOWN_HALT", paused_by="forward_shadow")
-                        self._audit("PAPER_SHADOW_HALTED", Severity.CRITICAL, {"halt_reason": "PAPER_DAILY_DRAWDOWN_HALT", "execution_attempted": False}, notify=True)
+                    self._audit("OPERATIONAL_ALERTS", Severity.WARNING,
+                        {"event_id": event_id, "alerts": [alert.to_dict() for alert in cycle_alerts], "execution_attempted": False}, notify=True)
                 self._maybe_daily_summary()
-                self._audit(
-                    "HEARTBEAT",
-                    Severity.INFO,
-                    heartbeat,
-                    notify=False,
-                )
-                self._audit(
-                    "FORWARD_SHADOW_CYCLE",
-                    Severity.INFO,
-                    {
-                        "cycle": cycles,
-                        "open_trades": after_open,
-                        "heartbeat_written": True,
-                        "alerts_emitted": alerts_emitted,
-                        "telegram_commands_processed": commands_processed,
-                        "shadow_paused": shadow_paused,
-                        "execution_attempted": False,
-                    },
-                )
+                self._audit("HEARTBEAT", Severity.INFO, {**heartbeat, "event_id": event_id})
+                self._audit("FORWARD_SHADOW_CYCLE", Severity.INFO, {"event_id": event_id,
+                    "cycle": cycles, "open_trades": result.valuation["open_positions"], "heartbeat_written": True,
+                    "alerts_emitted": alerts_emitted, "telegram_commands_processed": commands_processed,
+                    "shadow_paused": result.paused, "execution_attempted": False})
                 if self.max_cycles is None and self.cycle_seconds:
                     sleep(self.cycle_seconds)
-            trades = self.manager.load_all_trades()
-            write_forward_shadow_report(trades, self.report_dir)
-            self._audit("FORWARD_SHADOW_STOPPED", Severity.INFO, {"cycles": cycles, "execution_attempted": False}, notify=True)
-            return self._summary(True, cycles, len(self.manager.load_open_trades()), opened, closed, heartbeat_written, alerts_emitted, commands_processed)
+            if not self.paper_lifecycle_halted:
+                write_forward_shadow_report(self.manager.load_all_trades(), self.report_dir)
+                self._audit("FORWARD_SHADOW_STOPPED", Severity.INFO, {"cycles": cycles, "execution_attempted": False}, notify=True)
         except Exception as exc:
-            self._audit("FORWARD_SHADOW_CRITICAL_ERROR", Severity.CRITICAL, {"error": str(exc), "execution_attempted": False}, notify=True)
-            self.database.update_operational_state({"latest_exit_reason": "CONFIG_ERROR", "halt_reason": "PAPER_STATE_ERROR", "latest_forward_shadow_error": str(exc)})
-            return self._summary(True, cycles, len(self.manager.load_open_trades()), opened, closed, heartbeat_written, alerts_emitted, commands_processed, exit_reason="CONFIG_ERROR", halt_reason="PAPER_STATE_ERROR")
+            result = halt_paper_cycle(self, event_id, exc)
+            self.paper_cycle_results.append(result)
+        try:
+            count = len(self.manager.load_open_trades())
+        except Exception:
+            count = None
+            self.audit_failed = True
+        initial_failure = ""
+        if cycles == 0 and self.paper_cycle_results:
+            reason = self.paper_cycle_results[-1].rejections[-1].get("reject_code") if self.paper_cycle_results[-1].rejections else ""
+            if reason in {"RECOVERY_FAILED", "MT5_CONNECT_FAILED", "ACCOUNT_INFO_UNAVAILABLE", "ACCOUNT_INFO_INVALID",
+                          "ACCOUNT_REAL_DETECTED_READ_ONLY", "MT5_CONNECTION_UNVERIFIED"}:
+                initial_failure = "CONFIG_ERROR"
+        return self._summary(connected, cycles, count, opened, closed,
+            heartbeat_written, alerts_emitted, commands_processed, exit_reason=initial_failure)
+
+    def process_paper_cycle(self, cycle: PaperCycleInput):
+        """Public economic lifecycle also used by explicit quote replay."""
+        return process_paper_cycle(self, cycle)
+
+    def _observe_account(self) -> PaperAccountObservation:
+        assert self.connector is not None
+        account = self._read_account()
+        observed_at = self.clock.now_utc()
+        terminal_info = getattr(self.connector.mt5, "terminal_info", None)
+        terminal = terminal_info() if callable(terminal_info) else None
+        connected = getattr(terminal, "connected", None)
+        return PaperAccountObservation(account, observed_at, connected)
 
     def _summary(
         self,
@@ -244,12 +223,18 @@ class ForwardShadowBot:
         exit_reason: str = "",
         halt_reason: str = "",
     ) -> ForwardShadowSummary:
-        state = self.database.get_operational_state()
-        alerts = self.database.fetch_all("alerts")
+        try:
+            state = self.database.get_operational_state()
+            alerts = self.database.fetch_all("alerts")
+            paused = self.database.get_shadow_paused()
+        except Exception:
+            state, alerts, paused = {"halt_reason": "PAPER_STORAGE_UNAVAILABLE"}, [], True
+            open_trades = None
+            self.audit_failed = self.paper_lifecycle_halted = True
         critical_payloads = [_safe_json(row["payload_json"]) for row in alerts[-5:]]
         critical = tuple(str(payload.get("alert_code", "")) for payload in critical_payloads if str(payload.get("severity", "")).upper() == "CRITICAL")
         computed_halt = halt_reason or str(state.get("halt_reason") or state.get("paused_reason") or "")
-        computed_exit = exit_reason or str(state.get("latest_exit_reason") or ("SHADOW_MANUALLY_PAUSED" if self.database.get_shadow_paused() else ""))
+        computed_exit = exit_reason or str(state.get("latest_exit_reason") or ("SHADOW_MANUALLY_PAUSED" if paused else ""))
         return ForwardShadowSummary(
             mode="forward-shadow",
             mt5_connected=mt5_connected,
@@ -260,7 +245,7 @@ class ForwardShadowBot:
             heartbeat_written=heartbeat_written,
             alerts_emitted=alerts_emitted,
             telegram_commands_processed=telegram_commands_processed,
-            shadow_paused=self.database.get_shadow_paused(),
+            shadow_paused=paused,
             execution_attempted=False,
             signal_profile_used=self.config.signal_profile,
             stable_gate_confirmed=self.stable_gate_confirmed,
@@ -268,9 +253,11 @@ class ForwardShadowBot:
             order_check_called=False,
             exit_reason=computed_exit,
             halt_reason=computed_halt,
-            paper_shadow_paused=self.database.get_shadow_paused(),
+            paper_shadow_paused=paused,
             critical_alerts_recent=critical,
             next_recommended_command=_next_recommended_command(computed_halt or computed_exit),
+            audit_complete=not self.audit_failed, lifecycle_halted=self.paper_lifecycle_halted,
+            paper_state_available=open_trades is not None,
         )
 
     def _connect(self) -> bool:
@@ -287,269 +274,186 @@ class ForwardShadowBot:
         if raw is None:
             return None
         trade_mode_raw = getattr(raw, "trade_mode", None)
-        is_demo = self.connector._is_demo_trade_mode(trade_mode_raw)
+        is_demo = not isinstance(trade_mode_raw, bool) and self.connector._is_demo_trade_mode(trade_mode_raw)
         return AccountState(
             login=getattr(raw, "login", None),
             trade_mode="DEMO" if is_demo else str(trade_mode_raw or "UNKNOWN"),
-            balance=float(getattr(raw, "balance", 0.0) or 0.0),
-            equity=float(getattr(raw, "equity", 0.0) or 0.0),
-            margin_free=float(getattr(raw, "margin_free", 0.0) or 0.0),
-            currency=str(getattr(raw, "currency", "USD") or "USD"),
+            balance=_account_number(getattr(raw, "balance", None)),
+            equity=_account_number(getattr(raw, "equity", None)),
+            margin_free=_account_number(getattr(raw, "margin_free", None)),
+            currency=getattr(raw, "currency", None),
             is_demo=is_demo,
-            trade_allowed=bool(getattr(raw, "trade_allowed", False)),
+            trade_allowed=getattr(raw, "trade_allowed", None) is True,
         )
 
     def _scan_new_paper_trades(self, account: AccountState) -> int:
+        """Compatibility entry point; acquisition and lifecycle stay shared."""
         assert self.connector is not None
-        helper = MT5DataOnlyBot(
-            config=self.config,
-            symbols=self.symbols,
-            audit_logger=self.audit_logger,
-            database=self.database,
-            telegram_notifier=self.telegram_notifier,
-            mt5_client=self.connector.mt5,
-            run_id=self.run_id,
-        )
+        terminal_info = getattr(self.connector.mt5, "terminal_info", None)
+        terminal = terminal_info() if callable(terminal_info) else None
+        observation = PaperAccountObservation(account, self.clock.now_utc(), getattr(terminal, "connected", None))
+        cycle = self._acquire_paper_cycle(observation, event_id=f"scan-{len(self.paper_cycle_results)+1}")
+        return self.process_paper_cycle(cycle).opened
+
+    def _acquire_paper_cycle(self, observation: PaperAccountObservation, *, event_id: str) -> PaperCycleInput:
+        assert self.connector is not None
+        # The data reader handles expected market-data rejection internally.
+        # Its audit sink must nevertheless latch a storage failure even when
+        # that reader catches the underlying exception before returning None.
+        helper = MT5DataOnlyBot(config=self.config, symbols=self.symbols, audit_logger=_RequiredAuditSink(self, self.audit_logger),
+            database=_RequiredAuditSink(self, self.database), telegram_notifier=self.telegram_notifier,
+            mt5_client=self.connector.mt5, run_id=self.run_id)
         helper.connector = self.connector
-        opened = 0
-        for canonical_symbol in self.symbols:
-            try:
-                resolution_check, resolution = self.connector.resolve_symbol(canonical_symbol)
-                if not resolution_check.accepted or resolution is None:
-                    self._audit("SYMBOL_REJECTED", Severity.WARNING, resolution_check.payload, symbol=canonical_symbol, notify=True)
-                    continue
+        quotes, candidates = {}, []
+        # Collect every mark before position management. No partial book update
+        # or secondary quote lookup is permitted by the economic processor.
+        for trade in self.manager.load_open_trades():
+            quote = self._snapshot_for(trade.broker_symbol, trade.symbol)
+            if quote is not None:
+                quotes[trade.symbol] = quote
+        for symbol in self.symbols:
+            check, resolution = self.connector.resolve_symbol(symbol)
+            if not check.accepted or resolution is None:
+                self._audit("SYMBOL_REJECTED", Severity.WARNING, check.payload, symbol=symbol)
+                continue
+            snapshot = quotes.get(symbol)
+            if snapshot is None:
                 snapshot = self._snapshot_for(resolution.broker_symbol, resolution.canonical_symbol)
-                if snapshot is None:
-                    continue
-                bars_by_tf = helper._read_timeframes(resolution.canonical_symbol, resolution.broker_symbol, snapshot)
-                if bars_by_tf is None:
-                    continue
-                try:
-                    features = helper._features_from_bars(bars_by_tf["M5"], snapshot)
-                except Exception as exc:
-                    feature_error = self._feature_build_error_payload(
-                        resolution.canonical_symbol,
-                        exc,
-                        bars_by_tf.get("M5"),
-                    )
-                    self._audit("FORWARD_FEATURE_BUILD_FAILED", Severity.WARNING, feature_error, symbol=resolution.canonical_symbol)
-                    self._audit(
-                        "FORWARD_NO_SIGNAL_DIAGNOSTIC",
-                        Severity.INFO,
-                        {
-                            "symbol": resolution.canonical_symbol,
-                            "no_signal_reason": feature_error["feature_build_error_type"],
-                            "feature_error": feature_error,
-                            "execution_attempted": False,
-                        },
-                        symbol=resolution.canonical_symbol,
-                    )
-                    continue
-                if "market_structure" in features:
-                    self._audit("MARKET_STRUCTURE_DETECTED", Severity.INFO, dict(features.get("market_structure") or {}), symbol=resolution.canonical_symbol)
-                if "liquidity" in features and str(dict(features.get("liquidity") or {}).get("sweep_direction", "NONE")) != "NONE":
-                    self._audit("LIQUIDITY_SWEEP_DETECTED", Severity.INFO, dict(features.get("liquidity") or {}), symbol=resolution.canonical_symbol)
-                if "session_levels" in features:
-                    self._audit("SESSION_LEVEL_CONTEXT", Severity.INFO, dict(features.get("session_levels") or {}), symbol=resolution.canonical_symbol)
-                strategy_signal = evaluate_ensemble(snapshot, features, mode="shadow")
-                candidate_payload = self._forward_candidate_payload(resolution.canonical_symbol, strategy_signal, features)
-                self._audit("FORWARD_CANDIDATE_EVALUATED", Severity.INFO, candidate_payload, symbol=resolution.canonical_symbol)
-                if "component_scores" in strategy_signal.metadata:
-                    self._audit("STRATEGY_COMPONENT_SCORE", Severity.INFO, {"component_scores": dict(strategy_signal.metadata.get("component_scores", {})), "setup_quality": strategy_signal.metadata.get("setup_quality"), "execution_attempted": False}, symbol=resolution.canonical_symbol)
-                if strategy_signal.action == SignalAction.NONE and strategy_signal.metadata.get("blocking_reasons"):
-                    self._audit("STRATEGY_BLOCKED_BY_CONTEXT", Severity.INFO, {"blocking_reasons": strategy_signal.metadata.get("blocking_reasons"), "execution_attempted": False}, symbol=resolution.canonical_symbol)
-                self._audit(
-                    "SIGNAL_DETECTED",
-                    Severity.INFO,
-                    {
-                        "action": strategy_signal.action.value,
-                        "score": strategy_signal.score,
-                        "reasons": strategy_signal.reasons,
-                    },
-                    symbol=resolution.canonical_symbol,
-                    notify=True,
-                )
-                if strategy_signal.action == SignalAction.NONE:
-                    self._audit("FORWARD_CANDIDATE_BLOCKED", Severity.INFO, candidate_payload, symbol=resolution.canonical_symbol)
-                    if candidate_payload.get("near_miss"):
-                        self._audit("FORWARD_NEAR_MISS", Severity.INFO, candidate_payload, symbol=resolution.canonical_symbol)
-                    self._audit("FORWARD_NO_SIGNAL_DIAGNOSTIC", Severity.INFO, {"symbol": resolution.canonical_symbol, "no_signal_reason": candidate_payload.get("top_blocking_reason", "NO_SETUP_DETECTED"), "candidate": candidate_payload, "execution_attempted": False}, symbol=resolution.canonical_symbol)
-                    self._audit(
-                        "SIGNAL_REJECTED",
-                        Severity.INFO,
-                        {"reject_reason": "strategy returned NONE", "reasons": strategy_signal.reasons},
-                        symbol=resolution.canonical_symbol,
-                        notify=True,
-                    )
-                    continue
-                trade_signal = helper._trade_signal_from_strategy(snapshot, strategy_signal)
-                risk_decision = helper.risk_engine.evaluate(
-                    signal=trade_signal,
-                    snapshot=snapshot,
-                    account=account,
-                    state=RiskRuntimeState(
-                        daily_equity_reference=account.balance,
-                        floating_drawdown_reference=account.balance,
-                        audit_confirmed=True,
-                    ),
-                )
-                if not risk_decision.accepted:
-                    self._audit(
-                        "RISK_REJECTED",
-                        Severity.WARNING,
-                        {
-                            "reject_code": risk_decision.reject_code,
-                            "reject_reason": risk_decision.reject_reason,
-                            "checks": dict(risk_decision.checks),
-                        },
-                        symbol=resolution.canonical_symbol,
-                        notify=True,
-                    )
-                    continue
-                ml_features = {**features, "score": strategy_signal.score}
-                ml_decision = self.ml_filter.approve_or_reject(trade_signal, ml_features)
-                prediction_payload = {
-                    "signal_id": trade_signal.signal_id,
-                    "symbol": trade_signal.symbol,
-                    "timestamp_utc": trade_signal.created_at_utc.isoformat(),
-                    **ml_decision.to_dict(),
-                }
-                audit_ml_prediction(self.database, prediction_payload)
-                self._audit("ML_PREDICTION", Severity.INFO if ml_decision.ml_status != "ML_ERROR" else Severity.ERROR, prediction_payload, symbol=resolution.canonical_symbol)
-                if ml_decision.ml_status == "ML_REJECTED":
-                    self._audit(
-                        "SIGNAL_REJECTED",
-                        Severity.INFO,
-                        {"reject_reason": "ML_REJECTED", "ml": ml_decision.to_dict(), "execution_attempted": False},
-                        symbol=resolution.canonical_symbol,
-                        notify=True,
-                    )
-                    continue
-                open_trade_payloads = [trade.to_dict() for trade in self.manager.load_open_trades()]
-                risk_pct = self._risk_pct_from_decision(risk_decision, account)
-                candidate = {
-                    "symbol": trade_signal.symbol,
-                    "broker_symbol": resolution.broker_symbol,
-                    "direction": trade_signal.direction.value,
-                    "risk_pct": risk_pct,
-                    "strategy_name": strategy_signal.strategy_name,
-                    "regime": str(features.get("regime", "")),
-                    "session": str(features.get("session", "")),
-                    "strategy_score": strategy_signal.score,
-                    "ml_probability": ml_decision.probability_of_success,
-                    "spread_percentile": min(100.0, snapshot.spread_points / max(1.0, self.config.max_spread_points_default) * 100.0),
-                    "broker_readiness_score": 100.0,
-                    "research_candidate_status": str(strategy_signal.metadata.get("candidate_status", "")),
-                }
-                ranked = self.signal_ranker.rank([candidate], top_n=1)[0]
-                self._audit("SIGNAL_RANKED", Severity.INFO, ranked, symbol=resolution.canonical_symbol)
-                if ranked["ranking_decision"] != "ACCEPT_TOP_N":
-                    self._audit(
-                        "SIGNAL_REJECTED",
-                        Severity.INFO,
-                        {"reject_reason": ranked["ranking_decision"], "ranking": ranked, "execution_attempted": False},
-                        symbol=resolution.canonical_symbol,
-                        notify=True,
-                    )
-                    continue
-                portfolio_decision = self.portfolio_guard.evaluate(
-                    candidate=ranked,
-                    open_trades=open_trade_payloads,
-                    correlation=ranked.get("correlation"),
-                    shadow_paused=self.database.get_shadow_paused(),
-                    daily_drawdown_pct=abs(float(risk_decision.daily_drawdown_pct or 0.0)),
-                    consecutive_losses=self._consecutive_paper_losses(),
-                )
-                self._audit("PORTFOLIO_DECISION", Severity.INFO if portfolio_decision.accepted else Severity.WARNING, portfolio_decision.to_dict(), symbol=resolution.canonical_symbol)
-                if not portfolio_decision.accepted:
-                    event_type = "PORTFOLIO_REJECTED"
-                    if "CORRELATION" in portfolio_decision.reject_code:
-                        event_type = "CORRELATION_REJECTED"
-                    elif "EXPOSURE" in portfolio_decision.reject_code:
-                        event_type = "EXPOSURE_REJECTED"
-                    self._audit(event_type, Severity.WARNING, portfolio_decision.to_dict(), symbol=resolution.canonical_symbol, notify=True)
-                    continue
-                dynamic_decision = self.dynamic_risk_allocator.allocate(
-                    {
-                        **portfolio_decision.checks,
-                        "drawdown_pct": abs(float(risk_decision.daily_drawdown_pct or 0.0)),
-                        "consecutive_losses": self._consecutive_paper_losses(),
-                        "spread_ratio": snapshot.spread_points / max(1.0, self.config.max_spread_points_default),
-                        "broker_readiness_score": ranked.get("broker_readiness_score", 100.0),
-                        "ml_probability": ml_decision.probability_of_success,
-                        "correlation": ranked.get("correlation", 0.0),
-                        "symbol_watchlist": str(ranked.get("research_candidate_status", "")).upper() == "WATCHLIST",
-                    }
-                )
-                self._audit("DYNAMIC_RISK_ADJUSTED", Severity.INFO, dynamic_decision.to_dict(), symbol=resolution.canonical_symbol)
-                if dynamic_decision.risk_multiplier <= 0:
-                    self._audit(
-                        "RISK_REJECTED",
-                        Severity.WARNING,
-                        {
-                            "reject_code": "DYNAMIC_RISK_ZERO",
-                            "reject_reason": "dynamic risk allocator reduced risk to zero",
-                            "dynamic_risk": dynamic_decision.to_dict(),
-                            "execution_attempted": False,
-                        },
-                        symbol=resolution.canonical_symbol,
-                        notify=True,
-                    )
-                    continue
-                risk_decision = self._adjust_risk_decision(
-                    risk_decision,
-                    multiplier=dynamic_decision.risk_multiplier,
-                    effective_risk_pct=risk_pct * dynamic_decision.risk_multiplier,
-                    portfolio_decision=portfolio_decision.to_dict(),
-                    dynamic_risk=dynamic_decision.to_dict(),
-                )
-                paper_guard = self._paper_risk_guard()
-                self._audit("PAPER_RISK_DECISION", Severity.INFO if paper_guard.get("can_open_new_paper_trade") else Severity.WARNING, paper_guard, symbol=resolution.canonical_symbol)
-                if not paper_guard.get("can_open_new_paper_trade"):
-                    self._audit(
-                        _paper_risk_event_type(str(paper_guard.get("blocking_reason", ""))),
-                        Severity.WARNING,
-                        paper_guard,
-                        symbol=resolution.canonical_symbol,
-                        notify=True,
-                    )
-                    continue
-                paper_multiplier = max(0.0, min(1.0, float(getattr(self.config, "paper_risk_multiplier", 1.0) or 1.0)))
-                if paper_multiplier < 1.0:
-                    risk_decision = self._adjust_risk_decision(
-                        risk_decision,
-                        multiplier=paper_multiplier,
-                        effective_risk_pct=risk_pct * dynamic_decision.risk_multiplier * paper_multiplier,
-                        portfolio_decision=portfolio_decision.to_dict(),
-                        dynamic_risk={**dynamic_decision.to_dict(), "paper_risk_multiplier": paper_multiplier, "risk_profile_used": getattr(self.config, "risk_profile_used", "")},
-                    )
-                before = self.database.count_rows("paper_trades")
-                trade = self.manager.open_trade(
-                    signal=trade_signal,
-                    risk_decision=risk_decision,
-                    snapshot=snapshot,
-                    broker_symbol=resolution.broker_symbol,
-                    score=strategy_signal.score,
-                    reasons=strategy_signal.reasons,
-                    strategy_name=strategy_signal.strategy_name,
-                    strategy_version=str(strategy_signal.metadata.get("version", "0.1.0")),
-                    regime=str(features.get("regime", "")),
-                    session=str(features.get("session", "")),
-                )
-                trade = self._decorate_stable_trade(trade, strategy_signal, features)
-                after = self.database.count_rows("paper_trades")
-                if after > before:
-                    opened += 1
-                    self._audit("PAPER_TRADE_OPENED", Severity.INFO, trade.to_dict(), symbol=trade.symbol, notify=True)
+            if snapshot is None:
+                continue
+            snapshot = replace(snapshot, timeframe="M5")
+            quotes[symbol] = snapshot
+            bars_by_tf = helper._read_timeframes(resolution.canonical_symbol, resolution.broker_symbol, snapshot)
+            if self.audit_failed:
+                raise PaperCycleAuditError("market-data audit was not durably confirmed")
+            if bars_by_tf is None:
+                continue
+            try:
+                features = helper._features_from_bars(bars_by_tf["M5"], snapshot)
             except Exception as exc:
-                self._audit(
-                    "PAPER_TRADE_ERROR",
-                    Severity.ERROR,
-                    {"symbol": canonical_symbol, "error": str(exc), "execution_attempted": False},
-                    symbol=canonical_symbol,
-                    notify=True,
-                )
-        return opened
+                self._audit("FORWARD_FEATURE_BUILD_FAILED", Severity.WARNING,
+                    self._feature_build_error_payload(symbol, exc, bars_by_tf.get("M5")), symbol=symbol)
+                continue
+            candidates.append(PaperCandidate(symbol, "M5", resolution.broker_symbol, bars_by_tf["M5"], features))
+        return PaperCycleInput(event_id, observation.observed_at_utc, observation, quotes, tuple(candidates), {})
+
+    def _paper_signal_already_traded(self, decision_id: str, symbol: str) -> bool:
+        """One persisted entry per symbol/closed-bar/profile identity.
+
+        Rejected decisions are retryable; a created paper trade, including a
+        subsequently closed trade, consumes the identity. Store failures raise
+        before evaluation. Direct manager retries retain strict intent checks.
+        """
+        if not isinstance(decision_id, str) or not decision_id or not isinstance(symbol, str) or not symbol:
+            raise ValueError("paper candidate identity is required")
+        matches = [trade for trade in self.manager.load_all_trades() if trade.signal_id == decision_id]
+        if not matches:
+            return False
+        if len(matches) != 1 or matches[0].symbol != symbol or matches[0].status not in {"OPEN", "CLOSED"}:
+            raise ValueError("paper candidate identity conflicts with stored history")
+        self._audit("CANDIDATE_ALREADY_TRADED", Severity.INFO,
+            {"signal_id": decision_id, "symbol": symbol, "existing_status": matches[0].status,
+             "reason": "a paper trade already consumed this closed-bar/profile identity",
+             "execution_attempted": False}, symbol=symbol)
+        return True
+
+    def _refresh_paper_risk_state(self, account, *, snapshots=None):
+        """Mark every open paper position and persist the daily risk observation."""
+        from .decision_state import build_paper_decision_state
+
+        trades = self.manager.load_all_trades()
+        open_trades = [trade for trade in trades if trade.status == "OPEN"]
+        supplied = snapshots is not None
+        snapshots = dict(snapshots or {})
+        for trade in open_trades:
+            if trade.symbol not in snapshots:
+                if supplied:
+                    raise PaperCycleRejected("OPEN_POSITION_QUOTE_MISSING", "supplied cycle has no quote for open position")
+                observed = self._snapshot_for(trade.broker_symbol, trade.symbol)
+                if observed is None:
+                    raise ValueError("open paper position snapshot is unavailable")
+                snapshots[trade.symbol] = observed
+        now = self.clock.now_utc()
+        return build_paper_decision_state(
+            database=self.database, trades=trades, snapshots_by_symbol=snapshots,
+            account_template=account, now_utc=now,
+            max_snapshot_age_seconds=self.config.max_market_snapshot_age_seconds,
+            max_daily_drawdown_pct=self.config.max_daily_drawdown_pct,
+        )
+
+    def _paper_decision_context(self, snapshot, features, account, broker_symbol, *, snapshots=None, evidence=None) -> DecisionContext:
+        """Acquire a complete paper book; missing evidence remains a blocker."""
+        paper_state = self._refresh_paper_risk_state(account, snapshots={**dict(snapshots or {}), snapshot.symbol: snapshot})
+        now = paper_state.risk_state.now_utc
+        payloads = paper_state.portfolio_open_trades
+        if evidence is None and self.decision_evidence_provider is not None:
+            evidence = self.decision_evidence_provider(snapshot, features, payloads)
+        evidence = validate_evidence(evidence, self.clock.now_utc(), self.config, has_exposure=bool(payloads))
+        available = _decision_datetime(features.get("available_at_utc"))
+        if available is None:
+            raise ValueError("closed-bar feature availability evidence is missing")
+        profile = resolve_signal_profile(self.config)
+        identity = "|".join((snapshot.symbol, snapshot.timeframe, available.isoformat(), profile["profile_hash"]))
+        bundle = getattr(self.ml_filter, "bundle", None)
+        model_metadata = dict(bundle.get("metadata") or {}) if isinstance(bundle, Mapping) else {}
+        model_available = _decision_datetime(model_metadata.get("created_at_utc"))
+        return DecisionContext(
+            decision_id="paper_" + sha256(identity.encode("utf-8")).hexdigest(),
+            config=self.config, snapshot=snapshot, features=dict(features),
+            features_available_at_utc=available, state_available_at_utc=now,
+            account=paper_state.account, risk_state=paper_state.risk_state,
+            open_trades=payloads, broker_symbol=broker_symbol,
+            broker_readiness_score=evidence.broker_readiness_score,
+            correlation=evidence.correlation, shadow_paused=self.database.get_shadow_paused(),
+            consecutive_losses=paper_state.risk_state.consecutive_losses,
+            allow_disabled_ml=self.config.paper_allow_disabled_ml,
+            ml_model_available_at_utc=model_available,
+        )
+
+    def _evaluate_paper_decision(self, context: DecisionContext) -> PipelineDecision:
+        """The real forward caller; durable result audit precedes every paper fill."""
+        def persist_signal(signal, ctx):
+            self._audit("SIGNAL_GENERATED", Severity.INFO, {
+                "signal_id": signal.signal_id, "symbol": signal.symbol,
+                "created_at_utc": signal.created_at_utc.isoformat(),
+                "direction": signal.direction.value, "sl_price": signal.sl_price,
+                "tp_price": signal.tp_price, "risk_pct": signal.risk_pct,
+                "strategy_name": signal.strategy_name, "metadata": dict(signal.metadata),
+                "execution_attempted": False,
+            }, symbol=signal.symbol)
+            return True
+
+        pipeline = SharedDecisionPipeline(
+            clock=self.clock, strategy_evaluator=evaluate_ensemble, signal_builder=build_trade_signal,
+            risk_engine=RiskEngine(self.config), ml_filter=self.ml_filter,
+            signal_ranker=self.signal_ranker, portfolio_guard=self.portfolio_guard,
+            dynamic_risk_allocator=self.dynamic_risk_allocator, persist_signal=persist_signal,
+            paper_limit_evaluator=lambda ctx, now: self._paper_risk_guard(now=now),
+        )
+        decision = pipeline.evaluate(context)
+        self._audit("PAPER_DECISION_COMPLETED", Severity.INFO if decision.accepted else Severity.WARNING,
+                    decision.to_dict(), symbol=context.snapshot.symbol)
+        for stage in decision.trace:
+            if stage.status == "skipped":
+                continue
+            event_type = {"strategy": "SIGNAL_DETECTED", "risk_engine": "RISK_DECISION",
+                "ml_filter": "ML_PREDICTION", "signal_ranker": "SIGNAL_RANKED",
+                "portfolio_guard": "PORTFOLIO_DECISION", "dynamic_risk": "DYNAMIC_RISK_ADJUSTED",
+                "paper_limits": "PAPER_RISK_DECISION"}.get(stage.stage_id)
+            if event_type:
+                payload = {**stage.payload, "signal_id": context.decision_id,
+                           "symbol": context.snapshot.symbol, "stage_status": stage.status,
+                           "timestamp_utc": decision.timestamp_utc.isoformat() if decision.timestamp_utc else "",
+                           "execution_attempted": False}
+                if event_type == "ML_PREDICTION" and payload.get("ml_status"):
+                    try:
+                        audit_ml_prediction(self.database, payload)
+                    except Exception:
+                        self.audit_failed = True
+                        raise
+                self._audit(event_type, Severity.INFO if stage.status == "passed" else Severity.WARNING,
+                            payload, symbol=context.snapshot.symbol)
+        return decision
 
     def _feature_build_error_payload(self, symbol: str, exc: Exception, frame: Any) -> dict[str, Any]:
         message = str(exc)
@@ -585,7 +489,7 @@ class ForwardShadowBot:
         }
 
     def _decorate_stable_trade(self, trade: PaperTrade, strategy_signal: Any, features: Mapping[str, Any]) -> PaperTrade:
-        if self.config.signal_profile not in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"}:
+        if self.config.signal_profile not in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO", "BALANCED_STABLE_MICRO_V2"}:
             return trade
         effective = effective_profile_config(self.config.signal_profile, source="forward-shadow", profile_config=self.config.profile_config or None)
         metadata = {
@@ -595,7 +499,7 @@ class ForwardShadowBot:
             "stable_profile_hash": effective.profile_hash,
             "stable_filters_applied": bool(effective.filters.get("apply_stability_filters", False)),
             "risk_profile_used": getattr(self.config, "risk_profile_used", "") or self.config.signal_profile,
-            "paper_risk_multiplier": getattr(self.config, "paper_risk_multiplier", 1.0),
+            "entry_paper_risk_multiplier": self.config.paper_risk_multiplier,
             "stable_gate_decision": self.stable_gate_decision,
             "stable_gate_confirmed": self.stable_gate_confirmed,
             "setup_score": strategy_signal.metadata.get("setup_score", strategy_signal.score),
@@ -604,12 +508,16 @@ class ForwardShadowBot:
             "session": str(features.get("session", "")),
             "regime": str(features.get("regime", "")),
         }
+        if metadata.get("pnl_basis") == "APPROVED_LOT_UNSCALED_V1":
+            metadata.pop("paper_risk_multiplier", None)
+        else:
+            metadata["paper_risk_multiplier"] = self.config.paper_risk_multiplier
         updated = trade.replace(metadata=metadata)
         self.database.update_paper_trade(updated.to_dict())
         self.database.insert_paper_trade_event(updated.paper_trade_id, "STABLE_PROFILE_METADATA_ATTACHED", updated.to_dict())
         return updated
 
-    def _paper_risk_guard(self) -> dict[str, Any]:
+    def _paper_risk_guard(self, *, now: datetime | None = None) -> dict[str, Any]:
         if self._manage_open_trades_only_enabled():
             return {
                 "paper_risk_status": "PAPER_DAILY_RISK_RESUME_MANAGE_OPEN_TRADES_ONLY",
@@ -623,18 +531,17 @@ class ForwardShadowBot:
                 "order_send_called": False,
                 "order_check_called": False,
             }
-        if self.config.signal_profile != "BALANCED_STABLE_MICRO":
-            return {
-                "paper_risk_status": "PAPER_RISK_NOT_APPLIED",
-                "paper_risk_profile": self.config.signal_profile,
-                "can_open_new_paper_trade": True,
-                "blocking_reason": "",
-                "execution_attempted": False,
-                "order_send_called": False,
-                "order_check_called": False,
-            }
-        status = evaluate_paper_trade_limits(database=self.database, profile_config=self.config.profile_config or None)
-        if status.get("blocking_reason") == "PAPER_DRAWDOWN_HALT_BLOCK" and getattr(self.config, "paper_risk_clearance", ""):
+        limits = PaperRiskLimits(
+            profile=self.config.signal_profile, paper_risk_multiplier=self.config.paper_risk_multiplier,
+            max_open_paper_trades=self.config.max_open_paper_trades,
+            max_paper_trades_per_day=self.config.max_paper_trades_per_day,
+            cooldown_after_loss_minutes=self.config.cooldown_after_loss_minutes,
+            cooldown_after_drawdown_halt_minutes=self.config.cooldown_after_drawdown_halt_minutes,
+            block_new_entries_after_daily_halt=self.config.block_new_entries_after_daily_halt,
+            manual_resume_required=self.config.manual_resume_required,
+        )
+        status = evaluate_paper_trade_limits(database=self.database, limits=limits, now=now or self.clock.now_utc())
+        if self.config.signal_profile == "BALANCED_STABLE_MICRO" and status.get("blocking_reason") == "PAPER_DRAWDOWN_HALT_BLOCK" and getattr(self.config, "paper_risk_clearance", ""):
             clearance = validate_micro_resume_clearance(
                 database=self.database,
                 clearance_ledger=getattr(self.config, "paper_risk_clearance", ""),
@@ -755,40 +662,6 @@ class ForwardShadowBot:
                     failures.append(code)
         return tuple(dict.fromkeys(failures))
 
-    def _risk_pct_from_decision(self, decision: RiskDecision, account: AccountState) -> float:
-        if account.equity > 0 and decision.risk_amount_account_currency > 0:
-            return min(self.config.max_risk_per_trade_pct, decision.risk_amount_account_currency / account.equity * 100.0)
-        return self.config.max_risk_per_trade_pct
-
-    def _adjust_risk_decision(
-        self,
-        decision: RiskDecision,
-        *,
-        multiplier: float,
-        effective_risk_pct: float,
-        portfolio_decision: dict[str, Any],
-        dynamic_risk: dict[str, Any],
-    ) -> RiskDecision:
-        multiplier = max(0.0, min(1.0, multiplier))
-        checks = {
-            **dict(decision.checks),
-            "portfolio_decision": portfolio_decision,
-            "dynamic_risk": dynamic_risk,
-            "effective_risk_pct": effective_risk_pct,
-        }
-        return RiskDecision(
-            signal_id=decision.signal_id,
-            accepted=decision.accepted,
-            reject_code=decision.reject_code,
-            reject_reason=decision.reject_reason,
-            approved_lot=decision.approved_lot * multiplier,
-            risk_amount_account_currency=decision.risk_amount_account_currency * multiplier,
-            open_risk_pct_after_trade=decision.open_risk_pct_after_trade * multiplier,
-            daily_drawdown_pct=decision.daily_drawdown_pct,
-            floating_drawdown_pct=decision.floating_drawdown_pct,
-            checks=checks,
-        )
-
     def _consecutive_paper_losses(self) -> int:
         losses = 0
         for trade in reversed(self.manager.load_all_trades()):
@@ -802,7 +675,7 @@ class ForwardShadowBot:
 
     def _snapshot_for(self, broker_symbol: str, canonical_symbol: str):
         assert self.connector is not None
-        check, snapshot = self.connector.ensure_symbol_snapshot(broker_symbol, canonical_symbol=canonical_symbol, source="forward-shadow")
+        check, snapshot = self.connector.ensure_symbol_snapshot(broker_symbol, canonical_symbol=canonical_symbol, now_utc=self.clock.now_utc(), source="forward-shadow")
         if not check.accepted:
             event_type = classify_rejection_event_type(reject_code=check.code, reject_reason=check.reason, payload=check.payload)
             self._audit(event_type, Severity.WARNING, check.payload, symbol=canonical_symbol)
@@ -826,6 +699,12 @@ class ForwardShadowBot:
         return snapshot
 
     def _audit(self, event_type: str, severity: Severity, payload: dict[str, Any], *, symbol: str | None = None, notify: bool = False) -> None:
+        identity = payload.get("signal_id") or payload.get("decision_id")
+        signal_id = identity if isinstance(identity, str) and identity else None
+        event_identity = payload.get("event_id")
+        correlation_key = signal_id or event_identity or event_type
+        correlation_id = f"{self.run_id}:{correlation_key}"
+        causation_id = sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest() if signal_id or event_identity else None
         event = Event.create(
             run_id=self.run_id,
             environment=Environment.DEMO,
@@ -833,12 +712,19 @@ class ForwardShadowBot:
             module="forward_shadow",
             event_type=event_type,
             message=event_type.lower(),
-            correlation_id=f"{self.run_id}:{event_type}",
+            correlation_id=correlation_id,
+            signal_id=signal_id,
+            causation_id=causation_id,
             symbol=symbol,
             payload=payload,
         )
-        self.audit_logger.append_event(event)
-        self.database.insert_event(event)
+        event = replace(event, timestamp_utc=self.clock.now_utc())
+        try:
+            self.audit_logger.append_event(event)
+            self.database.insert_event(event)
+        except Exception:
+            self.audit_failed = True
+            raise
         if notify and self.telegram_notifier is not None:
             try:
                 self.telegram_notifier.notify_event(event)
@@ -850,7 +736,9 @@ class ForwardShadowBot:
                     module="telegram",
                     event_type="TELEGRAM_ERROR",
                     message=str(exc),
-                    correlation_id=f"{self.run_id}:telegram",
+                    correlation_id=correlation_id,
+                    signal_id=signal_id,
+                    causation_id=event.event_id,
                     payload={"error": str(exc)},
                 )
                 self.audit_logger.append_event(error)
@@ -867,6 +755,25 @@ class ForwardShadowBot:
 def forward_summary_to_json(summary: ForwardShadowSummary) -> str:
     payload = asdict(summary) if is_dataclass(summary) else vars(summary)
     return json.dumps(payload, ensure_ascii=True, sort_keys=True)
+
+
+class _RequiredAuditSink:
+    """Preserve a required audit failure across legacy reader catch blocks."""
+
+    def __init__(self, bot, target):
+        self.bot, self.target = bot, target
+
+    def __getattr__(self, name):
+        method = getattr(self.target, name)
+        if name not in {"append_event", "insert_event"}:
+            return method
+        def persist(*args, **kwargs):
+            try:
+                return method(*args, **kwargs)
+            except Exception:
+                self.bot.audit_failed = True
+                raise
+        return persist
 
 
 def _safe_json(payload: str) -> dict[str, Any]:
@@ -890,3 +797,15 @@ def _paper_risk_event_type(reason: str) -> str:
     if reason in {"PAPER_MAX_OPEN_TRADES_BLOCK", "PAPER_DAILY_TRADE_LIMIT_BLOCK", "PAPER_COOLDOWN_BLOCK", "PAPER_DRAWDOWN_HALT_BLOCK"}:
         return reason
     return "PAPER_RISK_LIMIT_BLOCK"
+
+
+def _decision_datetime(value: Any) -> datetime | None:
+    try:
+        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo is not None and parsed.utcoffset() is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _account_number(value):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else float("nan")

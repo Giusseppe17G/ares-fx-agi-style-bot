@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from agi_style_forex_bot_mt5.contracts import MarketSnapshot
+from agi_style_forex_bot_mt5.core.price_grid import spread_points_from_prices
 
 from .market_data import MarketDataError
 
@@ -52,8 +53,8 @@ def normalize_ticks(
     """Return normalized tick data with UTC timestamps and spread in points.
 
     If ``spread_points`` is absent, ``point`` is required so spread can be
-    derived as ``(ask - bid) / point``. This avoids mixing price-distance units
-    with broker points.
+    derived in decimal price units as ``(ask - bid) / point``. This avoids mixing
+    price-distance units with broker points and binary subtraction noise.
     """
 
     frame = _canonicalize_columns(_as_frame(data))
@@ -71,9 +72,11 @@ def normalize_ticks(
         if column in frame.columns:
             frame[column] = pd.to_numeric(frame[column], errors="coerce")
     if "spread_points" not in frame.columns:
-        if point is None or point <= 0:
-            raise MarketDataError("point is required to derive spread_points")
-        frame["spread_points"] = (frame["ask"] - frame["bid"]) / point
+        try:
+            frame["spread_points"] = [spread_points_from_prices(bid, ask, point)
+                                      for bid, ask in zip(frame["bid"], frame["ask"])]
+        except (TypeError, ValueError, ArithmeticError) as exc:
+            raise MarketDataError("finite ordered prices and positive point are required to derive spread_points") from exc
 
     frame = frame.sort_values("timestamp_utc").drop_duplicates("timestamp_utc", keep="last")
     frame = frame.reset_index(drop=True)

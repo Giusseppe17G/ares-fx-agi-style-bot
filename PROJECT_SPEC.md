@@ -662,6 +662,31 @@ Metricas minimas:
 - Percentiles de drawdown.
 - Metricas por simbolo/timeframe/sesion.
 
+### 12.3 Causalidad Del Backtest Python (motor 0.2.0)
+
+- Timestamps de barras historicas representan apertura.
+- TradeCandidate.available_at_utc es opcional para candidatos externos y
+  obligatorio en candidatos generados desde OHLC cerrado: apertura mas duracion
+  explicita del timeframe. No se infiere una duracion desconocida.
+- La entrada usa primera apertura >= disponibilidad. Maximos/minimos anteriores
+  no se usan para salida o MAE/MFE. Sin barra posterior elegible, se rechaza.
+- Disponibilidad invalida/anterior al origen o entry_price impuesto en candidatos
+  con disponibilidad provoca rechazo auditado.
+- Compatibilidad: candidatos externos sin ese campo conservan evento disponible
+  en timestamp y use_next_bar_open. Disponibilidad explicita tiene prioridad y
+  evita un segundo desplazamiento por esa opcion.
+- Metadata conserva origen, disponibilidad y politica de entrada. Reportes del
+  motor 0.1.0 deben reevaluarse antes de usarse como evidencia, sin sobrescribirlos.
+- Spread cero es valido; ausente, negativo o no finito no se sustituye por cero.
+  SpreadEstimate agrega reject_reason; SPREAD_DATA_MISSING/INVALID bloquean fills.
+  El maximo configurado sigue siendo inclusivo.
+- El reporte de paridad agrega decision_parity_status, evidence_scope,
+  full_pipeline_verified y stage_parity_pct. PARITY_INCOMPLETE identifica la
+  verificacion parcial. Consumidores que aceptaban PARITY_OK como aprobacion
+  integral deben fallar cerrados. ADAPTER_REQUIRED no es implementacion compartida.
+- Esto no habilita ejecucion demo/real ni sustituye Risk Gate. Decision y limites:
+  docs/decisions/2026-10-05-causal-backtests-and-honest-parity.md.
+
 ## 13. Estructura De Repositorio
 
 ```text
@@ -764,3 +789,501 @@ El bot no debe operar si:
 - Definir matriz de simbolos permitidos.
 - Definir versionado de parametros.
 - Definir CI para validaciones Python y lint documental.
+
+## 17. Contratos De Correccion Y Validacion Compartida (2026-10-05)
+
+Esta ampliacion toca estrategia, riesgo paper, observabilidad y backtesting;
+no autoriza ejecucion demo ni real y no sustituye el Strategy Promotion Gate.
+
+- `data.strategy_features`: preparacion causal versionada `closed_bar_features_v1`.
+  OHLC tiene timestamp de apertura; una barra solo esta disponible al cierre.
+  El adaptador MT5 excluye la barra en formacion, declara M5 explicitamente y
+  el builder rechaza campos ausentes/no finitos. Swings confirmados requieren
+  dos barras posteriores; soporte/resistencia y compresion usan historia previa.
+  Las sesiones son bandas UTC fijas, no calendarios DST del broker certificados.
+- Las seis estrategias y el ensemble version `0.2.1` pasan la direccion al
+  scoring. La calidad del ensemble es media de votantes de la direccion elegida;
+  si falta un score valido no se inventa. `calibration.decision_policy` aplica
+  identicos thresholds y overlays en backtest y forward; exige todos los
+  componentes y scores finitos 0..100. Perfiles/archivos invalidos no caen a otro
+  perfil silenciosamente. No se han relajado umbrales.
+- `core.decision.SharedDecisionPipeline.evaluate(DecisionContext)` ordena
+  estrategia, perfil, estabilidad, construccion de senal, persistencia, riesgo,
+  ML, ranking, portfolio, riesgo dinamico, limites paper y ajuste de volumen.
+  Contexto exige estado completo con timestamps, referencias de riesgo,
+  posiciones, calidad broker y correlacion cuando hay exposicion. Cada etapa
+  produce passed/rejected/error/skipped; no hay defaults que simulen evidencia.
+  El volumen se redondea hacia abajo y el ajuste conserva riesgo preexistente.
+  SL/TP comparten ATR medido, piso100 puntos, stops broker y RR1.8 existentes.
+- `ForwardShadowBot` usa ese nucleo y guarda el resultado completo antes del
+  fill paper. Recibe reloj y proveedor explicito de evidencia broker/correlacion.
+  `PAPER_ALLOW_DISABLED_ML=False` por defecto; True permite investigar sin modelo
+  solo paper, auditandolo. ML_ERROR siempre bloquea; un modelo necesita fecha de
+  disponibilidad no posterior a la decision. Ranking actual es por candidato,
+  sin afirmar competencia top-N entre todos los simbolos.
+- `paper_trading.decision_state` persiste baseline solo en libro vacio y deriva
+  balance/equity de PnL realizado/flotante, con todas las posiciones cotizadas.
+  Conserva referencia y halt diario UTC. Historia faltante, metadata ambigua,
+  referencia overnight ausente o fallo de persistencia bloquean entradas.
+  El store requiere un unico escritor; no se inventa equity de medianoche.
+- Trades paper nuevos llevan `metadata.pnl_basis=APPROVED_LOT_UNSCALED_V1` y
+  `pnl_formula_version=paper_pnl_approved_lot_v1` al cierre. Lot ya fue ajustado;
+  profit/raw_pnl/scaled_paper_pnl son el mismo PnL neto, sin segundo multiplicador.
+  Distancia/riesgo iniciales se conservan para BE/trailing y R. Un gap de SL usa
+  precio observado adverso. Evidencia legacy no se reescribe ni se adopta para
+  nuevas entradas sin reconciliacion explicita.
+- `backtesting.decision_replay.replay_decisions` reproduce contextos completos
+  mediante FrozenClock y el mismo nucleo, con auditoria obligatoria del resultado.
+  Este alcance es `RECORDED_DECISION_REPLAY`, no verificacion de rentabilidad ni
+  simulacion completa de portfolio. El motor OHLC `0.3.1` de candidatos
+  independientes sigue declarando `full_risk_pipeline_applied=False` y
+  `operationally_eligible=False`; sus metricas no promueven una estrategia.
+- `InstrumentRegistrySnapshot` captura solo symbol_info via cliente inyectado,
+  con mapa explicito canonical->broker, fecha UTC, hash metadata y hash envelope.
+  Es inmutable y no sobrescribe evidencia; hash demuestra integridad, no origen
+  autentico ni validez historica. Tick value/moneda/condiciones historicas siguen
+  requiriendo evidencia. CLI `build-instrument-registry` requiere mapa JSON y
+  destino nuevo, solo initialize/symbol_info/shutdown; nunca account u ordenes.
+- `RunManifest` version1.1 agrega hashes de fuentes Python/MQL/scripts y metadata
+  o snapshot de instrumentos a la identidad. IDs cambian respecto1.0; campos
+  anteriores permanecen. Backtest batch incluye config efectiva, settings y
+  archivos historicos; overlays participan por contenido resuelto.
+- Walk-forward: test windows disjuntas, validacion selecciona parametros y test
+  solo evalua el elegido. API programatica agrega warmup_size/purge_size
+  (compatibilidad defaults0/0); calendario agrega warmup_bars=250/purge_bars=1.
+  `DataFrame.attrs['walk_forward_context']` identifica warmup y tramo evaluable.
+  No cuentan entradas en warmup, salidas fuera de ventana ni cierres truncados
+  por fin de datos; metricas se recalculan del tramo valido. Costes no son
+  parametros optimizables para mejorar scores; escenarios se evaluan separados.
+- Los datos EURUSD/GBPUSD/USDJPY M5 ya inspeccionados (febrero-mayo2026) son
+  diagnostico/desarrollo, nunca holdout final. Toda evidencia anterior a estas
+  correcciones queda historica y no certifica el comportamiento nuevo.
+
+### 17.1 Contrato De Replay Estatal Y Correcciones De Riesgo
+
+- `backtesting.stateful_replay` acepta eventos cronologicos con cotizaciones
+  explicitas, barras cerradas y evidencia broker/correlacion disponible entonces.
+  Construye el libro desde capital simulado demo y un directorio nuevo; no adopta
+  posiciones ni equity inventados de un contexto externo. Usa el mismo builder,
+  nucleo de decisiones, ledger y manager del forward. No conecta MT5 ni Telegram.
+  El modelo ML se inyecta explicitamente; no puede cargar artefactos locales
+  posteriores al periodo. Metadata de instrumentos debe coincidir y estar
+  disponible antes de cada evento. Integridad por hash no autentica su origen.
+- Scope `STATEFUL_EXPLICIT_QUOTE_REPLAY`: no interpolar trayectorias intrabar
+  desde OHLC ni presentar una secuencia inventada como ticks observados. Eventos
+  sin cotizaciones frescas para posiciones abiertas no autorizan decisiones.
+  Una referencia diaria con exposicion overnight solo puede capturarse con
+  cotizaciones completas en el instante exacto de medianoche UTC; si falta,
+  bloquear y declarar evidencia incompleta. No reescribir referencias ni halts.
+- Auditoria durable del evento, senal y decision precede cualquier apertura
+  paper. Resultados incluyen identidad de fuentes, inputs, configuracion y
+  metadata, decisiones y trayectoria del patrimonio. El reporte no declara
+  promocion, rentabilidad validada ni habilita ejecucion real/demo.
+- `PaperPositionManager` reconcilia lotaje despues de fill: presupuesto incluye
+  distancia real a SL, slippage de salida y comision completa. Redondea hacia
+  abajo, nunca aumenta volumen aprobado, y rechaza si queda bajo minimo. Audita
+  y relee reconciliacion antes de insertar. Gaps pueden exceder el presupuesto
+  simulado de un stop; no se promete un limite absoluto de perdida.
+- Idempotencia paper identifica senal y simbolo sin depender de direccion;
+  reutilizar identidad con intencion diferente (direccion, proteccion, version,
+  configuracion o metadata relevante) bloquea. Un reintento identico despues de
+  BE conserva el trade original. Evidencia legacy ambigua requiere reconciliar.
+- Precios de proteccion y fills deben respetar `tick_size`, no solo `digits` ni
+  `point`. Normalizacion adversa de fill participa en riesgo; niveles off-grid
+  se rechazan antes de abrir cuando no pueden normalizarse de forma consistente.
+- Observabilidad distingue `historical_drawdown_amount` monetario de drawdown
+  diario/flotante porcentual del ledger. Metricas requieren valuation fresca y
+  fingerprint del libro actual; ausencias o discrepancias son UNKNOWN/null.
+  Una perdida monetaria historica no constituye por si sola un halt diario.
+- Payloads de auditoria se redactan como estructuras antes de serializar JSON;
+  no se aplican expresiones de texto al JSON serializado que puedan corromper
+  decimales o romper su lectura. Se conservan controles de secretos existentes.
+- Gate paper `stable_shadow_gate_v2` exige perfil coincidente, flags booleanos
+  exactos, conteos enteros no negativos y metricas numericas finitas; estados
+  ausentes/desconocidos/insuficientes no equivalen a aprobacion. Se conservan
+  umbrales previos y se exige estado admitido de MC, stress, WFA y costes. Un
+  archivo preferido invalido bloquea; no se sustituye por uno anterior. El gate
+  no autentica por si solo la procedencia de artefactos legacy.
+- Transporte de replay: JSONL con un evento por linea, claves unicas, timestamps
+  con zona horaria y valores numericos finitos. Barras canonicas usan `volume`
+  y `spread_points`. No ordenar, completar ni reinterpretar datos ambiguos.
+  `scripts/replay_stateful_quotes.py` requiere config, instrumentos, costes,
+  capital simulado y modelo explicitamente; `--without-ml` requiere la opcion
+  paper correspondiente. `MLFilter.disabled_for_research()` no lee modelos
+  locales ni cambia las condiciones del gate.
+- Mientras esta release carezca de Strategy Promotion Gate y evidencia de
+  ejecucion aprobados, el adapter MT5 no construye requests ni invoca
+  `order_check`/`order_send`. `ExecutionEngine.execute` devuelve rechazo incluso
+  con riesgo aceptado y booleano audit_confirmed. `SHADOW_MODE_BLOCKED` identifica
+  shadow; `EXECUTION_NOT_RELEASED` impide activarlo cambiando ese flag. No existe
+  switch de aprobacion, whitelist ni token que habilite esta release. Las APIs
+  de lectura y firmas se conservan; antiguos callers que esperaban envio reciben
+  rechazo explicito. Una futura release necesita decision de arquitectura y
+  evidencia completa antes de implementar capacidad ejecutable demo.
+- Caller forward/replay no reevalua para apertura una identidad de senal que
+  ya tenga trade paper persistido (abierto o cerrado). Registra
+  `CANDIDATE_ALREADY_TRADED`; conserva la proteccion estricta de intencion del
+  manager para llamadas directas. Una senal rechazada sin trade puede volver a
+  evaluarse con observaciones frescas y auditoria nueva. La identidad incluye
+  simbolo, barra cerrada y perfil; los limites siguen aplicandose entre barras.
+- `TelemetryDatabase.insert_paper_trade_event` acepta `timestamp_utc` opcional;
+  manager pasa el instante observado al abrir/modificar/cerrar. El tiempo de
+  insercion puede conservarse separado y no alimenta decisiones historicas.
+  Fallos de auditoria postfill se propagan como `PaperAuditError`, detienen el
+  replay y marcan `audit_complete=False` aunque se pueda guardar el evento halt.
+- Metricas de trades cerrados incluyen el capital inicial antes del primer
+  resultado, incluso sin barras auxiliares. Si coincide con el primer cierre,
+  la curva conserva dos filas del mismo timestamp UTC, baseline primero; no
+  inventa un instante anterior. Agrupa cierres simultaneos y conserva todos los
+  timestamps de cierre entre barras. Retornos de peor dia/semana/mes
+  incluyen el primer periodo frente al capital inicial; no se descarta con
+  pct_change. Recovery factor divide beneficio neto por el maximo drawdown
+  monetario observado, no por un porcentaje multiplicado por capital inicial.
+  Estas metricas no sustituyen la trayectoria mark-to-market del replay estatal.
+- El consolidado `validation-report` es un informe observacional, nunca una
+  autorizacion de promocion o ejecucion. Evidencia ausente, JSON ambiguo,
+  numeros no finitos y clasificaciones desconocidas no equivalen a aprobacion.
+  Conserva umbrales y firmas; registra disponibilidad/calidad por seccion y
+  flags explicitos de ejecucion/promocion deshabilitadas. Arrays producidos por
+  el registry/mix de investigacion solo son informacion, no autorizaciones.
+- El diagnostico de candidatos conserva la configuracion efectiva, rol de los
+  datos inspeccionados y estadistica de spreads suministrados. Un spread cero
+  puede ser una observacion o evidencia incompleta; no se considera coste
+  verificado ni se sustituye silenciosamente. Las metricas conservan los
+  supuestos declarados y no autorizan promocion.
+
+### 17.2 Base Nativa De Observacion MQL5
+
+La primera implementacion nativa tiene scope `NATIVE_OBSERVATION_ONLY` y no
+implementa una estrategia ni certifica paridad con el motor Python. Su gate de
+ejecucion rechaza siempre `EXECUTION_NOT_RELEASED`; no construye requests ni
+incluye APIs de trading, red o DLL. No existe flag que active operaciones.
+
+- El EA exige cuenta demo conocida y conexion valida, incluso si alguien
+  cambia DEMO_ONLY. No lee ni registra login, servidor, nombre o credenciales.
+- Cotizaciones y metadata pasan validacion finita, precios/tick grid, spread,
+  volumen y frescura. Cada aceptacion/rechazo es de una observacion de datos,
+  nunca de una senal operable.
+- Reloj host UTC requiere confirmacion explicita y offset de timestamp del
+  broker declarado con intervalo de validez. Defaults desconocidos bloquean
+  inicializacion; no se deduce un offset ni se certifica autenticidad temporal.
+  Tester se rechaza donde no se pueda preservar esta semantica UTC.
+- Auditoria local JSONL UTF8 por sesion con limite de tamano, flush y verificacion
+  de lectura; fallo de auditoria aborta inicializacion o detiene observacion.
+  Este transporte no se presenta como entrada directa al replay Python.
+- Compilacion se realiza en staging separado; no instala el EA ni inicia el
+  terminal. Compilar un harness no implica haberlo ejecutado. Runtime, Telegram,
+  estrategia nativa y validacion broker quedan pendientes de evidencia propia.
+
+### 17.3 Ciclo Economico Compartido Forward/Replay
+
+`paper_trading.lifecycle.process_paper_cycle(bot, cycle)` es el unico procesador
+del ciclo economico paper para `ForwardShadowBot.run` y el replay estatal. Los
+callers adquieren datos; el procesador valida, gestiona posiciones, decide,
+persiste y valora el libro. No obtiene cotizaciones faltantes por su cuenta.
+
+- Contratos de entrada: `PaperAccountObservation(account, observed_at_utc,
+  connected)`, `PaperCandidate(symbol, timeframe, broker_symbol, bars)`,
+  `PaperEvidence(observed_at_utc, broker_readiness_score, correlation)` y
+  `PaperCycleInput(event_id, observed_at_utc, account_observation, quotes,
+  candidates, evidence)`. Se conserva el transporte publico del replay mediante
+  conversion a estos contratos; no cambia el significado de sus timestamps.
+- `PaperCycleResult` conserva decisiones, rechazos, valuation, trades,
+  opened/closed, paused/halted y audit_complete. El metodo publico
+  `ForwardShadowBot.process_paper_cycle` delega en el mismo procesador. Las
+  pruebas de paridad deben pasar tambien por el `.run` real de forward; llamar
+  dos veces al helper no acredita integracion de ambos callers.
+- `ForwardShadowSummary` agrega audit_complete, lifecycle_halted y
+  paper_state_available. Un almacenamiento ilegible produce open_trades=null,
+  nunca cero como sustituto de un libro desconocido; consumidores deben
+  comprobar disponibilidad antes de interpretar el contador.
+- Cada ciclo exige cuenta demo conocida, conectada, permiso de trading
+  explicitamente conocido y datos finitos de capital. Ausencia de moneda,
+  identidad o timestamp no se sustituye por valores por defecto. Cambios de
+  identidad/moneda observables durante la sesion bloquean; no se registran IDs
+  reales ni se atribuye verificacion de servidor a un contrato que no lo expone.
+- Se valida el conjunto completo de cotizaciones, incluida toda exposicion
+  abierta, antes de mutaciones economicas. La frescura se revalida con el reloj
+  operativo antes de cada mutacion/apertura; no se congela el reloj del forward
+  para hacer pasar datos caducados. Evidencia de calidad broker exige fecha
+  explicita no futura y vigente. Nunca se inventa la fecha de una medicion.
+- Se persiste intencion de ciclo antes de mutar y se elimina solo tras auditoria
+  completa. Fallo de almacenamiento, auditoria obligatoria o gestion detiene los
+  candidatos restantes y deja un latch durable. Un reinicio con ciclo incompleto
+  bloquea hasta reconciliacion; la integridad fisica de SQLite no demuestra
+  integridad semantica del libro. Los fills ya persistidos siguen visibles aunque
+  se revoquen las aprobaciones del ciclo incompleto.
+- Los rechazos normales de estrategia no impiden evaluar el siguiente candidato
+  con exposicion actualizada. Se conservan gates de recuperacion, microforward,
+  estabilidad, riesgo y limites paper. Solo una pausa propia por drawdown diario
+  puede expirar, en nuevo dia con ledger/referencia verificados y configuracion
+  que permita reanudacion automatica. Una pausa manual o desconocida se conserva.
+- Se mantiene la referencia overnight de medianoche UTC exacta del apartado
+  anterior. La paridad controlada con fixtures no verifica timing, fills,
+  disponibilidad ni procedencia del broker: `full_pipeline_verified=False` y
+  `execution_authorized=False` permanecen vigentes.
+- Spread derivado de bid/ask/point usa aritmetica decimal de sus representaciones
+  declaradas (`spread_points_from_prices`). Se conservan fracciones reales y
+  limites; no se redondea al entero ni al umbral. Precios/point invalidos o
+  resultados no representables bloquean. El adapter de lectura, normalizacion
+  de ticks y validacion de replay comparten esta conversion para evitar que ruido
+  binario altere percentiles de spread o decisiones en un limite.
+- SL dinamico paper se alinea a tick_size hacia abajo para BUY y hacia arriba
+  para SELL, conservador respecto al beneficio simulado y sin aflojar el stop
+  existente. Break-even conserva el precio ejecutable de entrada y el riesgo
+  inicial no se sustituye por la distancia del stop modificado. Gestion y
+  valuation rechazan posiciones OPEN con entrada, SL o TP fuera de la rejilla;
+  no reescriben retrospectivamente cierres historicos.
+
+### 17.4 Evidencia Sintetica Monte Carlo Y Stress
+
+Una permutacion o bootstrap de resultados define una secuencia sintetica. No se
+puede ordenar despues por los timestamps originales: eso deshace la permutacion
+y falsea drawdown y rachas. Tampoco se atribuye un calendario observado a ella.
+
+- `shuffled_metrics` conserva argumentos y devuelve `SequenceMetrics`, con indice
+  entero de trade y capital inicial incluido. Conserva metricas economicas de
+  resultado, drawdown, profit factor, R y rachas usadas por sus consumidores.
+  Metricas dependientes del calendario (Sharpe, Sortino, retornos por periodo)
+  permanecen null o mapas vacios. Este cambio de tipo es intencional; callers
+  que requieran calendario deben usar trades observados y `calculate_metrics`.
+- Monte Carlo exige capital finito positivo, seed entero no negativo,
+  iteraciones enteras positivas, metodo admitido y umbral finito en (0, 100].
+  Booleanos, NaN, infinito y desbordamientos no producen reportes aprobatorios.
+- El campo legacy `risk_of_ruin_pct` conserva su nombre por compatibilidad, pero
+  declara su evento como `MAX_PEAK_DRAWDOWN_AT_LEAST_THRESHOLD`: probabilidad
+  simulada de alcanzar el umbral de drawdown. Un drawdown del 30% no equivale a
+  insolvencia. No se modifica el umbral de clasificacion ni se autoriza ejecucion.
+- Stress de costes/concentracion es `POST_TRADE_APPROXIMATION`. Una racha de
+  perdidas artificial se agrega al final de la secuencia, sin que fechas
+  originales reordenen sus resultados. Omision periodica e haircut fijo se
+  denominan `periodic_trade_omission` y `fixed_profit_haircut` respectivamente.
+- `entry_delay_one_bar`, `session_shift`, `fill_rate` y `missing_bars` requieren
+  replay con quotes explicitos. Sin esa evidencia se reportan `NOT_MODELED`,
+  metrics=null y motivo `REQUIRED_EXPLICIT_QUOTE_REPLAY`; no cuentan como pruebas
+  ejecutadas ni verificadas. Un haircut no demuestra retraso real de entrada.
+- Penalizaciones exigen unidades/costes finitos y coherencia de R. La eliminacion
+  de mejores trades usa posiciones de la secuencia, no identidad de objetos.
+  Las clasificaciones legacy de costes y concentracion quedan acotadas al
+  diagnostico; no sustituyen el Strategy Promotion Gate.
+- Reportes v2 conservan entradas normalizadas y hashes de datos/configuracion,
+  RunManifest, commit, fuentes, runtime y seed. Configuracion identifica capital,
+  umbral y supuestos de costes. Procedencia upstream permanece UNKNOWN salvo
+  evidencia explicita. Si se entregan trades y trades_path, trades es la entrada
+  efectiva; el hash del archivo es referencia adicional, no prueba de igualdad.
+- Consumidores de `StressResult` comprueban status y metrics antes de leer
+  resultados. Ausencia de escenarios completos o escenarios no modelados no
+  constituye evidencia suficiente. El runner legacy de investigacion declara
+  que no ha aplicado parametros diferenciados ni realizado una separacion OOS;
+  etiquetar candidatos no demuestra que se hayan probado estrategias distintas.
+  Ninguno de esos resultados puede autorizar promocion o ejecucion.
+
+### 17.5 Timestamps Python Sin Frescura Inferida
+
+El adapter Python interpreta timestamps MT5 como UTC conforme a su contrato
+publicado. Una diferencia proxima a una hora no demuestra zona horaria ni
+frescura: un tick viejo con otro offset produce la misma observacion.
+
+- `normalize_tick_time` conserva firma y diagnosticos, pero ninguna inferencia
+  de offset convierte un timestamp futuro en aceptable. Solo una edad observada
+  entre cero y max_tick_age_seconds, inclusive, permite status FRESH. Timestamps
+  invalidos, ambiguos, futuros o caducados bloquean.
+- Las banderas legacy de normalizacion/deteccion y lista de offsets pueden
+  proporcionar hints de diagnostico, nunca autorizacion de datos. No se
+  persiste una inferencia como offset confirmado ni se altera el timestamp usado
+  por riesgo. El antiguo resultado NORMALIZED_FRESH inferido deja de aceptarse
+  intencionalmente; la compatibilidad de argumentos no conserva ese fallo.
+- Un proveedor que realmente entregue otra base temporal requerira adaptador
+  explicitamente verificado, evidencia independiente e intervalo de validez.
+  Esta release no lo implementa. El contrato del observador MQL5 es distinto y
+  su configuracion no demuestra procedencia temporal de datos Python.
+- La frescura contra reloj local no autentica ese reloj ni el origen del tick.
+  Datos aparentemente UTC deben seguir pasando coherencia, calidad, auditoria
+  y gates de promocion. No se agrega una ruta de ejecucion broker.
+
+### 17.6 Comparacion Predeclarada De Trend Pullback
+
+Primera ampliacion de investigacion efectiva, exclusivamente offline. Hipotesis
+y protocolo se fijan en `docs/research/trend-pullback-predeclared-v1.md` antes de
+implementar/evaluar. No sustituye el runner legacy ni activa el componente en
+forward por un resultado favorable.
+
+- `TrendPullbackResearchParams` admite solo rsi_buy_min, rsi_buy_max,
+  rsi_sell_min, rsi_sell_max y min_score. Defaults 38/58/42/62/62 reproducen
+  condiciones actuales. Una configuracion keyword opcional del evaluator aplica
+  esos valores; callers existentes conservan comportamiento por defecto.
+  Claves EMA, SL/TP, costes y cualquier otra no soportada se rechazan, no se
+  guardan como si hubieran afectado el resultado.
+- Plan v1 immutable por hash, serializado y persistido antes de evaluar. Declara
+  entradas/hashes, hipotesis, parametros completos, codigo/version, instrumento,
+  costes, gestion fija, lotaje, capital, calidad/procedencia y limites temporales.
+  La comparacion inicial incluye min_score 62/70/78 y RSI default; no selecciona
+  ganador (`NONE_COMPARE_ALL`) ni optimiza costes, stops o gestion.
+- Splits UTC comunes [inicio, fin), materializados en el plan desde timestamps
+  con proporcion temporal 60/20/20. Se verifican fechas, filas y hashes por
+  simbolo; no se reorganizan ni acortan para obtener trades. Etiquetas
+  train/validation/development_test no convierten datos ya inspeccionados en
+  holdout final. Roles admitidos inicialmente: desarrollo inspeccionado o fixture
+  sintetica; final_holdout=NOT_AVAILABLE.
+- Warmup de 250 barras anteriores, solo para indicadores; ninguna entrada suya
+  participa en metricas. Barras/decision deben haber cerrado dentro de la ventana
+  y disponer de horizonte completo de max_holding_bars antes de admitir una
+  entrada. Exclusiones por borde se deciden antes de conocer salida/PnL y quedan
+  registradas. No se fabrica un cierre para aprovechar una salida truncada.
+- Identidad de hipotesis incluye estrategia/version y cinco parametros. La de
+  evaluacion liga plan, hipotesis, simbolo, split, fuentes/config/datos/instrumento
+  y costes. Se guardan todos los resultados, rechazos, ausencia e insuficiencia,
+  con PnL y metricas propios de cada tramo. No se copia train hacia test.
+- El plan exige denomination_currency explicita (tres letras ASCII mayusculas).
+  Capital, PnL, valor monetario del tick y comision usan esa misma moneda;
+  tick_value_currency y commission_currency de procedencia deben coincidir.
+  Moneda quote/margin del simbolo no acredita moneda del tick ni de cuenta.
+  No existe conversion FX implicita; ausencia o discrepancia bloquea el plan.
+- El evaluator reutiliza features causales, estrategia trend_pullback, politica
+  de proteccion compartida y Backtester. Reporta candidaturas independientes con
+  lote fijo: full_risk_pipeline_applied=False, full_pipeline_verified=False y
+  promotion_eligible=False. Metadata/costes asumidos permanecen declarados.
+- Walk-forward y baselines no ejecutados se declaran NOT_EVALUATED. Cualquier
+  seleccion posterior exige otro plan y walk-forward conforme a seccion 12;
+  ver resultados en development_test impide reutilizarlo como test final.
+  No hay conclusion operativa, umbral de aprobacion nuevo ni ruta broker.
+
+### 17.7 Rejilla Ejecutable En Backtester OHLC
+
+- Engine 0.3.2 pasa CostModel.tick_size a SharedFillModel tanto para entrada
+  como salida. point sigue midiendo spread/slippage; no reemplaza tick_size.
+  Fills se redondean adversamente y SL/TP iniciales fuera de rejilla se rechazan.
+  Stops dinamicos usan aritmetica decimal y redondeo conservador (BUY abajo,
+  SELL arriba), sin aflojar el stop existente ni modificar el riesgo inicial.
+  Distancias de riesgo/excursion y umbrales BE/trailing se comparan como
+  decimales para que ruido binario no altere un umbral exactamente alcanzado.
+- Helpers privados conservan tick_size opcional con fallback legacy a point;
+  Backtester siempre proporciona el valor declarado. El snapshot REPLAY es
+  solo una estimacion de precio con lot=0: sus placeholders de volumen no
+  acreditan lotaje. Callers con InstrumentSpec validan volumen real contra el
+  instrumento; no se atribuye esta validacion al motor OHLC independiente.
+- Resultados 0.3.1 con tick_size distinto de point o stops dinamicos en el
+  limite exacto de un umbral deben recalcularse. Los
+  reportes historicos conservan su version y sus hashes. Corregir esta rejilla
+  no resuelve ambiguedad intrabar ni acredita fills de broker o paridad completa.
+
+### 17.8 Ventana Causal Nativa De Barras
+
+Ampliacion pura y aislada previa a indicadores nativos. No se conecta al EA ni
+adquiere historial; no cambia contratos Python ni el bloqueo de ejecucion.
+
+- `NativeClosedBar` representa apertura UTC en milisegundos, OHLC, volumen y
+  spread_points. `NativeClosedBarRequest` declara simbolo, timeframe canonico
+  M5/M15/H1, timestamp de snapshot UTC en milisegundos, inicio del intervalo de
+  reloj observado, resolucion de reloj (1 o 1000 ms), minimo de barras y limite
+  de edad de snapshot positivo no mayor de 5000 ms. Campos sin defaults inferidos.
+- Funcion pura `NativeSelectClosedBars` recibe request y array cronologico;
+  devuelve bool y `NativeClosedBarResult` con array dinamico `closed_bars[]`
+  propio (no buffer fijo del caller), valid/reason, conteos,
+  ultimo source_bar_timestamp_utc_msc/available_at_utc_msc, timeframe canonico,
+  execution_authorized=false y full_pipeline_verified=false. Un rechazo vacia
+  la salida y no deja disponibilidad/precios de una invocacion anterior.
+- Los timestamps deben ser positivos y permitir sumar duracion sin desbordar
+  el calendario admitido por MQL5. No se ordena ni deduplica. Intervalos de barra
+  no pueden solaparse; se conservan huecos y datos originales, sin rellenar ni
+  transformar cotizaciones. OHLC finitos positivos/coherentes y volumen/spread
+  finitos no negativos son obligatorios. Simbolo/timeframe se declaran para
+  todo el array; no se infieren desde nombres de archivos o terminal.
+- Snapshot posterior al inicio del intervalo de reloj se rechaza: una fecha
+  posiblemente futura dentro de su resolucion no se toma como evidencia segura.
+  Se usa el extremo superior del intervalo para comprobar edad maxima de
+  snapshot y frescura de la ultima barra cerrada. Esta politica conservadora
+  puede rechazar cotizaciones ambiguas dentro del segundo; el modulo no mejora
+  artificialmente la resolucion suministrada ni cambia el observer existente.
+- Solo barras con apertura+duracion <= snapshot_utc_msc entran en la ventana;
+  filas formando/futuras se cuentan y excluyen. La ventana exige minimo de
+  historia y edad de ultima disponibilidad <= duracion+limite de snapshot.
+  Datos invalidos/ambiguos en cualquier fila rechazan el lote completo. Esta
+  validacion global es mas estricta que el helper Python que valida el subconjunto.
+- Timeframe requiere M5/M15/H1. Una funcion explicita aparte puede convertir
+  PERIOD_M5/PERIOD_M15/PERIOD_H1 a su nombre canonico; cadenas desconocidas
+  rechazan. No se modifica silenciosamente el snapshot/EA existente.
+- Referencia semantica: `closed_strategy_bars` y temporalidad del core comun.
+  Fixtures comparables ejecutan esas funciones Python; restricciones nativas
+  adicionales se distinguen. Harness MQL5 se compila en staging independiente.
+  Compilacion y guardianes de fuente no acreditan ejecucion de sus aserciones
+  ni paridad runtime. No se usa CopyRates, reloj, cuenta, red o almacenamiento
+  dentro del selector; origen UTC y eleccion de volumen requieren adapter futuro.
+
+### 17.9 Indicadores Basicos Nativos Puros
+
+Paquete fijo `native_core_indicators_v1`: EMA20/50/200, RSI14 y ATR14 finales.
+No incluye regimen, scoring, senal, VWAP ni conexion al EA. No cambia parametros
+de estrategia ni usa funciones iMA/iRSI/iATR de semantica no acreditada.
+
+- `NativeCalculateCoreIndicators(const NativeClosedBarRequest &request,
+  const NativeClosedBar &bars[], NativeCoreIndicatorResult &result)` revalida
+  cada llamada mediante `NativeSelectClosedBars` con resultado local propio.
+  Nunca acepta un bool valid externo como prueba de procedencia o frescura.
+- Calcula desde el primer cierre del prefijo seleccionado, sin truncar, ordenar,
+  imputar ni guardar estado entre llamadas. Gaps cuentan como observaciones
+  sucesivas, sin decaimiento temporal adicional. Se exige tanto el minimo del
+  request como 200 barras cerradas para publicar los cinco valores; warmup 250
+  de investigacion sigue siendo una politica posterior distinta.
+- Referencia: funciones reales ema/rsi/atr de `data/indicators.py`. EMA se inicia
+  con primer close y alpha=2/(periodo+1). ATR inicia con high-low de primera
+  barra; despues usa max(high-low, abs(high-close_previo), abs(low-close_previo))
+  y alpha=1/14. RSI inicia medias de ganancias/perdidas con primera diferencia,
+  suaviza con alpha=1/14; requiere 15 cierres para 14 diferencias. No se usa
+  semilla SMA. RSI sin perdidas y ganancias positivas=100, ambas cero=50,
+  solo perdidas=0. ATR cero es matematicamente valido, no aprobacion de senal.
+- Resultado escalar con valid/reason, version, simbolo/timeframe, cantidad de
+  barras, inicio de historia, ultimo source/available, snapshot/reloj/resolucion
+  declarados y cinco valores. Ante fallo todos los valores, cantidades y tiempos
+  se limpian; flags execution_authorized/full_pipeline_verified siempre false.
+  No hay valores de salida parciales ni reutilizados de una llamada anterior.
+- Intermediarios y resultados deben ser finitos; salida EMA positiva, RSI en
+  [0,100], ATR no negativo. Riesgo de division por cero o overflow se rechaza
+  antes de la operacion peligrosa. Una comprobacion nativa mas estricta que el
+  resultado saturado de pandas se documenta como tal, no como paridad demostrada.
+- Fixtures sinteticas invocan Python real, conservan historia y versiones; una
+  tolerancia predeclarada de comparacion no modifica valores/umbrales del bot.
+  Pruebas de prefijos, inicio de historia, gaps, ventana cerrada, fallos y reset.
+  Compilar el harness no ejecuta sus aserciones ni verifica equivalencia runtime.
+
+### 17.10 VWAP Aproximado Ante Aritmetica Invalida
+
+- `approximate_vwap` conserva firma y formula acumulada de precio tipico/volumen.
+  El fallback al precio tipico solo corresponde a volumen acumulado exactamente
+  cero. No sustituye NaN/Inf de un desbordamiento ni cero por underflow de un
+  producto estrictamente positivo. Intermediarios/salida no finitos o no
+  positivos donde corresponda producen MarketDataError, sin features parciales.
+- Se conservan resultados ordinarios y el comportamiento de volumen inicial
+  cero. No se normaliza volumen, cambia precision, imputa datos ni introduce
+  dependencias para hacer pasar entradas extremas. Esta correccion restringe
+  entradas numericamente no representables antes aceptadas por error; no cambia
+  las semillas de indicadores ni acredita el origen del volumen.
+- Campos usados por VWAP requieren dtype numerico real normalizado. Tipos
+  complejos, booleanos u objetos (incluido Decimal sin normalizar) se rechazan
+  antes de convertir a float; truncar una parte imaginaria o convertir volumen
+  positivo no representable en cero no puede activar el fallback.
+
+### 17.11 Verificacion Matematica Nativa Aislada
+
+Herramienta de pruebas, no release del EA ni backtest financiero. Un wrapper
+en `tests/mt5/` reutiliza las aserciones de observacion, barras e indicadores;
+solo admite MQL_TESTER con modo de calculo matematico. No envia ordenes, lee
+cuentas/simbolos/historial ni usa DLL, red o archivos desde MQL. Publica en logs
+conteos/fallos y finalizacion, sin aceptar ausencia de log como exito.
+
+- Runner separado del compilador usa un directorio temporal nuevo y copia solo
+  binarios publicos instalados y el EX5 del harness verificado por hash. Nunca
+  copia cuentas, credenciales, perfiles ni bases de datos de un terminal previo.
+- Configuracion de Tester Model=3, sin optimizacion, agentes remotos o cloud,
+  trading automatico y DLL deshabilitados; no se configura login ni contrasena.
+  Portable separa archivos pero no acredita aislamiento de red del anfitrion.
+- El proceso se inicia oculto, con limite temporal y limpieza solo de procesos
+  propios identificados por PID/ruta de este staging. No cierra terminales del
+  usuario, cambia firewall/registro ni instala servicios/agentes persistentes.
+- Evidencia conserva hashes de wrapper/includes/EX5/config/binarios, logs y
+  estado de finalizacion. Timeout, error, datos ausentes o discrepancia de
+  conteos no se consideran aprobacion. Si no arranca sin cuenta, queda pendiente
+  y no se introduce una cuenta para forzar la prueba.
+- Un resultado positivo solo verifica estas fixtures sinteticas en la version
+  concreta de MQL5. No certifica adquisicion, reloj real, broker, asignacion
+  fallida, rentabilidad, ejecucion de trading ni Strategy Promotion Gate.

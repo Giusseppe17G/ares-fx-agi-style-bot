@@ -18,7 +18,7 @@ from .scoring_engine import (
 
 
 STRATEGY_NAME = "session_momentum"
-STRATEGY_VERSION = "0.2.0"
+STRATEGY_VERSION = "0.2.1"
 LIQUID_SESSIONS = {"LONDON", "NEW_YORK", "NY", "LONDON_NY_OVERLAP", "OVERLAP"}
 
 
@@ -76,5 +76,5 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
         threshold=62,
         min_margin=8,
         strategy_name=STRATEGY_NAME,
-        metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME, extra={"session": session}),
+        metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME, direction="BUY" if buy_score > sell_score else "SELL" if sell_score > buy_score else "", extra={"session": session}),
     )

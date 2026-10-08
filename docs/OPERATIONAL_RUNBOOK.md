@@ -871,3 +871,48 @@ The orchestrator never launches V2. It generates an auditable gate list and a co
 Run `micro-v2-sqlite-halt-forensics --sqlite data\sqlite\forward-shadow-v2-dryrun.sqlite3` when reset readiness or daily halt logic appears to miss valid halt events. The mode opens SQLite read-only, discovers real tables/columns/schemas, scans halt-like records across all tables, compares them with JSONL logs, and explains why the current `_is_halt_event()` detector would or would not match them.
 
 This phase is diagnostic only. It does not repair detector logic, clear halts, mutate SQLite/logs, call MT5, or launch V2.
+
+
+### FASE 80 - Core Invariants and Running From Any Directory
+
+Readiness verdicts no longer depend on where Python was launched from. `operational_readiness/operator_drill.py` resolves the EC2 script checks from the project root instead of `Path("scripts")` relative to the process CWD, so `dry-run-market-open` returns the same classification from any directory. `run_operator_drill` and `run_dry_run_market_open` accept an optional `workspace=` argument for operators who need to point at a different checkout.
+
+To run any CLI mode from an arbitrary directory, set `PYTHONPATH` to the checkout's `src/python` and invoke the module; the workspace roots are discovered from the package, not from the CWD:
+
+```powershell
+$env:PYTHONPATH = "C:\\ares-fx-agi-style-bot\\src\\python"
+python -m agi_style_forex_bot_mt5.cli --mode core-invariants
+```
+
+To point the writable evidence tree somewhere else (a sandbox, a drill, a second machine) without touching production evidence, set `AGI_FX_DATA_ROOT`. `project_root` stays where the code is; only `data_root` moves:
+
+```powershell
+$env:AGI_FX_DATA_ROOT = "D:\\evidence_sandbox\\data"
+python -m agi_style_forex_bot_mt5.cli --mode core-invariants
+```
+
+`create_backup` resolves its destination through the workspace. This matters because backup rotation deletes files: a caller that keeps the default `data/backups` would otherwise rotate away whichever backup directory happened to sit next to the working directory.
+
+To reproduce a run, record its `run_manifest` and re-run with the same config, dataset and `--reference-time-utc`. Identical inputs yield an identical `run_id`.
+
+
+### FASE 81 - Unified Operational State and Migration Evidence
+
+`--mode unified-operational-state` runs every legacy halt detector and relaunch gate side by side with the canonical core on a fixed set of representative scenarios, and writes `halt_migration_diff.json` and `relaunch_gate_migration_diff.json` under `data/reports/micro_v2_unified_operational_state/`. Use `--reference-time-utc` to pin the clock; the default reference instant makes the report reproducible.
+
+Read the reports this way. `same_decision` is the headline. Every disagreement carries a `verdict`: `LEGACY_BEHAVIOR_BUG` means the legacy rule was wrong and the canonical detector is right; `CANONICAL_WIDER_SCOPE` and `CANONICAL_FAIL_CLOSED` mean the canonical detector deliberately differs and the reason is stated; `UNEXPLAINED` fails the run and means a difference has not been adjudicated yet.
+
+Detectors are compared only against the question they actually answer -- `EVIDENCE_PRESENT` (is there halt evidence?) or `HALT_ACTIVE_TODAY` (is a halt in force now?) -- and only on scenarios carrying the input they read (`EVENT_SCAN` or `METRIC_THRESHOLD`). Comparing a drawdown-threshold rule against an event-only dataset would manufacture a disagreement that says nothing about either rule.
+
+Legacy entry points keep working and keep their output vocabulary. `audit_daily_halt_status` now returns the canonical verdict plus `halt_kind`, `halt_age` and `evidence_quality`; the two drawdown recovery loaders delegate their token rule while keeping their deliberate drawdown-only scope; the three hardcoded `<= -3.0` thresholds read `DEFAULT_DAILY_DRAWDOWN_LIMIT`. No legacy module, report or history was deleted.
+
+
+### FASE 82 - Instrument Metadata and Parity Reporting
+
+Give a historical dataset its instrument metadata by placing `instruments.json` beside the CSVs, keyed by canonical symbol, with every field the registry requires. Without it a backtest still runs but reports `instrument_metadata_source = LEGACY_ASSUMED_FX_DEFAULT`; treat any result carrying that flag as provisional. Pass `allow_assumed_instruments=False` to `run_backtest_for_symbols` to make the missing sidecar an error instead.
+
+`--mode backtest-live-parity` writes `pipeline_parity.json` and `pipeline_stages.json` under `data/reports/backtest_live_parity/`. Read two numbers, not one. `decision_parity_pct` is agreement on the stages both pipelines run; `stage_parity_pct` is how much of the pipeline they share at all. A high decision parity with a low stage parity means the shared parts agree and the rest is simply not compared -- which is the current state.
+
+The eight stages the pipelines do not share are listed in `parity_gap_stage_ids`, each with the reason. Six run only in forward-shadow (risk engine, ML filter, signal ranker, portfolio guard, dynamic risk, paper limits) and two only in backtest (profile thresholds, stable filters). A backtest therefore counts trades that the live stack would reject, and its results are an upper bound on live behaviour, not a prediction of it.
+
+Before treating any strategy change as an improvement, run it through `core.validation.compare_to_baselines`. A candidate that does not beat buy-and-hold, random entry and the permuted signal is not distinguishable from drift, exposure or trade count, whatever its win rate.

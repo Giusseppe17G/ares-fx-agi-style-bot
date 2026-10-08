@@ -1,0 +1,65 @@
+........................................................................ [  3%]
+........................................................................ [  6%]
+........................................................................ [ 10%]
+........................................................................ [ 13%]
+........................................................................ [ 17%]
+........................................................................ [ 20%]
+........................................................................ [ 24%]
+........................................................................ [ 27%]
+........................................................................ [ 31%]
+........................................................................ [ 34%]
+........................................................................ [ 37%]
+........................................................................ [ 41%]
+........................................................................ [ 44%]
+........................................................................ [ 48%]
+........................................................................ [ 51%]
+........................................................................ [ 55%]
+........................................................................ [ 58%]
+........................................................................ [ 62%]
+........F............................................................... [ 65%]
+........................................................................ [ 68%]
+........................................................................ [ 72%]
+........................................................................ [ 75%]
+........................................................................ [ 79%]
+........................................................................ [ 82%]
+........................................................................ [ 86%]
+........................................................................ [ 89%]
+........................................................................ [ 93%]
+........................................................................ [ 96%]
+.......................................................................  [100%]
+================================== FAILURES ===================================
+____________________ test_research_runner_produces_reports ____________________
+
+tmp_path = WindowsPath('C:/Users/user/AppData/Local/Temp/pytest-of-user/pytest-138/test_research_runner_produces_0')
+
+    def test_research_runner_produces_reports(tmp_path: Path) -> None:
+        data_dir = tmp_path / "historical"
+        reports_root = tmp_path / "reports"
+        output_dir = reports_root / "research"
+        data_dir.mkdir()
+        (reports_root / "data_quality").mkdir(parents=True)
+        (reports_root / "broker_costs").mkdir()
+        _history(data_dir / "EURUSD_M5.csv")
+        (reports_root / "data_quality" / "dataset_manifest.json").write_text('{"dataset_fingerprint":"abc"}', encoding="utf-8")
+        (reports_root / "broker_costs" / "broker_cost_profile.json").write_text('{"symbols":{"EURUSD":{"spread_p95":10}}}', encoding="utf-8")
+
+>       summary = run_research(symbols=("EURUSD",), data_dir=data_dir, reports_root=reports_root, output_dir=output_dir, max_candidates=4)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\user\.codex\worktrees\forex-backtest-validation\New project\tests\python\test_phase7_research.py:110:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Users\user\.codex\worktrees\forex-backtest-validation\New project\src\python\agi_style_forex_bot_mt5\research\research_runner.py:72: in run_research
+    stress_summary = {"classification": "REJECTED" if any(row.metrics.net_profit < 0 for row in stress_results) else "WATCHLIST"}
+                                                      ^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+.0 = <list_iterator object at 0x0000021EDFB494E0>
+
+>   stress_summary = {"classification": "REJECTED" if any(row.metrics.net_profit < 0 for row in stress_results) else "WATCHLIST"}
+                                                          ^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'net_profit'
+
+C:\Users\user\.codex\worktrees\forex-backtest-validation\New project\src\python\agi_style_forex_bot_mt5\research\research_runner.py:72: AttributeError
+=========================== short test summary info ===========================
+FAILED tests/python/test_phase7_research.py::test_research_runner_produces_reports
+1 failed, 2086 passed in 88.06s (0:01:28)

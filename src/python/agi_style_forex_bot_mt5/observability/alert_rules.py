@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from math import isfinite
 from typing import Any, Iterable, Mapping
 from uuid import uuid4
 
@@ -57,17 +58,28 @@ class AlertRuleEngine:
                     metrics,
                 )
             )
-        if float(metrics.get("drawdown_paper", 0.0) or 0.0) <= -3.0:
+        daily_pct = metrics.get("daily_drawdown_pct")
+        daily_verified = (
+            metrics.get("paper_risk_state_status") == "VERIFIED"
+            and type(daily_pct) in (int, float) and isfinite(daily_pct) and daily_pct >= 0
+        )
+        if daily_verified and (daily_pct >= 3.0 or metrics.get("daily_drawdown_halted") is True):
             alerts.append(
                 self._alert(
                     now,
                     "CRITICAL",
                     "PAPER_DAILY_DRAWDOWN",
-                    "Paper drawdown exceeds daily threshold",
+                    "Verified paper equity reached its daily drawdown limit",
                     "Pause new shadow entries and review forward performance.",
                     metrics,
                 )
             )
+        floating_pct = metrics.get("floating_drawdown_pct")
+        if daily_verified and type(floating_pct) in (int, float) and isfinite(floating_pct) and floating_pct >= 5.0:
+            alerts.append(self._alert(now, "CRITICAL", "PAPER_FLOATING_DRAWDOWN", "Verified paper floating drawdown reached its limit", "Block new paper entries and review open exposure.", metrics))
+        has_paper_evidence = bool(metrics.get("paper_trades_open") or metrics.get("paper_trades_closed") or metrics.get("drawdown_paper"))
+        if not daily_verified and has_paper_evidence:
+            alerts.append(self._alert(now, "CRITICAL", "PAPER_RISK_DATA_MISSING", "Paper drawdown cannot be verified from a fresh capital reference and valuation", "Refresh complete paper position marks and reconcile capital references before new entries.", metrics))
         if str(metrics.get("drift_status", "")) == "PERFORMANCE_DRIFT":
             alerts.append(
                 self._alert(

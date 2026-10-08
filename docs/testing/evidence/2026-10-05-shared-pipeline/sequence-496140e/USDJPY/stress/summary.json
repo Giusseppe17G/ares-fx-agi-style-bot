@@ -1,0 +1,120 @@
+{
+  "classification": "REJECTED",
+  "classification_scope": "OBSERVATIONAL_DIAGNOSTIC_ONLY",
+  "completed_scenario_count": 20,
+  "effective_config": {
+    "cost_assumptions": {
+      "extra_slippage_charged_per_side": true,
+      "extra_spread_charged_once": true,
+      "fills_replayed": false,
+      "input_commission_is_round_trip": true,
+      "negative_cost_penalties_allowed": false,
+      "position_resizing": false,
+      "r_denominator": "ORIGINAL_PNL_DIVIDED_BY_R_OR_INITIAL_SL_DISTANCE"
+    },
+    "cost_model": "FIXED_TICK_VALUE_POST_TRADE_MONETARY_PENALTY",
+    "evidence_scope": "POST_TRADE_APPROXIMATION",
+    "evidence_version": "2.0",
+    "initial_balance": 10000.0,
+    "runtime_versions": {
+      "numpy": "2.4.4",
+      "pandas": "3.0.2",
+      "python": "3.14.4"
+    },
+    "scenarios": {
+      "commission_multipliers": [
+        1.0,
+        1.5,
+        2.0
+      ],
+      "fixed_profit_haircut_pct": 5,
+      "losses_added": [
+        3,
+        5,
+        8
+      ],
+      "periodic_omission_percent": [
+        5,
+        10
+      ],
+      "remove_best_percent": [
+        1,
+        5,
+        10
+      ],
+      "slippage_multipliers": [
+        1.0,
+        1.5,
+        2.0,
+        3.0
+      ],
+      "spread_multipliers": [
+        1.0,
+        1.5,
+        2.0,
+        3.0
+      ]
+    },
+    "unmodeled_scenarios": [
+      "entry_delay_one_bar",
+      "session_shift",
+      "fill_rate",
+      "missing_bars"
+    ]
+  },
+  "evidence_scope": "POST_TRADE_APPROXIMATION",
+  "evidence_version": "2.0",
+  "execution_attempted": false,
+  "input_files": [],
+  "insufficient_input_scenario_count": 0,
+  "mode": "stress-test",
+  "no_input_scenario_count": 0,
+  "not_modeled_scenario_count": 4,
+  "operational_scenarios_tested": false,
+  "order_check_called": false,
+  "order_send_called": false,
+  "promotion_eligible": false,
+  "reference_time_policy": "FIXED_IDENTITY_ANCHOR_NOT_MARKET_TIME",
+  "reports_created": [
+    "C:\\Users\\user\\AppData\\Local\\Temp\\agi-sequence-496140e-1791191524637\\USDJPY\\stress\\summary.json",
+    "C:\\Users\\user\\AppData\\Local\\Temp\\agi-sequence-496140e-1791191524637\\USDJPY\\stress\\scenarios.csv",
+    "C:\\Users\\user\\AppData\\Local\\Temp\\agi-sequence-496140e-1791191524637\\USDJPY\\stress\\inputs.json",
+    "C:\\Users\\user\\AppData\\Local\\Temp\\agi-sequence-496140e-1791191524637\\USDJPY\\stress\\scenarios.json"
+  ],
+  "run_manifest": {
+    "config_hash": "8dd191eee8261bbdda1b133bc47945baae0208a544aedcc90ba4de49e6fe3f44",
+    "data_root": "C:\\Users\\user\\AppData\\Local\\Temp\\agi-sequence-496140e-1791191524637\\runtime",
+    "dataset_hash": "ffd9fa397877cc656d6083b52e04e34b3fb07a717227201694df83ee52b3b2bf",
+    "git_commit_sha": "496140ec26923c48ec9e5f9a485e87bf89e773bc",
+    "git_dirty": false,
+    "instrument_metadata_hash": "",
+    "instrument_snapshot_hash": "",
+    "manifest_version": "1.1",
+    "mode": "stress-test",
+    "package_versions": {
+      "MetaTrader5": "5.0.5735",
+      "numpy": "2.4.4",
+      "pandas": "3.0.2"
+    },
+    "project_root": "C:\\Users\\user\\.codex\\worktrees\\forex-backtest-validation\\New project",
+    "python_version": "3.14.4",
+    "reference_time_utc": "1970-01-01T00:00:00+00:00",
+    "run_id": "60b65612069d22a1",
+    "safety": {
+      "demo_only": true,
+      "execution_attempted": false,
+      "live_trading_approved": false,
+      "order_check_called": false,
+      "order_send_called": false
+    },
+    "seed": null,
+    "source_tree_hash": "0c57bef42f9007932f5a932967b644e63283a690685761f249beb0912bee8fa5",
+    "symbols": [],
+    "timeframe": ""
+  },
+  "sample_status": "USABLE_SAMPLE",
+  "scenario_count": 24,
+  "total_trades": 215,
+  "upstream_provenance_status": "UNKNOWN",
+  "upstream_run_manifest": null
+}

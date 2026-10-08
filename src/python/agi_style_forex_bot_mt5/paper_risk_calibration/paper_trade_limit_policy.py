@@ -62,11 +62,21 @@ def evaluate_paper_trade_limits(
     database: TelemetryDatabase,
     profile_config: str | Path | None = None,
     now: datetime | None = None,
+    limits: PaperRiskLimits | None = None,
 ) -> dict[str, Any]:
     """Return whether a new paper trade may be opened under paper-only limits."""
 
     now_utc = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    limits = load_paper_risk_limits(profile_config)
+    limits = limits if limits is not None else load_paper_risk_limits(profile_config)
+    if not isinstance(limits, PaperRiskLimits):
+        raise ValueError("explicit paper limits must be PaperRiskLimits")
+    from math import isfinite
+    if not isfinite(limits.paper_risk_multiplier) or not 0 < limits.paper_risk_multiplier <= 1:
+        raise ValueError("paper risk multiplier must be finite in (0, 1]")
+    for name in ("max_open_paper_trades", "max_paper_trades_per_day", "cooldown_after_loss_minutes", "cooldown_after_drawdown_halt_minutes"):
+        value = getattr(limits, name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{name} must be a nonnegative integer")
     trades = [_payload(row) for row in database.fetch_paper_trades()]
     open_trades = [trade for trade in trades if str(trade.get("status", "")).upper() == "OPEN"]
     today = now_utc.date().isoformat()

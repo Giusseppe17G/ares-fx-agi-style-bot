@@ -144,6 +144,9 @@ def test_forward_shadow_audits_ml_prediction(monkeypatch, tmp_path: Path) -> Non
         def initialize(self):
             return True
 
+        def terminal_info(self):
+            return SimpleNamespace(connected=True)
+
         def account_info(self):
             return SimpleNamespace(login=1, trade_mode=0, balance=10000, equity=10000, margin_free=9000, currency="USD", trade_allowed=True)
 
@@ -161,12 +164,13 @@ def test_forward_shadow_audits_ml_prediction(monkeypatch, tmp_path: Path) -> Non
             raise AssertionError("order_send must not be called")
 
     monkeypatch.setattr(fsb.MT5DataOnlyBot, "_read_timeframes", lambda self, *args, **kwargs: {"M5": object()})
-    monkeypatch.setattr(fsb.MT5DataOnlyBot, "_features_from_bars", lambda self, *args, **kwargs: {"regime": "TREND_UP", "session": "LONDON", "atr": 0.001, "score": 80})
-    monkeypatch.setattr(fsb, "evaluate_ensemble", lambda *_args, **_kwargs: StrategySignal(SignalAction.BUY, 80, ("ok",), "strategy_ensemble", {"atr": 0.001, "version": "test"}))
+    monkeypatch.setattr(fsb.MT5DataOnlyBot, "_features_from_bars", lambda self, *args, **kwargs: {"regime": "TREND_UP", "session": "LONDON", "atr": 0.001, "available_at_utc": args[1].timestamp_utc, "spread_percentile": 40.0, "broker_readiness_score": 80.0, "score": 80})
+    monkeypatch.setattr(fsb, "evaluate_ensemble", lambda *_args, **_kwargs: StrategySignal(SignalAction.BUY, 80, ("ok",), "strategy_ensemble", {"atr": 0.001, "version": "test", "setup_quality_score": 90, "component_scores": {name: 90 for name in ("regime_fit", "momentum_fit", "structure_fit", "volatility_fit", "session_fit", "cost_fit", "liquidity_fit", "risk_reward_fit", "broker_fit", "portfolio_fit")}}))
     monkeypatch.setattr(fsb.MLFilter, "load_latest_model", staticmethod(lambda: SimpleNamespace(approve_or_reject=lambda signal, features: MLFilterDecision("ML_DISABLED", None, None, None, None, None, 0.58, ("no model",)))))
     db = TelemetryDatabase(tmp_path / "fwd.sqlite3")
     try:
-        bot = ForwardShadowBot(config=BotConfig(), symbols=("EURUSD",), audit_logger=JsonlAuditLogger(tmp_path / "logs"), database=db, mt5_client=FakeMT5(), max_cycles=1, cycle_seconds=0)
+        bot = ForwardShadowBot(config=BotConfig(paper_allow_disabled_ml=True), symbols=("EURUSD",), audit_logger=JsonlAuditLogger(tmp_path / "logs"), database=db, mt5_client=FakeMT5(), max_cycles=1, cycle_seconds=0,
+            decision_evidence_provider=lambda snapshot, features, book: {"observed_at_utc": snapshot.timestamp_utc, "broker_readiness_score": 80., "correlation": 0.})
         summary = bot.run()
         assert summary.execution_attempted is False
         assert db.count_rows("model_predictions") >= 1

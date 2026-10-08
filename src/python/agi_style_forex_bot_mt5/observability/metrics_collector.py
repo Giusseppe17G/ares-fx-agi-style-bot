@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 from collections import Counter
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from agi_style_forex_bot_mt5.persistence import validate_event_integrity
-from agi_style_forex_bot_mt5.paper_trading.paper_pnl_engine import pnl_value
+from agi_style_forex_bot_mt5.core.clock import Clock, resolve_clock
+from agi_style_forex_bot_mt5.core.operational_state.errors import PaperStateError
 from agi_style_forex_bot_mt5.portfolio import build_portfolio_state
 from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 
@@ -18,10 +20,12 @@ from agi_style_forex_bot_mt5.telemetry import TelemetryDatabase
 class MetricsCollector:
     """Build compact status metrics from telemetry tables."""
 
-    def __init__(self, database: TelemetryDatabase) -> None:
+    def __init__(self, database: TelemetryDatabase, *, clock: Clock | None = None) -> None:
         self.database = database
+        self.clock = resolve_clock(clock)
 
     def collect(self) -> dict[str, Any]:
+        now_utc = self.clock.now_utc().astimezone(timezone.utc)
         trades = [json.loads(row["payload_json"]) for row in self.database.fetch_paper_trades()]
         events = self.database.fetch_all("events")
         predictions = self.database.fetch_all("model_predictions")
@@ -51,13 +55,14 @@ class MetricsCollector:
                 regime_concentration_high = regime_concentration_high or code == "REGIME_CONCENTRATION_HIGH"
                 correlation_cluster_high = correlation_cluster_high or code == "CORRELATION_CLUSTER_HIGH"
         metrics = _paper_metrics(trades)
+        risk_metrics = _paper_risk_metrics(trades, self.database.get_operational_state(), now_utc)
         open_trades = sum(1 for trade in trades if trade.get("status") == "OPEN")
         closed_today = sum(
             1
             for trade in trades
             if trade.get("status") == "CLOSED"
             and trade.get("exit_time_utc")
-            and str(trade.get("exit_time_utc"))[:10] == date.today().isoformat()
+            and _closed_on_utc_day(trade.get("exit_time_utc"), now_utc.date().isoformat())
         )
         portfolio_state = build_portfolio_state(self.database).to_dict()
         integrity = validate_event_integrity(database=self.database)
@@ -80,7 +85,9 @@ class MetricsCollector:
             "closed_paper_trades_today": closed_today,
             "winrate_paper": metrics["winrate"],
             "expectancy_r_paper": metrics["expectancy_r"],
-            "drawdown_paper": metrics["max_drawdown_shadow"],
+            # Historical PnL drawdown is money, never a daily percentage.
+            "historical_drawdown_amount": metrics["max_drawdown_shadow"],
+            **risk_metrics,
             "profit_factor_paper": metrics["profit_factor"],
             "critical_errors_recent": event_counts.get("CRITICAL_ERROR", 0)
             + event_counts.get("FORWARD_SHADOW_CRITICAL_ERROR", 0),
@@ -118,7 +125,80 @@ class MetricsCollector:
         }
 
 
+def _paper_risk_metrics(trades: list[dict[str, Any]], state: dict[str, Any], now: datetime) -> dict[str, Any]:
+    """Read a fresh valuation of this exact book; no equity guesses or DB writes."""
+
+    # paper_trading exports ForwardShadowBot, which imports observability.
+    # Defer the domain import until package initialization has completed.
+    from agi_style_forex_bot_mt5.paper_trading.decision_state import PAPER_DECISION_STATE_KEY, paper_book_fingerprint
+
+    unknown = {
+        "drawdown_paper": None, "paper_drawdown_unit": "percent",
+        "daily_drawdown_pct": None, "floating_drawdown_pct": None,
+        "paper_balance": None, "paper_equity": None, "paper_realized_pnl": None,
+        "paper_floating_pnl": None, "daily_drawdown_halted": None,
+        "paper_risk_state_status": "UNKNOWN", "paper_risk_state_reason": "PAPER_RISK_REFERENCE_MISSING",
+        "historical_drawdown_currency": "UNKNOWN",
+    }
+    ledger = state.get(PAPER_DECISION_STATE_KEY)
+    if not isinstance(ledger, dict) or ledger.get("schema_version") != "1.0":
+        return unknown
+    currency = ledger.get("currency")
+    if isinstance(currency, str) and len(currency) == 3 and currency.isascii() and currency.isalpha():
+        unknown["historical_drawdown_currency"] = currency.upper()
+    else:
+        return {**unknown, "paper_risk_state_reason": "PAPER_RISK_CURRENCY_UNVERIFIED"}
+    valuation = ledger.get("observed_valuation")
+    if not isinstance(valuation, dict):
+        return {**unknown, "paper_risk_state_reason": "PAPER_MARK_TO_MARKET_MISSING"}
+    try:
+        if now.utcoffset() is None:
+            raise ValueError
+        now = now.astimezone(timezone.utc)
+        observed = datetime.fromisoformat(valuation["valued_at_utc"])
+        if observed.utcoffset() is None or not 0 <= (now - observed).total_seconds() <= 5:
+            return {**unknown, "paper_risk_state_reason": "PAPER_MARK_TO_MARKET_STALE"}
+        reference = ledger["daily_references"][now.date().isoformat()]
+        daily_equity = reference["equity"]
+        numbers = (daily_equity, valuation["balance"], valuation["equity"], valuation["realized_pnl"], valuation["floating_pnl"])
+        if not all(type(value) in (float, int) and math.isfinite(value) for value in numbers) or daily_equity <= 0:
+            raise ValueError
+        if type(reference["halted"]) is not bool:
+            raise ValueError
+        if valuation["trade_state_hash"] != paper_book_fingerprint(trades):
+            return {**unknown, "paper_risk_state_reason": "PAPER_BOOK_CHANGED_SINCE_VALUATION"}
+        balance, equity = valuation["balance"], valuation["equity"]
+        initial_balance = ledger["initial_balance"]
+        if type(initial_balance) not in (int, float) or not math.isfinite(initial_balance) or initial_balance <= 0:
+            raise ValueError
+        if not math.isclose(balance, initial_balance + valuation["realized_pnl"], rel_tol=1e-10, abs_tol=1e-8):
+            raise ValueError
+        if not math.isclose(equity, balance + valuation["floating_pnl"], rel_tol=1e-10, abs_tol=1e-8):
+            raise ValueError
+        daily = max(0.0, (daily_equity - equity) / daily_equity * 100)
+        floating = max(0.0, (balance - equity) / balance * 100) if balance > 0 else None
+        return {
+            **unknown, "drawdown_paper": -daily, "daily_drawdown_pct": daily,
+            "floating_drawdown_pct": floating, "paper_balance": balance, "paper_equity": equity,
+            "paper_realized_pnl": valuation["realized_pnl"], "paper_floating_pnl": valuation["floating_pnl"],
+            "daily_drawdown_halted": reference["halted"], "paper_risk_state_status": "VERIFIED",
+            "paper_risk_state_reason": "", "paper_risk_valued_at_utc": observed.isoformat(),
+        }
+    except (KeyError, TypeError, ValueError, OverflowError, PaperStateError):
+        return {**unknown, "paper_risk_state_reason": "PAPER_RISK_REFERENCE_INVALID"}
+
+
+def _closed_on_utc_day(value: Any, day: str) -> bool:
+    try:
+        stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return stamp.utcoffset() is not None and stamp.astimezone(timezone.utc).date().isoformat() == day
+    except (TypeError, ValueError):
+        return False
+
+
 def _paper_metrics(trades: list[dict[str, Any]]) -> dict[str, float | int]:
+    from agi_style_forex_bot_mt5.paper_trading.paper_pnl_engine import pnl_value
+
     closed = [trade for trade in trades if trade.get("status") == "CLOSED"]
     wins = [trade for trade in closed if float(trade.get("r_multiple") or 0.0) > 0]
     losses = [trade for trade in closed if float(trade.get("r_multiple") or 0.0) < 0]

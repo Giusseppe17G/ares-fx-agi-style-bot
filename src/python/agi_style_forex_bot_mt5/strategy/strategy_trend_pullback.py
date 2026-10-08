@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+import math
 from typing import Any
 
 from ..contracts import MarketSnapshot
@@ -18,12 +20,43 @@ from .scoring_engine import (
 
 
 STRATEGY_NAME = "trend_pullback"
-STRATEGY_VERSION = "0.2.0"
+STRATEGY_VERSION = "0.2.1"
 
 
-def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
+@dataclass(frozen=True)
+class TrendPullbackResearchParams:
+    """Only implemented strategy knobs; existing callers retain the baseline."""
+
+    rsi_buy_min: float = 38
+    rsi_buy_max: float = 58
+    rsi_sell_min: float = 42
+    rsi_sell_max: float = 62
+    min_score: float = 62
+
+    def __post_init__(self) -> None:
+        for name, value in asdict(self).items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 100:
+                raise ValueError(f"{name} must be a finite number in [0, 100]")
+            object.__setattr__(self, name, float(value))
+        if self.rsi_buy_min > self.rsi_buy_max or self.rsi_sell_min > self.rsi_sell_max:
+            raise ValueError("RSI intervals must be ordered")
+
+    @classmethod
+    def from_dict(cls, values: Mapping[str, Any]) -> "TrendPullbackResearchParams":
+        if not isinstance(values, Mapping) or set(values) - set(cls.__dataclass_fields__):
+            raise ValueError("unsupported trend pullback parameters")
+        return cls(**dict(values))
+
+    def to_dict(self) -> dict[str, float]:
+        return asdict(self)
+
+
+def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any], *, params: TrendPullbackResearchParams | None = None) -> Any:
     """Return a StrategySignal for pullbacks aligned with the dominant trend."""
 
+    if params is not None and not isinstance(params, TrendPullbackResearchParams):
+        raise ValueError("params must be TrendPullbackResearchParams")
+    effective = params or TrendPullbackResearchParams()
     try:
         snapshot.validate()
     except ValueError as exc:
@@ -53,7 +86,7 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
         conditions=(
             (ema_fast > ema_slow, 22, "fast EMA above slow EMA"),
             (trend_slope > 0, 18, "positive trend slope"),
-            (close <= ema_fast or 38 <= rsi <= 58, 18, "controlled bullish pullback"),
+            (close <= ema_fast or effective.rsi_buy_min <= rsi <= effective.rsi_buy_max, 18, "controlled bullish pullback"),
             (close > previous_close, 14, "bullish resumption candle"),
             (atr_points > 0 and pullback_depth_points <= max(atr_points * 1.25, 1), 10, "pullback depth within ATR"),
         ),
@@ -63,7 +96,7 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
         conditions=(
             (ema_fast < ema_slow, 22, "fast EMA below slow EMA"),
             (trend_slope < 0, 18, "negative trend slope"),
-            (close >= ema_fast or 42 <= rsi <= 62, 18, "controlled bearish pullback"),
+            (close >= ema_fast or effective.rsi_sell_min <= rsi <= effective.rsi_sell_max, 18, "controlled bearish pullback"),
             (close < previous_close, 14, "bearish resumption candle"),
             (atr_points > 0 and pullback_depth_points <= max(atr_points * 1.25, 1), 10, "pullback depth within ATR"),
         ),
@@ -73,8 +106,8 @@ def evaluate(snapshot: MarketSnapshot, features: Mapping[str, Any]) -> Any:
         sell_score=sell_score,
         buy_reasons=buy_reasons,
         sell_reasons=sell_reasons,
-        threshold=62,
+        threshold=effective.min_score,
         min_margin=8,
         strategy_name=STRATEGY_NAME,
-        metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME, extra={"close": close, "rsi": rsi}),
+        metadata=strategy_metadata(strategy_version=STRATEGY_VERSION, features=features, snapshot=snapshot, strategy_name=STRATEGY_NAME, direction="BUY" if buy_score > sell_score else "SELL" if sell_score > buy_score else "", extra={"close": close, "rsi": rsi}),
     )

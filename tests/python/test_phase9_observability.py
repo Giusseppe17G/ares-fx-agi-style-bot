@@ -9,6 +9,9 @@ from agi_style_forex_bot_mt5.observability import AlertRuleEngine, DailySummary,
 from agi_style_forex_bot_mt5.paper_trading import ForwardShadowBot
 from agi_style_forex_bot_mt5.telegram_command_center import TelegramCommandCenter
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase
+from agi_style_forex_bot_mt5.core import workspace_paths
+
+PROJECT_SCRIPTS = workspace_paths().scripts_dir
 
 
 def _db(tmp_path: Path) -> TelemetryDatabase:
@@ -90,7 +93,9 @@ def test_daily_summary_generates_json(tmp_path: Path) -> None:
 
 
 def test_forward_shadow_respects_paused_state_and_writes_heartbeat(tmp_path: Path) -> None:
-    class FakeMT5:
+    from test_mt5_data_mode import MockMT5DataClient
+
+    class FakeMT5(MockMT5DataClient):
         def __init__(self) -> None:
             self.calls: list[str] = []
 
@@ -109,9 +114,8 @@ def test_forward_shadow_respects_paused_state_and_writes_heartbeat(tmp_path: Pat
                 trade_allowed=True,
             )
 
-        def symbol_info(self, symbol):
-            self.calls.append("symbol_info")
-            return None
+        def terminal_info(self):
+            return SimpleNamespace(connected=True)
 
         def order_send(self, request):
             self.calls.append("order_send")
@@ -158,7 +162,7 @@ def test_cli_status_health_daily_summary(tmp_path: Path, capsys) -> None:
 
 
 def test_forward_shadow_scripts_exist() -> None:
-    assert Path("scripts/run_forward_shadow.ps1").exists()
-    assert Path("scripts/watchdog_forward_shadow.ps1").exists()
-    assert Path("scripts/status.ps1").exists()
+    assert (PROJECT_SCRIPTS / "run_forward_shadow.ps1").exists()
+    assert (PROJECT_SCRIPTS / "watchdog_forward_shadow.ps1").exists()
+    assert (PROJECT_SCRIPTS / "status.ps1").exists()
 

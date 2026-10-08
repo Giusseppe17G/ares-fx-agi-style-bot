@@ -232,7 +232,7 @@ def test_live_trading_not_approved_blocks_mocked_mt5_order_send() -> None:
     )
 
     assert result.sent is False
-    assert result.retcode_description == "LIVE_TRADING_NOT_APPROVED"
+    assert result.retcode_description == "SHADOW_MODE_BLOCKED"
     assert "order_send" not in fake.calls
 
 
@@ -290,7 +290,7 @@ def test_telegram_failure_result_does_not_raise() -> None:
     assert "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ" not in result.error
 
 
-def test_mocked_mt5_can_reach_order_send_only_after_gates_pass() -> None:
+def test_accepted_risk_alone_cannot_enable_broker_execution() -> None:
     fake = MockMT5()
 
     result = _engine(fake).execute(
@@ -300,6 +300,7 @@ def test_mocked_mt5_can_reach_order_send_only_after_gates_pass() -> None:
         magic_number=20260515,
     )
 
-    assert result.sent is True
-    assert result.filled is True
-    assert fake.calls == ["order_check", "order_send"]
+    assert result.sent is False
+    assert result.filled is False
+    assert result.retcode_description == "SHADOW_MODE_BLOCKED"
+    assert fake.calls == []

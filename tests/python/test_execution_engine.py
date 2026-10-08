@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
+
+import pytest
 
 from agi_style_forex_bot_mt5.config import BotConfig
 from agi_style_forex_bot_mt5.contracts import (
     Direction,
     EntryType,
+    ExecutionRequest,
     PositionState,
     RiskDecision,
     TradeSignal,
@@ -168,7 +171,13 @@ def _engine(fake: FakeMT5) -> ExecutionEngine:
     return ExecutionEngine(config=cfg, connector=connector)
 
 
-def test_successful_execution_runs_order_check_before_order_send() -> None:
+def _request(**changes) -> ExecutionRequest:
+    signal = _signal()
+    return replace(ExecutionRequest(signal.signal_id, signal.symbol, signal.direction,
+        signal.entry_type, 0.01, signal.sl_price, signal.tp_price, 10, 20260515, "test"), **changes)
+
+
+def test_default_shadow_release_blocks_before_order_check_or_send() -> None:
     fake = FakeMT5()
     result = _engine(fake).execute(
         signal=_signal(),
@@ -177,14 +186,16 @@ def test_successful_execution_runs_order_check_before_order_send() -> None:
         magic_number=20260515,
     )
 
-    assert result.sent is True
-    assert result.filled is True
-    assert result.retcode == RETCODE_DONE
-    assert fake.calls == ["order_check", "order_send"]
+    assert result.sent is False
+    assert result.filled is False
+    assert result.retcode_description == "SHADOW_MODE_BLOCKED"
+    assert fake.calls == []
 
 
 def test_demo_only_blocks_real_account_before_order_send() -> None:
     fake = FakeMT5(trade_mode=FakeMT5.ACCOUNT_TRADE_MODE_REAL)
+    account_check = _engine(fake).connector.validate_account_for_trading()
+    assert not account_check.accepted and account_check.code == "DEMO_ONLY_REAL_ACCOUNT"
     result = _engine(fake).execute(
         signal=_signal(),
         risk_decision=_risk(),
@@ -193,7 +204,7 @@ def test_demo_only_blocks_real_account_before_order_send() -> None:
     )
 
     assert result.sent is False
-    assert result.retcode_description == "DEMO_ONLY_REAL_ACCOUNT"
+    assert result.retcode_description == "SHADOW_MODE_BLOCKED"
     assert "order_send" not in fake.calls
 
 
@@ -202,6 +213,8 @@ def test_live_account_blocked_when_live_trading_not_approved() -> None:
     cfg = BotConfig(demo_only=False, live_trading_approved=False)
     connector = MT5Connector(config=cfg, mt5_client=fake)
     engine = ExecutionEngine(config=cfg, connector=connector)
+    account_check = connector.validate_account_for_trading()
+    assert not account_check.accepted and account_check.code == "LIVE_TRADING_NOT_APPROVED"
 
     result = engine.execute(
         signal=_signal(),
@@ -211,7 +224,7 @@ def test_live_account_blocked_when_live_trading_not_approved() -> None:
     )
 
     assert result.sent is False
-    assert result.retcode_description == "LIVE_TRADING_NOT_APPROVED"
+    assert result.retcode_description == "SHADOW_MODE_BLOCKED"
     assert "order_send" not in fake.calls
 
 
@@ -225,12 +238,16 @@ def test_audit_must_be_confirmed_before_request_construction() -> None:
     )
 
     assert result.sent is False
-    assert result.retcode_description == "AUDIT_NOT_CONFIRMED"
+    assert result.retcode_description == "SHADOW_MODE_BLOCKED"
     assert fake.calls == []
 
 
 def test_stale_tick_is_rejected() -> None:
     fake = FakeMT5(tick_age_seconds=30)
+    check, snapshot = _engine(fake).connector.ensure_symbol_snapshot("EURUSD")
+    expected = "MARKET_CLOSED_OR_NO_TICKS" if is_market_probably_closed(utc_now(), "EURUSD") else "MARKET_DATA_INVALID"
+    assert not check.accepted and snapshot is None
+    assert check.code == expected
     result = _engine(fake).execute(
         signal=_signal(),
         risk_decision=_risk(),
@@ -239,13 +256,16 @@ def test_stale_tick_is_rejected() -> None:
     )
 
     assert result.sent is False
-    expected = "MARKET_CLOSED_OR_NO_TICKS" if is_market_probably_closed(utc_now(), "EURUSD") else "MARKET_DATA_INVALID"
-    assert result.retcode_description == expected
+    assert result.retcode_description == "SHADOW_MODE_BLOCKED"
     assert "order_send" not in fake.calls
 
 
 def test_high_spread_is_rejected_at_execution_gate() -> None:
     fake = FakeMT5(spread_points=40)
+    engine = _engine(fake)
+    check, snapshot = engine.connector.ensure_symbol_snapshot("EURUSD")
+    assert check.accepted and snapshot is not None
+    assert not engine.spread_filter.check(snapshot).accepted
     result = _engine(fake).execute(
         signal=_signal(),
         risk_decision=_risk(),
@@ -254,12 +274,16 @@ def test_high_spread_is_rejected_at_execution_gate() -> None:
     )
 
     assert result.sent is False
-    assert result.retcode_description == "HIGH_SPREAD"
+    assert result.retcode_description == "SHADOW_MODE_BLOCKED"
     assert "order_send" not in fake.calls
 
 
 def test_invalid_stops_are_rejected_before_order_check() -> None:
     fake = FakeMT5(stops_level=500)
+    connector = _engine(fake).connector
+    check, snapshot = connector.ensure_symbol_snapshot("EURUSD")
+    assert check.accepted and snapshot is not None
+    assert not connector.validate_stops(_request(), snapshot).accepted
     result = _engine(fake).execute(
         signal=_signal(),
         risk_decision=_risk(),
@@ -268,11 +292,11 @@ def test_invalid_stops_are_rejected_before_order_check() -> None:
     )
 
     assert result.sent is False
-    assert result.retcode_description == "EXECUTION_CONSTRAINT"
+    assert result.retcode_description == "SHADOW_MODE_BLOCKED"
     assert fake.calls == []
 
 
-def test_retries_only_recoverable_retcodes_with_same_signal_id() -> None:
+def test_recoverable_retcode_does_not_enable_execution_or_retries() -> None:
     fake = FakeMT5(send_retcodes=(RETCODE_PRICE_CHANGED, RETCODE_DONE))
     engine = _engine(fake)
     result = engine.execute(
@@ -282,13 +306,15 @@ def test_retries_only_recoverable_retcodes_with_same_signal_id() -> None:
         magic_number=20260515,
     )
 
-    assert result.filled is True
+    assert result.filled is False
     assert result.signal_id == "sig_exec_1"
-    assert fake.calls == ["order_check", "order_send", "order_check", "order_send"]
-    assert engine.broker_quality.report().recoverable_rejects == 1
+    assert fake.calls == []
+    assert engine.broker_quality.report().recoverable_rejects == 0
+    assert engine.connector.is_recoverable_retcode(RETCODE_PRICE_CHANGED)
+    assert not engine.connector.is_recoverable_retcode(RETCODE_DONE)
 
 
-def test_duplicate_signal_is_blocked() -> None:
+def test_repeated_signal_is_blocked_without_ever_sending() -> None:
     fake = FakeMT5()
     engine = _engine(fake)
     first = engine.execute(
@@ -304,9 +330,37 @@ def test_duplicate_signal_is_blocked() -> None:
         magic_number=20260515,
     )
 
-    assert first.filled is True
+    assert first.filled is False
     assert second.sent is False
-    assert second.retcode_description == "DUPLICATE_SIGNAL"
+    assert first.retcode_description == second.retcode_description == "SHADOW_MODE_BLOCKED"
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("lot,accepted", ((0.01, True), (0.15, True), (0, False), (0.015, False), (101, False)))
+def test_volume_diagnostics_remain_available_without_order_construction(lot, accepted):
+    fake = FakeMT5()
+    connector = _engine(fake).connector
+    check, snapshot = connector.ensure_symbol_snapshot("EURUSD")
+    assert check.accepted and snapshot is not None
+    assert connector.validate_volume(_request(lot=lot), snapshot).accepted is accepted
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("filling_mode,accepted", ((0, True), (1, True), (2, True), (8, False)))
+def test_filling_diagnostics_remain_available_without_order_construction(filling_mode, accepted):
+    fake = FakeMT5(filling_mode=filling_mode)
+    check, mode, _ = _engine(fake).connector.select_filling_mode("EURUSD")
+    assert check.accepted is accepted
+    assert (mode is not None) is accepted
+    assert fake.calls == []
+
+
+def test_retcode_classification_remains_pure():
+    connector = _engine(FakeMT5()).connector
+    assert connector.is_success_retcode(RETCODE_DONE, EntryType.MARKET)
+    assert not connector.is_success_retcode(RETCODE_DONE, EntryType.LIMIT)
+    assert connector.is_success_retcode(10008, EntryType.LIMIT)
+    assert not connector.is_success_retcode(10010, EntryType.MARKET)
 
 
 def test_trade_manager_break_even_and_trailing_rules() -> None:

@@ -32,12 +32,23 @@ class MLFilterDecision:
 class MLFilter:
     """Load and apply an approved ML meta-filter, fail-safe by default."""
 
-    def __init__(self, model_dir: str | Path = "data/models/ml_filter", *, minimum_probability_for_shadow_trade: float = 0.58, high_quality_threshold: float = 0.68, reject_below: float = 0.55) -> None:
+    def __init__(self, model_dir: str | Path = "data/models/ml_filter", *, minimum_probability_for_shadow_trade: float = 0.58, high_quality_threshold: float = 0.68, reject_below: float = 0.55, load_bundle: bool = True) -> None:
         self.model_dir = Path(model_dir)
         self.minimum_probability_for_shadow_trade = minimum_probability_for_shadow_trade
         self.high_quality_threshold = high_quality_threshold
         self.reject_below = reject_below
-        self.bundle = load_model_bundle(self.model_dir)
+        if type(load_bundle) is not bool:
+            raise ValueError("load_bundle must be an explicit boolean")
+        self.bundle = load_model_bundle(self.model_dir) if load_bundle else None
+
+    @classmethod
+    def disabled_for_research(cls) -> "MLFilter":
+        """Explicitly disable ML without reading any local model artifacts.
+
+        This does not authorize a trade: the shared pipeline still requires
+        PAPER_ALLOW_DISABLED_ML for research and records ML_DISABLED.
+        """
+        return cls(load_bundle=False)
 
     @staticmethod
     def load_latest_model(model_dir: str | Path = "data/models/ml_filter") -> "MLFilter":

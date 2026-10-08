@@ -1,0 +1,111 @@
+{
+  "classification": "WATCHLIST",
+  "classification_scope": "OBSERVATIONAL_DIAGNOSTIC_ONLY",
+  "effective_config": {
+    "bootstrap_dependence": "IID_TRADES_ASSUMPTION",
+    "cost_basis": "INPUT_PROFIT_AS_SUPPLIED_NO_COST_RECALCULATION",
+    "evidence_version": "2.0",
+    "initial_balance": 10000.0,
+    "input_selection": "SUPPLIED_TRADES",
+    "iterations": 2000,
+    "method": "bootstrap",
+    "rng": "NUMPY_PCG64",
+    "ruin_event": "MAX_PEAK_DRAWDOWN_AT_LEAST_THRESHOLD",
+    "ruin_threshold_pct": 30.0,
+    "runtime_versions": {
+      "numpy": "2.4.4",
+      "pandas": "3.0.2",
+      "python": "3.14.4"
+    },
+    "sampling_model": "FIXED_CURRENCY_PNL_NO_RESIZING",
+    "seed": 82,
+    "sequence_axis": "SYNTHETIC_TRADE_INDEX"
+  },
+  "evidence_scope": "CLOSED_TRADE_PNL_SEQUENCE_SIMULATION",
+  "evidence_version": "2.0",
+  "execution_attempted": false,
+  "fifth_percentile_return_pct": -30.005499999999486,
+  "input_files": [
+    "C:\\Users\\user\\.codex\\worktrees\\forex-backtest-validation\\New project\\docs\\testing\\evidence\\2026-10-05-shared-pipeline\\diagnostic-7abf90e\\EURUSD_trades.csv"
+  ],
+  "mode": "monte-carlo",
+  "ninety_fifth_percentile_drawdown_pct": -33.79520180480309,
+  "operational_scenarios_tested": false,
+  "order_check_called": false,
+  "order_send_called": false,
+  "probability_of_ruin": 9.25,
+  "probability_of_ruin_units": "PERCENT",
+  "promotion_eligible": false,
+  "reference_time_policy": "FIXED_IDENTITY_ANCHOR_NOT_MARKET_TIME",
+  "reports_created": [
+    "C:\\Users\\user\\AppData\\Local\\Temp\\agi-sequence-496140e-1791191524637\\EURUSD\\monte-carlo\\summary.json",
+    "C:\\Users\\user\\AppData\\Local\\Temp\\agi-sequence-496140e-1791191524637\\EURUSD\\monte-carlo\\simulations.csv",
+    "C:\\Users\\user\\AppData\\Local\\Temp\\agi-sequence-496140e-1791191524637\\EURUSD\\monte-carlo\\inputs.json"
+  ],
+  "result": {
+    "fifth_percentile_return_pct": -30.005499999999486,
+    "final_equity_percentiles": {
+      "p5": 6999.450000000052,
+      "p50": 9037.500000000175,
+      "p95": 11128.849999999886
+    },
+    "initial_balance": 10000.0,
+    "iterations": 2000,
+    "max_consecutive_losses_percentiles": {
+      "p5": 5.0,
+      "p50": 7.0,
+      "p95": 12.0
+    },
+    "max_drawdown_percentiles": {
+      "p5": -33.79520180480309,
+      "p50": -17.61283874445951,
+      "p95": -7.97042416350974
+    },
+    "method": "bootstrap",
+    "ninety_fifth_percentile_drawdown_pct": -33.79520180480309,
+    "risk_of_ruin_pct": 9.25,
+    "ruin_event": "MAX_PEAK_DRAWDOWN_AT_LEAST_THRESHOLD",
+    "ruin_threshold_pct": 30.0,
+    "sampling_model": "FIXED_CURRENCY_PNL_NO_RESIZING",
+    "seed": 82,
+    "sequence_axis": "SYNTHETIC_TRADE_INDEX",
+    "simulations": []
+  },
+  "ruin_event": "MAX_PEAK_DRAWDOWN_AT_LEAST_THRESHOLD",
+  "run_manifest": {
+    "config_hash": "4af55690d7efb8512a66d2be210ba99de13b4a396b33d01aff574da78eeb85a1",
+    "data_root": "C:\\Users\\user\\AppData\\Local\\Temp\\agi-sequence-496140e-1791191524637\\runtime",
+    "dataset_hash": "b922b6959d52d0e1bd67e34d38f6738ac16f26b41211ed72918cf6340534c7c2",
+    "git_commit_sha": "496140ec26923c48ec9e5f9a485e87bf89e773bc",
+    "git_dirty": false,
+    "instrument_metadata_hash": "",
+    "instrument_snapshot_hash": "",
+    "manifest_version": "1.1",
+    "mode": "monte-carlo",
+    "package_versions": {
+      "MetaTrader5": "5.0.5735",
+      "numpy": "2.4.4",
+      "pandas": "3.0.2"
+    },
+    "project_root": "C:\\Users\\user\\.codex\\worktrees\\forex-backtest-validation\\New project",
+    "python_version": "3.14.4",
+    "reference_time_utc": "1970-01-01T00:00:00+00:00",
+    "run_id": "812718949e687dbc",
+    "safety": {
+      "demo_only": true,
+      "execution_attempted": false,
+      "live_trading_approved": false,
+      "order_check_called": false,
+      "order_send_called": false
+    },
+    "seed": 82,
+    "source_tree_hash": "0c57bef42f9007932f5a932967b644e63283a690685761f249beb0912bee8fa5",
+    "symbols": [],
+    "timeframe": ""
+  },
+  "sample_status": "USABLE_SAMPLE",
+  "seed": 82,
+  "simulations": 2000,
+  "total_trades": 173,
+  "upstream_provenance_status": "UNKNOWN"
+}

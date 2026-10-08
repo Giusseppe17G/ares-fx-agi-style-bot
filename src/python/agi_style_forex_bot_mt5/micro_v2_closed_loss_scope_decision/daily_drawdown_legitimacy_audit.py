@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Mapping
+from agi_style_forex_bot_mt5.core.operational_state import HaltKind, halt_kind_of
 
 
 def audit_daily_drawdown_legitimacy(attribution: Mapping[str, Any], quarantine: Mapping[str, Any], dataset: Mapping[str, Any]) -> dict[str, Any]:
@@ -24,10 +25,10 @@ def audit_daily_drawdown_legitimacy(attribution: Mapping[str, Any], quarantine: 
 
 
 def _halt_count(dataset: Mapping[str, Any]) -> int:
-    count = 0
-    for event in dataset.get("events", []):
-        payload = event.get("payload") if isinstance(event.get("payload"), Mapping) else {}
-        text = " ".join(str(item) for item in (event.get("event_type"), event.get("message"), payload.get("halt_reason"), payload.get("alert_code"), payload.get("error")))
-        if "PAPER_DAILY_DRAWDOWN" in text or "PAPER_DAILY_DRAWDOWN_HALT" in text:
-            count += 1
-    return count
+    """Count drawdown halt events using the canonical detector's token rule."""
+
+    return sum(
+        1
+        for event in dataset.get("events", [])
+        if isinstance(event, Mapping) and halt_kind_of(event) is HaltKind.DAILY_DRAWDOWN
+    )

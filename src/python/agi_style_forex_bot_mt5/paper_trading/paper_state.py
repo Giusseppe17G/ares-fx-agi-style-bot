@@ -15,6 +15,7 @@ from agi_style_forex_bot_mt5.utils.safe_datetime import safe_parse_datetime
 
 from .paper_performance import paper_metrics
 from .paper_pnl_engine import pnl_value
+from agi_style_forex_bot_mt5.core.operational_state import DEFAULT_DAILY_DRAWDOWN_LIMIT
 
 
 def build_paper_open_trades_report(*, database: TelemetryDatabase, output_dir: str | Path) -> dict[str, Any]:
@@ -161,7 +162,7 @@ def _closed_today(trades: list[Mapping[str, Any]]) -> int:
 def _halt_reason(metrics: Mapping[str, Any], state: Mapping[str, Any]) -> str:
     if bool(state.get("shadow_paused", False)):
         return "SHADOW_MANUALLY_PAUSED"
-    if float(metrics.get("daily_drawdown_shadow", 0.0) or 0.0) <= -3.0:
+    if float(metrics.get("daily_drawdown_shadow", 0.0) or 0.0) <= DEFAULT_DAILY_DRAWDOWN_LIMIT:
         return "PAPER_DAILY_DRAWDOWN_HALT"
     if int(metrics.get("open_trades", 0) or 0) > 0:
         return "OPEN_TRADES_REVIEW_REQUIRED"
