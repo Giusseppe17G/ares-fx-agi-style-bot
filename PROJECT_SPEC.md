@@ -1262,3 +1262,28 @@ de estrategia ni usa funciones iMA/iRSI/iATR de semantica no acreditada.
   complejos, booleanos u objetos (incluido Decimal sin normalizar) se rechazan
   antes de convertir a float; truncar una parte imaginaria o convertir volumen
   positivo no representable en cero no puede activar el fallback.
+
+### 17.11 Verificacion Matematica Nativa Aislada
+
+Herramienta de pruebas, no release del EA ni backtest financiero. Un wrapper
+en `tests/mt5/` reutiliza las aserciones de observacion, barras e indicadores;
+solo admite MQL_TESTER con modo de calculo matematico. No envia ordenes, lee
+cuentas/simbolos/historial ni usa DLL, red o archivos desde MQL. Publica en logs
+conteos/fallos y finalizacion, sin aceptar ausencia de log como exito.
+
+- Runner separado del compilador usa un directorio temporal nuevo y copia solo
+  binarios publicos instalados y el EX5 del harness verificado por hash. Nunca
+  copia cuentas, credenciales, perfiles ni bases de datos de un terminal previo.
+- Configuracion de Tester Model=3, sin optimizacion, agentes remotos o cloud,
+  trading automatico y DLL deshabilitados; no se configura login ni contrasena.
+  Portable separa archivos pero no acredita aislamiento de red del anfitrion.
+- El proceso se inicia oculto, con limite temporal y limpieza solo de procesos
+  propios identificados por PID/ruta de este staging. No cierra terminales del
+  usuario, cambia firewall/registro ni instala servicios/agentes persistentes.
+- Evidencia conserva hashes de wrapper/includes/EX5/config/binarios, logs y
+  estado de finalizacion. Timeout, error, datos ausentes o discrepancia de
+  conteos no se consideran aprobacion. Si no arranca sin cuenta, queda pendiente
+  y no se introduce una cuenta para forzar la prueba.
+- Un resultado positivo solo verifica estas fixtures sinteticas en la version
+  concreta de MQL5. No certifica adquisicion, reloj real, broker, asignacion
+  fallida, rentabilidad, ejecucion de trading ni Strategy Promotion Gate.
