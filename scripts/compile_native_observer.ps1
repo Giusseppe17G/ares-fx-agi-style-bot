@@ -1,3 +1,5 @@
+#Requires -Version 7.0
+# [System.IO.Path]::GetRelativePath needs .NET Core; Windows PowerShell 5.1 stops here.
 [CmdletBinding()]
 param(
     [string]$MetaEditor = 'C:\Program Files\MetaTrader 5\MetaEditor64.exe',
@@ -27,8 +29,8 @@ foreach ($source in $sources) {
     Copy-Item -LiteralPath $source.FullName -Destination $destination
     $sourceHashes[$relative.Replace('\','/')] = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
 }
-$harnessNames = @('ObservationPolicyHarness.mq5', 'ClosedBarWindowHarness.mq5', 'CoreIndicatorsHarness.mq5')
-foreach ($name in ($harnessNames + @('GeneratedClosedBarFixtures.mqh', 'GeneratedCoreIndicatorFixtures.mqh'))) {
+$harnessNames = @('ObservationPolicyHarness.mq5', 'ClosedBarWindowHarness.mq5', 'CoreIndicatorsHarness.mq5', 'RiskGateHarness.mq5')
+foreach ($name in ($harnessNames + @('GeneratedClosedBarFixtures.mqh', 'GeneratedCoreIndicatorFixtures.mqh', 'GeneratedRiskGateFixtures.mqh'))) {
     $harness = Join-Path $projectRoot ('tests\mt5\' + $name)
     $destination = Join-Path $mqlRoot ('Scripts\' + $name)
     Copy-Item -LiteralPath $harness -Destination $destination
@@ -48,7 +50,8 @@ foreach ($relative in $compileSources) {
     $binary = [System.IO.Path]::ChangeExtension($source, '.ex5')
     if (-not (Test-Path -LiteralPath $log)) { throw 'Compiler produced no diagnostic log.' }
     $diagnostics = Get-Content -LiteralPath $log -Raw
-    $clean = $diagnostics -match '0 errors, 0 warnings' -and (Test-Path -LiteralPath $binary -PathType Leaf)
+    # Anchored: an unanchored '0 errors, 0 warnings' also matches '10 errors, 0 warnings'.
+    $clean = $diagnostics -match '(?m)^Result: 0 errors, 0 warnings,' -and (Test-Path -LiteralPath $binary -PathType Leaf)
     $results += [ordered]@{
         source = $relative.Replace('\','/'); clean_build = $clean; process_exit_code = $process.ExitCode
         log_sha256 = (Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -61,7 +64,7 @@ foreach ($relative in $compileSources) {
 }
 $manifest = [ordered]@{
     schema_version = 'native_compile_evidence_v1'; scope = 'NATIVE_OBSERVATION_ONLY'
-    additional_scopes = @('NATIVE_CLOSED_BAR_WINDOW_ONLY', 'NATIVE_CORE_INDICATORS_ONLY')
+    additional_scopes = @('NATIVE_CLOSED_BAR_WINDOW_ONLY', 'NATIVE_CORE_INDICATORS_ONLY', 'NATIVE_RISK_GATE_ONLY')
     compiled_at_utc = [DateTime]::UtcNow.ToString('o'); compiler_version = (Get-Item -LiteralPath $compiler).VersionInfo.FileVersion
     compiler_sha256 = (Get-FileHash -LiteralPath $compiler -Algorithm SHA256).Hash.ToLowerInvariant()
     build_script_sha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()

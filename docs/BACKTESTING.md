@@ -116,4 +116,4 @@ Backtest output labels each symbol:
 - `WATCHLIST`
 - `REJECTED`
 
-See `docs/STRATEGY_PROMOTION_GATE.md` for the full policy. Approval is not permission to trade. It only means the strategy/symbol can be considered for prolonged shadow/demo observation.
+See `docs/STRATEGY_PROMOTION_GATE.md` for the full policy. Approval is not permission to trade. It only means the strategy/symbol can be considered for prolonged shadow observation (paper, no orders); demo execution additionally requires the cumulative gate of `PROJECT_SPEC.md` section 12.1.

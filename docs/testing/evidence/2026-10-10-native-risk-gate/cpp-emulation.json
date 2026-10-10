@@ -1,0 +1,89 @@
+{
+  "schema_version": "native_cpp_emulation_v1",
+  "scope": "CPP_EMULATION_OF_PURE_NATIVE_MODULES",
+  "compiler": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "flags": [
+    "-std=c++17",
+    "-O0",
+    "-ffp-contract=off",
+    "-fno-fast-math",
+    "-fsanitize=undefined",
+    "-fno-sanitize-recover=undefined",
+    "-Wall",
+    "-Wno-unused-variable",
+    "-Wno-unused-but-set-variable"
+  ],
+  "passed": true,
+  "suites": [
+    {
+      "suite": "closed_bars",
+      "harness": "ClosedBarWindowHarness.mq5",
+      "expected_checks": 1103,
+      "passed": true,
+      "reason": "EMULATED_FIXTURES_PASSED",
+      "source_sha256": {
+        "src/mt5/Include/Contracts/ClosedBarContract.mqh": "6943af1ae359a54a02332e7faad566893b96457b0715fc48bc796f557c8925a2",
+        "src/mt5/Include/Core/ClosedBarWindow.mqh": "6ea935da90d7bcfe1c0c3dc26207776800d933cd8b371cf5563d6827e5f5b491",
+        "tests/mt5/ClosedBarWindowHarness.mq5": "aca6013070949d4859cb22920b623f3e2498db91cf670ca9d75806cb8ba91c17",
+        "tests/mt5/GeneratedClosedBarFixtures.mqh": "ebfc995ea5da01c46155d0712b0acb70d0cf79d99e5de484f6f6563fc5ced734"
+      },
+      "compiler_warnings": 0,
+      "exit_code": 0,
+      "assertion_failures": [],
+      "assertion_failure_count": 0,
+      "ubsan_report": false,
+      "checks": 1103,
+      "failures": 0
+    },
+    {
+      "suite": "core_indicators",
+      "harness": "CoreIndicatorsHarness.mq5",
+      "expected_checks": 1348,
+      "passed": true,
+      "reason": "EMULATED_FIXTURES_PASSED",
+      "source_sha256": {
+        "src/mt5/Include/Contracts/ClosedBarContract.mqh": "6943af1ae359a54a02332e7faad566893b96457b0715fc48bc796f557c8925a2",
+        "src/mt5/Include/Contracts/CoreIndicatorContract.mqh": "c1de359ea9de22afa4e8acfa01e8e1bbe7d7f25e66501b1ba521f78cce305c65",
+        "src/mt5/Include/Core/ClosedBarWindow.mqh": "6ea935da90d7bcfe1c0c3dc26207776800d933cd8b371cf5563d6827e5f5b491",
+        "src/mt5/Include/Core/CoreIndicators.mqh": "6d0a9db198c90739f178ba622d91e1ce511a937ad326dc0b0ae52a8ea22bd00f",
+        "tests/mt5/CoreIndicatorsHarness.mq5": "097ed6d3b9ffafd14a44fdc844f8c209492a37317bf3e30474c938b65cea7ea3",
+        "tests/mt5/GeneratedCoreIndicatorFixtures.mqh": "2bdf82a62837fcc907f175c6e9f94c6a6ee69ccf79ec9b05f1b9b7d8d001d649"
+      },
+      "compiler_warnings": 0,
+      "exit_code": 0,
+      "assertion_failures": [],
+      "assertion_failure_count": 0,
+      "ubsan_report": false,
+      "checks": 1348,
+      "failures": 0
+    },
+    {
+      "suite": "risk_gate",
+      "harness": "RiskGateHarness.mq5",
+      "expected_checks": 1433,
+      "passed": true,
+      "reason": "EMULATED_FIXTURES_PASSED",
+      "source_sha256": {
+        "src/mt5/Include/Contracts/MarketSnapshot.mqh": "1944e4bbd02b563611eceb75a1600ac6d8af90c7465fe933200c68505d2f33b8",
+        "src/mt5/Include/Contracts/RiskContract.mqh": "ff6d0105d0469b478c4191ba47e7f7b1fee04b7756849d5d682c3785ca6f5f95",
+        "src/mt5/Include/Risk/NativeRiskGate.mqh": "e131b592b78fdf2c204cee2db19396d475ecff031b11ecf4be1410288f12ba9b",
+        "tests/mt5/GeneratedRiskGateFixtures.mqh": "4065d0133ad73a79b1e910b0709237a2488bdd9e619866eb84ad901b9ef3c2ac",
+        "tests/mt5/RiskGateHarness.mq5": "40bff6c32fd007c251428a2331c5c9e440fd7664e17c335f67c2ed8f695f7b80"
+      },
+      "compiler_warnings": 0,
+      "exit_code": 0,
+      "assertion_failures": [],
+      "assertion_failure_count": 0,
+      "ubsan_report": false,
+      "checks": 1433,
+      "failures": 0
+    }
+  ],
+  "mql5_runtime_verified": false,
+  "execution_authorized": false,
+  "full_pipeline_verified": false,
+  "limits": [
+    "Emulates MQL5 arrays, strings and Math* with an explicit C++ shim.",
+    "Does not verify the MQL5 compiler, Strategy Tester, broker data or execution."
+  ]
+}

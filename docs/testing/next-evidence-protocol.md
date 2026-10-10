@@ -35,6 +35,9 @@ Los porcentajes de acierto no sustituyen beneficio neto, riesgo y costes.
 - Comparar con no-trade, baseline direccional cuando sea pertinente, entradas
   aleatorias con riesgo/frecuencia/costes equivalentes y ablacion del filtro
   principal. Usar identicos datos evaluables y el mismo modelo de ejecucion.
+  Implementado en `scripts/run_predeclared_baselines.py` (§17.14); sobre los
+  datos de desarrollo actuales la estrategia no supera a esos baselines
+  (`docs/research/trend-pullback-predeclared-v1-baselines.md`).
 - Registrar todas las configuraciones y rechazos, no solo el ganador. Si se
   seleccionan parametros, usar validacion y walk-forward con purga y tests
   disjuntos. Final-test se abre una vez; cualquier ajuste posterior lo consume

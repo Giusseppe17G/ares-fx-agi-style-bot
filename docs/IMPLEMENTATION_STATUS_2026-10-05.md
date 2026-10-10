@@ -221,6 +221,70 @@ intencional. Log: `docs/testing/evidence/2026-10-05-shared-pipeline/tests-core-i
 Ambos generadores de fixtures pasaron `--check` antes de esa corrida. No se
 repitio el estudio financiero para atribuir beneficio a cambios de software.
 
+La ampliacion del 2026-10-10 completa la herramienta de verificacion matematica
+nativa (§17.11): el runner invocaba `scripts/check_native_math_logs.py`, que no
+existia; compilaba y copiaba binarios y fallaba antes de iniciar el terminal.
+Primera entrega (wrapper v1, superada por la v2 del parrafo siguiente: once
+registros, cuatro stages, 3.915 aserciones y 88 pruebas). El parser nuevo es
+fail-closed: solo acepta la secuencia exacta de nueve registros con 2.482 aserciones, sin
+rechazos, ticks ni fallos, y una config `Model=3` sin cuenta ni agentes
+remotos. El runner ancla la comprobacion de compilacion (la subcadena anterior
+aceptaba `10 errors, 0 warnings`) y ejecuta el parser con `-I`. 80 pruebas nuevas
+cruzan gramatica, conteos, macros, include guards y runner; mutaciones
+temporales confirmaron que detectan regresiones. Ver
+`docs/testing/native-math-harness.md` y
+`docs/decisions/2026-10-10-native-math-log-parser.md`. **No se compilo el
+wrapper ni se inicio MetaTrader** (entorno Linux); el runtime MQL sigue sin
+verificar. Suite completa con Python 3.14.4/pandas 3.0.2/NumPy 2.4.4 en sabado,
+en ese momento: **2.522 passed y 5 fallos** que dependian del reloj (mercado
+cerrado) y un test intermitente que identificaba loggers con `id()`; los tres
+problemas se corrigieron despues (ver mas abajo). Logs:
+`docs/testing/evidence/2026-10-10-native-math-parser/`.
+
+La continuacion del 2026-10-10 implementa el **Risk Gate nativo puro**
+(§17.12, `native_risk_gate_v1`): mismo orden y codigos que el `RiskEngine`
+Python, limites con los techos de §6, aritmetica exacta en lattice decimal para
+reproducir el dimensionado `Decimal` sin redondear riesgo hacia arriba, y
+politicas mas estrictas documentadas (rejilla de tick, NaN/Inf, metadata
+explicita de posiciones). 113 fixtures con el `RiskEngine` real y 1.433
+aserciones; es el cuarto stage del harness matematico v2 (3.915 aserciones) y
+se compila con `compile_native_observer.ps1`. No esta conectado al EA ni
+autoriza ejecucion.
+
+Por primera vez se **ejecutan** aserciones nativas: la emulacion C++ de §17.13
+corre barras cerradas (1.103), indicadores (1.348) y risk gate (1.433) con g++,
+UBSan y sin contraccion FMA: 3.884/3.884 pasan, sin warnings. Mutaciones
+deliberadas del gate son detectadas. No es runtime MQL5 ni Tester.
+
+Correcciones de la misma entrega: (a) un tick con fecha futura o timestamp
+invalido ya no se etiqueta como mercado cerrado en fin de semana (conector y
+taxonomia); seguia rechazandose, pero ocultaba fallos de reloj del broker;
+(b) tres tests de `mt5_data_mode` dependian de la hora UTC (sesion
+London/NY), no del fin de semana, y ahora fijan el reloj; (c) un test
+intermitente identificaba loggers con `id()` reutilizable; (d)
+`scripts/healthcheck.ps1` no parseaba en PowerShell (`"$Level: ..."`), hallado
+con el parser de PowerShell 7.4.6 sobre todos los scripts; (e) runner y parser
+del harness endurecidos tras revision adversarial (PowerShell 7 obligatorio,
+motivo del primer control fallido, staging/directorios enlazados, ejecuciones
+duplicadas de agentes, parser solo stdlib con `-S`).
+
+**CI offline** (§16): `.github/workflows/validation.yml` ejecuta en cada push y
+PR el lint documental (`scripts/check_docs.py`), `--check` de los tres
+generadores de fixtures nativas, la emulacion C++ y la suite pytest con
+dependencias fijadas, sin MetaTrader, broker, cuenta ni secretos. Decision en
+`docs/decisions/2026-10-10-offline-ci-validation.md`. No compila MQL5.
+
+**Baselines emparejados** (§17.14): el estudio predeclarado se recalculo con el
+codigo actual (27/27 celdas iguales a lo preservado salvo redondeo de suma
+<= 2e-12) y se comparo con no-trade,
+direccion invertida y tres baselines aleatorios con ejecucion y costes
+identicos (1.000 replicas). En train y validation la estrategia es igual o peor
+que entrar al azar en 17 de 18 celdas; invertir su direccion mejora 19 de 27.
+Solo development_test de EURUSD/GBPUSD supera al azar, tramo ya inspeccionado y
+contradicho por los anteriores. **No hay evidencia de ventaja** de las reglas de
+seleccion actuales; no se ajustan reglas con estos datos. Detalle en
+`docs/research/trend-pullback-predeclared-v1-baselines.md`.
+
 ## Pendientes que impiden promocion
 
 1. Capturas nuevas de quotes bid/ask y metadata del broker, con costes y moneda
@@ -234,10 +298,15 @@ repitio el estudio financiero para atribuir beneficio a cambios de software.
 5. Verificacion runtime del observador y posterior implementacion/verificacion
    de estrategia/riesgo nativos si se entrega el EA completo contemplado en la
    vision. Compilar el observador no acredita esos modulos ni paridad Python.
-6. Completar la validacion financiera del nuevo estudio predeclarado, incluidos
-   baselines y datos intactos. Las etiquetas de candidatos del runner legacy
-   no aplican parametros distintos al backtest y el
-   assessment reutiliza la misma muestra como train/test. Ahora lo declara
+   El wrapper matematico v2 ya tiene runner, parser y guards Python, y las
+   suites puras pasan en emulacion C++; la compilacion MetaEditor combinada y
+   el run del Tester siguen pendientes de una ejecucion Windows autorizada.
+   El risk gate nativo existe pero no esta integrado en el EA; la estrategia
+   nativa sigue pendiente.
+6. Completar la validacion financiera del nuevo estudio predeclarado con datos
+   intactos (los baselines ya estan evaluados sobre desarrollo, §17.14). Las
+   etiquetas de candidatos del runner legacy no aplican parametros distintos al
+   backtest y el assessment reutiliza la misma muestra como train/test. Ahora lo declara
    `OOS_NOT_EVALUATED`, limita resultados a diagnostico y no aprueba candidatos.
    El runner nuevo aplica parametros y separa tramos, pero sus resultados de
    desarrollo tampoco permiten seleccionar una estrategia validada.
@@ -246,4 +315,6 @@ Uso offline: `docs/testing/stateful-replay-input.md`. Fuentes publicas y decisio
 de metodologia: `docs/EXTERNAL_TRADING_BENCHMARK_2026-10-05.md`.
 Proximo paquete de evidencia: `docs/testing/next-evidence-protocol.md`.
 Compilacion y limitaciones nativas: `docs/testing/native-observation.md`.
+Verificacion matematica nativa: `docs/testing/native-math-harness.md`.
+Risk gate nativo: `docs/testing/native-risk-gate.md`.
 Recalculo de secuencias: `docs/testing/sequence-diagnostic-replay.md`.

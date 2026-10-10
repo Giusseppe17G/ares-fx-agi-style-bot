@@ -1,3 +1,5 @@
+#Requires -Version 7.0
+# [IO.Path]::GetRelativePath needs .NET Core; Windows PowerShell 5.1 stops here, before staging.
 [CmdletBinding()]
 param(
     [string]$InstallDirectory = 'C:\Program Files\MetaTrader 5',
@@ -31,7 +33,8 @@ foreach ($source in (Get-ChildItem -LiteralPath $includeRoot -Recurse -File | Wh
     $sourceHashes['Include/' + $relative.Replace('\','/')] = Get-Sha256 $destination
 }
 $fixtureNames = @('ObservationPolicyHarness.mq5','ClosedBarWindowHarness.mq5','GeneratedClosedBarFixtures.mqh',
-    'CoreIndicatorsHarness.mq5','GeneratedCoreIndicatorFixtures.mqh','NativeMathHarness.mq5')
+    'CoreIndicatorsHarness.mq5','GeneratedCoreIndicatorFixtures.mqh','RiskGateHarness.mq5',
+    'GeneratedRiskGateFixtures.mqh','NativeMathHarness.mq5')
 foreach ($name in $fixtureNames) {
     $destination = Join-Path $wrapperDirectory $name
     Copy-Item -LiteralPath (Join-Path $projectRoot ('tests\mt5\' + $name)) -Destination $destination
@@ -46,7 +49,8 @@ if (-not $compileProcess.WaitForExit(60000)) {
 $compileLog = [IO.Path]::ChangeExtension($wrapperSource, '.log')
 $compiledBinary = [IO.Path]::ChangeExtension($wrapperSource, '.ex5')
 if (-not (Test-Path -LiteralPath $compileLog) -or -not (Test-Path -LiteralPath $compiledBinary)) { throw 'Wrapper compile evidence missing; terminal was not started.' }
-if ((Get-Content -LiteralPath $compileLog -Raw) -notmatch '0 errors, 0 warnings') { throw 'Wrapper did not compile cleanly; terminal was not started.' }
+# Anchored: an unanchored '0 errors, 0 warnings' also matches '10 errors, 0 warnings'.
+if ((Get-Content -LiteralPath $compileLog -Raw) -notmatch '(?m)^Result: 0 errors, 0 warnings,') { throw 'Wrapper did not compile cleanly; terminal was not started.' }
 $binary = Join-Path $mqlRoot 'Experts\NativeMathHarness.ex5'
 Copy-Item -LiteralPath $compiledBinary -Destination $binary
 $publicBinaries = [ordered]@{}
@@ -138,7 +142,9 @@ try {
     foreach ($processInfo in (Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -in $ownedExecutablePaths })) {
         $owned = Get-Process -Id $processInfo.ProcessId -ErrorAction SilentlyContinue
         if ($null -ne $owned -and $owned.Path -in $ownedExecutablePaths -and $owned.StartTime.ToUniversalTime() -ge $launchUtc.AddSeconds(-1)) {
-            Stop-Process -Id $owned.Id -Force
+            # An agent may exit on its own between enumeration and stop; the
+            # re-enumeration below, not this call, decides cleanup_verified.
+            Stop-Process -Id $owned.Id -Force -ErrorAction SilentlyContinue
             [void]$owned.WaitForExit(3000)
             $stopped += [int]$owned.Id
         }
@@ -149,21 +155,40 @@ try {
     Save-Manifest $manifest $manifestPath
 }
 $logEvidencePath = Join-Path $stage 'native-math-log-evidence.json'
-& py -3.14 -B $parser --stage $stage --output $logEvidencePath
-$parserExit = $LASTEXITCODE
+$parserExit = $null
+$evidence = $null
+try {
+    # -I ignores PYTHON* variables and user site; -S also drops site-packages (stdlib only).
+    & py -3.14 -I -S -B $parser --stage $stage --output $logEvidencePath
+    $parserExit = $LASTEXITCODE
+    if (Test-Path -LiteralPath $logEvidencePath) {
+        $manifest.log_evidence_sha256 = Get-Sha256 $logEvidencePath
+        $evidence = Get-Content -LiteralPath $logEvidencePath -Raw | ConvertFrom-Json
+    }
+} catch {
+    # A missing launcher or unreadable evidence is recorded, never treated as a pass.
+    $manifest.parser_error_type = $_.Exception.GetType().FullName
+}
 $manifest.parser_exit_code = $parserExit
-if (Test-Path -LiteralPath $logEvidencePath) {
-    $evidence = Get-Content -LiteralPath $logEvidencePath -Raw | ConvertFrom-Json
-    $manifest.log_evidence_sha256 = Get-Sha256 $logEvidencePath
-    $manifest.log_evidence_passed = $evidence.passed -eq $true
-    if ($manifest.reason -eq 'AWAITING_LOG_VERIFICATION') { $manifest.reason = $evidence.reason }
-} else { $manifest.log_evidence_passed = $false }
-$bindingsUnchanged = (Get-Sha256 $configPath) -eq $manifest.config_sha256 -and (Get-Sha256 $binary) -eq $manifest.harness_ex5_sha256
-foreach ($name in $publicBinaries.Keys) { $bindingsUnchanged = $bindingsUnchanged -and ((Get-Sha256 (Join-Path $stage $name)) -eq $publicBinaries[$name]) }
+$manifest.log_evidence_passed = $null -ne $evidence -and $evidence.passed -eq $true
+$bindingsUnchanged = $false
+try {
+    $bindingsUnchanged = (Get-Sha256 $configPath) -eq $manifest.config_sha256 -and (Get-Sha256 $binary) -eq $manifest.harness_ex5_sha256
+    foreach ($name in $publicBinaries.Keys) { $bindingsUnchanged = $bindingsUnchanged -and ((Get-Sha256 (Join-Path $stage $name)) -eq $publicBinaries[$name]) }
+} catch { $bindingsUnchanged = $false }
 $manifest.launch_bindings_unchanged = $bindingsUnchanged
 $manifest.passed = $manifest.terminal_started -and $manifest.terminal_exited -and -not $manifest.timed_out -and
     $manifest.terminal_exit_code -eq 0 -and $manifest.cleanup_verified -and $bindingsUnchanged -and
     $parserExit -eq 0 -and $manifest.log_evidence_passed
+# The reason names the first gate that failed, so a NOT_VERIFIED run never
+# reports the parser's pass reason or a stale intermediate state.
+$manifest.reason = $(if ($manifest.reason -in @('LAUNCH_OR_PROCESS_ERROR', 'TERMINAL_TIMEOUT') -or -not $manifest.terminal_started) { $manifest.reason }
+    elseif ($manifest.terminal_exit_code -ne 0) { 'TERMINAL_EXIT_CODE_' + $manifest.terminal_exit_code }
+    elseif (-not $manifest.cleanup_verified) { 'CLEANUP_NOT_VERIFIED' }
+    elseif (-not $bindingsUnchanged) { 'LAUNCH_BINDINGS_CHANGED' }
+    elseif ($null -eq $evidence) { 'PARSER_EVIDENCE_MISSING' }
+    elseif ($parserExit -ne 0 -and $evidence.passed -eq $true) { 'PARSER_EXIT_CODE_' + $parserExit }
+    else { [string]$evidence.reason })
 $manifest.status = $(if ($manifest.passed) { 'FIXTURE_RUNTIME_VERIFIED' } else { 'NOT_VERIFIED' })
 $manifest.finished_at_utc = [DateTime]::UtcNow.ToString('o')
 Save-Manifest $manifest $manifestPath

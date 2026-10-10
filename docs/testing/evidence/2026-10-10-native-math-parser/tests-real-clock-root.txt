@@ -1,0 +1,173 @@
+........................................................................ [  2%]
+........................................................................ [  5%]
+........................................................................ [  8%]
+........................................................................ [ 11%]
+........................................................................ [ 14%]
+.....................................................................F.. [ 17%]
+.........F.F............................................................ [ 19%]
+........................................................................ [ 22%]
+........................................................................ [ 25%]
+........................................................................ [ 28%]
+........................................................................ [ 31%]
+........................................................................ [ 34%]
+........................................................................ [ 37%]
+........................................................................ [ 39%]
+........................................................................ [ 42%]
+..............................FF........................................ [ 45%]
+........................................................................ [ 48%]
+........................................................................ [ 51%]
+........................................................................ [ 54%]
+........................................................................ [ 56%]
+........................................................................ [ 59%]
+........................................................................ [ 62%]
+........................................................................ [ 65%]
+........................................................................ [ 68%]
+........................................................................ [ 71%]
+........................................................................ [ 74%]
+........................................................................ [ 76%]
+........................................................................ [ 79%]
+........................................................................ [ 82%]
+........................................................................ [ 85%]
+........................................................................ [ 88%]
+........................................................................ [ 91%]
+........................................................................ [ 94%]
+........................................................................ [ 96%]
+........................................................................ [ 99%]
+.......                                                                  [100%]
+=================================== FAILURES ===================================
+________ test_mt5_data_never_calls_order_send_and_creates_shadow_order _________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-18/test_mt5_data_never_calls_orde0')
+
+    def test_mt5_data_never_calls_order_send_and_creates_shadow_order(tmp_path: Path) -> None:
+        client = MockMT5DataClient()
+        bot, db = _bot(tmp_path, client)
+        try:
+            summary = bot.run()
+            assert summary.execution_attempted is False
+            assert summary.mt5_connected is True
+>           assert summary.shadow_orders_created == 1
+E           AssertionError: assert 0 == 1
+E            +  where 0 = MT5DataOnlySummary(mode='mt5-data', mt5_connected=True, symbols_seen=1, symbols_rejected=0, signals_detected=1, signals_rejected=1, risk_rejected=0, shadow_orders_created=0, execution_attempted=False).shadow_orders_created
+
+<repo>/tests/python/test_mt5_data_mode.py:224: AssertionError
+__________________ test_risk_rejected_creates_no_shadow_order __________________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-18/test_risk_rejected_creates_no_0')
+
+    def test_risk_rejected_creates_no_shadow_order(tmp_path: Path) -> None:
+        client = MockMT5DataClient()
+        bot, db = _bot(tmp_path, client, risk_engine=RejectingRiskEngine())
+        try:
+            summary = bot.run()
+>           assert summary.risk_rejected == 1
+E           AssertionError: assert 0 == 1
+E            +  where 0 = MT5DataOnlySummary(mode='mt5-data', mt5_connected=True, symbols_seen=1, symbols_rejected=0, signals_detected=1, signals_rejected=1, risk_rejected=0, shadow_orders_created=0, execution_attempted=False).risk_rejected
+
+<repo>/tests/python/test_mt5_data_mode.py:379: AssertionError
+______________ test_telegram_failure_does_not_break_mt5_data_loop ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-18/test_telegram_failure_does_not0')
+
+    def test_telegram_failure_does_not_break_mt5_data_loop(tmp_path: Path) -> None:
+        def failing_sender(_url: str, _payload: object, _timeout: float):
+            raise requests.Timeout("telegram timeout token 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    
+        client = MockMT5DataClient()
+        db = TelemetryDatabase(tmp_path / "telemetry.sqlite3")
+        try:
+            bot = MT5DataOnlyBot(
+                config=BotConfig(),
+                symbols=("EURUSD",),
+                audit_logger=JsonlAuditLogger(tmp_path / "logs"),
+                database=db,
+                mt5_client=client,
+                telegram_notifier=TelegramNotifier(
+                    database=db,
+                    enabled=True,
+                    bot_token="123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+                    chat_id="123456789",
+                    sender=failing_sender,
+                ),
+            )
+            summary = bot.run()
+            assert summary.execution_attempted is False
+>           assert summary.shadow_orders_created == 1
+E           AssertionError: assert 0 == 1
+E            +  where 0 = MT5DataOnlySummary(mode='mt5-data', mt5_connected=True, symbols_seen=1, symbols_rejected=0, signals_detected=1, signals_rejected=1, risk_rejected=0, shadow_orders_created=0, execution_attempted=False).shadow_orders_created
+
+<repo>/tests/python/test_mt5_data_mode.py:420: AssertionError
+_____________ test_mt5_diagnose_unverified_future_tick_is_rejected _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-18/test_mt5_diagnose_unverified_f0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f38f2627a10>
+
+    def test_mt5_diagnose_unverified_future_tick_is_rejected(tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        db = TelemetryDatabase(tmp_path / "diag.sqlite3")
+        try:
+            bot = MT5DiagnoseBot(
+                config=BotConfig(),
+                symbols=("EURUSD",),
+                audit_logger=JsonlAuditLogger(tmp_path / "logs"),
+                database=db,
+                mt5_client=OffsetMT5(offset_seconds=10800),
+            )
+            summary = bot.run()
+            diagnostic = summary.diagnostics[0]
+            assert summary.symbols_rejected == 1
+            assert diagnostic["timestamp_normalized"] is False
+            assert diagnostic["broker_time_offset_seconds"] == 0
+            assert diagnostic["tick_time_status"] == "FUTURE_TOO_FAR"
+            assert diagnostic["status"] == "REJECTED"
+>           assert diagnostic["reject_code"] == "MARKET_DATA_INVALID"
+E           AssertionError: assert 'MARKET_CLOSED_OR_NO_TICKS' == 'MARKET_DATA_INVALID'
+E             
+E             - MARKET_DATA_INVALID
+E             + MARKET_CLOSED_OR_NO_TICKS
+
+<repo>/tests/python/test_phase28_mt5_time_normalization.py:210: AssertionError
+__________ test_forward_shadow_audits_rejected_unverified_future_tick __________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-18/test_forward_shadow_audits_rej0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f38f1a3bcb0>
+
+    def test_forward_shadow_audits_rejected_unverified_future_tick(tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        db = TelemetryDatabase(tmp_path / "forward.sqlite3")
+        try:
+            bot = ForwardShadowBot(
+                config=BotConfig(),
+                symbols=("EURUSD",),
+                audit_logger=JsonlAuditLogger(tmp_path / "logs"),
+                database=db,
+                mt5_client=OffsetMT5(offset_seconds=10800),
+                max_cycles=1,
+                cycle_seconds=0,
+                report_dir=str(tmp_path / "reports"),
+            )
+            summary = bot.run()
+            events = [row["event_type"] for row in db.fetch_all("events")]
+            assert summary.execution_attempted is False
+            assert "TICK_TIME_NORMALIZED" not in events
+>           assert "FUTURE_SIGNAL_REJECTION" in events
+E           AssertionError: assert 'FUTURE_SIGNAL_REJECTION' in ['FORWARD_SHADOW_STARTED', 'RECOVERY_STARTED', 'RECOVERY_COMPLETED', 'MARKET_CLOSED_REJECTION', 'PAPER_CYCLE_RECEIVED', 'PAPER_CYCLE_HALTED']
+
+<repo>/tests/python/test_phase28_mt5_time_normalization.py:233: AssertionError
+=============================== warnings summary ===============================
+tests/python/test_trend_pullback_research_evaluator.py::test_overflow_from_finite_but_impossible_monetary_scale_fails
+  <scratchpad>/venv314/lib/python3.14/site-packages/numpy/_core/_methods.py:49: RuntimeWarning: invalid value encountered in reduce
+    return umr_sum(a, axis, dtype, out, keepdims, initial, where)
+
+tests/python/test_trend_pullback_research_evaluator.py::test_overflow_from_finite_but_impossible_monetary_scale_fails
+  <scratchpad>/venv314/lib/python3.14/site-packages/numpy/_core/_methods.py:132: RuntimeWarning: invalid value encountered in reduce
+    ret = umr_sum(arr, axis, dtype, out, keepdims, where=where)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/python/test_mt5_data_mode.py::test_mt5_data_never_calls_order_send_and_creates_shadow_order
+FAILED tests/python/test_mt5_data_mode.py::test_risk_rejected_creates_no_shadow_order
+FAILED tests/python/test_mt5_data_mode.py::test_telegram_failure_does_not_break_mt5_data_loop
+FAILED tests/python/test_phase28_mt5_time_normalization.py::test_mt5_diagnose_unverified_future_tick_is_rejected
+FAILED tests/python/test_phase28_mt5_time_normalization.py::test_forward_shadow_audits_rejected_unverified_future_tick
+5 failed, 2522 passed, 2 warnings in 123.40s (0:02:03)

@@ -9,6 +9,8 @@
 // CoreIndicatorsHarness.mq5 097ed6d3b9ffafd14a44fdc844f8c209492a37317bf3e30474c938b65cea7ea3
 // GeneratedClosedBarFixtures.mqh ebfc995ea5da01c46155d0712b0acb70d0cf79d99e5de484f6f6563fc5ced734
 // GeneratedCoreIndicatorFixtures.mqh 2bdf82a62837fcc907f175c6e9f94c6a6ee69ccf79ec9b05f1b9b7d8d001d649
+// RiskGateHarness.mq5 40bff6c32fd007c251428a2331c5c9e440fd7664e17c335f67c2ed8f695f7b80
+// GeneratedRiskGateFixtures.mqh 4065d0133ad73a79b1e910b0709237a2488bdd9e619866eb84ad901b9ef3c2ac
 
 #define OnStart NativeMathRunObserver
 #define Check NativeMathObserverCheck
@@ -40,10 +42,22 @@
 #undef Check
 #undef OnStart
 
+#define OnStart NativeMathRunRiskGate
+#define Check NativeMathRiskGateCheck
+#define checks NativeMathRiskGateChecks
+#define failures NativeMathRiskGateFailures
+#include "RiskGateHarness.mq5"
+#undef failures
+#undef checks
+#undef Check
+#undef OnStart
+
 const int NATIVE_MATH_EXPECTED_OBSERVER=31;
 const int NATIVE_MATH_EXPECTED_CLOSED_BARS=1103;
 const int NATIVE_MATH_EXPECTED_CORE_INDICATORS=1348;
-const int NATIVE_MATH_EXPECTED_TOTAL=2482;
+const int NATIVE_MATH_EXPECTED_RISK_GATE=1433;
+const int NATIVE_MATH_EXPECTED_STAGES=4;
+const int NATIVE_MATH_EXPECTED_TOTAL=3915;
 bool NativeMathInitialized=false;
 bool NativeMathTesterCalled=false;
 bool NativeMathSuitesCompleted=false;
@@ -64,21 +78,22 @@ bool NativeMathContextAllowed(void)
 
 int NativeMathTotalChecks(void)
   {
-   return NativeMathObserverChecks+NativeMathClosedBarsChecks+NativeMathCoreIndicatorsChecks;
+   return NativeMathObserverChecks+NativeMathClosedBarsChecks+NativeMathCoreIndicatorsChecks+NativeMathRiskGateChecks;
   }
 
 int NativeMathTotalFailures(void)
   {
-   return NativeMathObserverFailures+NativeMathClosedBarsFailures+NativeMathCoreIndicatorsFailures;
+   return NativeMathObserverFailures+NativeMathClosedBarsFailures+NativeMathCoreIndicatorsFailures+NativeMathRiskGateFailures;
   }
 
 bool NativeMathPassed(void)
   {
    return NativeMathInitialized && NativeMathTesterCalled && NativeMathSuitesCompleted &&
-          NativeMathStagesCompleted==3 && NativeMathWrapperFailures==0 && NativeMathTicks==0 &&
+          NativeMathStagesCompleted==NATIVE_MATH_EXPECTED_STAGES && NativeMathWrapperFailures==0 && NativeMathTicks==0 &&
           NativeMathObserverChecks==NATIVE_MATH_EXPECTED_OBSERVER &&
           NativeMathClosedBarsChecks==NATIVE_MATH_EXPECTED_CLOSED_BARS &&
           NativeMathCoreIndicatorsChecks==NATIVE_MATH_EXPECTED_CORE_INDICATORS &&
+          NativeMathRiskGateChecks==NATIVE_MATH_EXPECTED_RISK_GATE &&
           NativeMathTotalChecks()==NATIVE_MATH_EXPECTED_TOTAL && NativeMathTotalFailures()==0;
   }
 
@@ -102,7 +117,7 @@ int OnInit(void)
       return INIT_FAILED;
      }
    NativeMathInitialized=true;
-   PrintFormat("AGI_NATIVE_MATH_BEGIN version=native_math_harness_v1 expected_checks=%d model_required=3 model_verified_in_mql=false execution_authorized=false full_pipeline_verified=false",
+   PrintFormat("AGI_NATIVE_MATH_BEGIN version=native_math_harness_v2 expected_checks=%d model_required=3 model_verified_in_mql=false execution_authorized=false full_pipeline_verified=false",
                NATIVE_MATH_EXPECTED_TOTAL);
    return INIT_SUCCEEDED;
   }
@@ -134,6 +149,8 @@ double OnTester(void)
    NativeMathRecordStage("closed_bars",NativeMathClosedBarsChecks,NATIVE_MATH_EXPECTED_CLOSED_BARS,NativeMathClosedBarsFailures);
    NativeMathRunCoreIndicators();
    NativeMathRecordStage("core_indicators",NativeMathCoreIndicatorsChecks,NATIVE_MATH_EXPECTED_CORE_INDICATORS,NativeMathCoreIndicatorsFailures);
+   NativeMathRunRiskGate();
+   NativeMathRecordStage("risk_gate",NativeMathRiskGateChecks,NATIVE_MATH_EXPECTED_RISK_GATE,NativeMathRiskGateFailures);
    NativeMathSuitesCompleted=true;
    if(!NativeMathContextAllowed()) NativeMathWrapperFailures++;
    PrintFormat("AGI_NATIVE_MATH_TOTAL checks=%d failures=%d ticks=%d accepted=%d wrapper_failures=%d stages=%d expected_checks=%d execution_authorized=false full_pipeline_verified=false",
@@ -145,7 +162,7 @@ double OnTester(void)
 
 void OnDeinit(const int reason)
   {
-   const bool completed=NativeMathTesterCalled && NativeMathSuitesCompleted && NativeMathStagesCompleted==3;
+   const bool completed=NativeMathTesterCalled && NativeMathSuitesCompleted && NativeMathStagesCompleted==NATIVE_MATH_EXPECTED_STAGES;
    PrintFormat("AGI_NATIVE_MATH_COMPLETE checks=%d failures=%d ticks=%d accepted=%d reason=%d completed=%d wrapper_failures=%d stages=%d expected_checks=%d model_verified_in_mql=false execution_authorized=false full_pipeline_verified=false",
                NativeMathTotalChecks(),NativeMathTotalFailures(),NativeMathTicks,NativeMathPassed() ? 1 : 0,
                reason,completed ? 1 : 0,NativeMathWrapperFailures,NativeMathStagesCompleted,NATIVE_MATH_EXPECTED_TOTAL);

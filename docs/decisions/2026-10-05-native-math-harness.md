@@ -1,6 +1,10 @@
 # Native mathematical fixture wrapper
 
 Date: 2026-10-05. Contract: PROJECT_SPEC section 17.11.
+Superseded in part on 2026-10-10: wrapper `native_math_harness_v2` adds the
+risk gate stage (1433), for four stages, eleven records and 3915 assertions,
+staged beside seven harness/fixture files. Counts below describe v1; see
+`docs/decisions/2026-10-10-native-math-log-parser.md`.
 Scope: test tooling and observability only. Trading release remains blocked.
 
 ## Decision

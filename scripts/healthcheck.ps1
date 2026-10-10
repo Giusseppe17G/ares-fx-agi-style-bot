@@ -13,7 +13,7 @@ function Add-Status {
         [string]$Level,
         [string]$Message
     )
-    $script:messages.Add("$Level: $Message")
+    $script:messages.Add("${Level}: $Message")
     if ($Level -eq "CRITICAL") {
         $script:status = "CRITICAL"
     } elseif ($Level -eq "WARNING" -and $script:status -ne "CRITICAL") {

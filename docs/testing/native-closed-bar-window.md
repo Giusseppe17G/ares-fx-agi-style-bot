@@ -37,13 +37,15 @@ second production Python selector. They do not execute MQL code.
 ```powershell
 py -3.14 -B scripts/generate_native_closed_bar_fixtures.py --check
 py -3.14 -B -m pytest tests/python/test_native_closed_bar_fixtures.py tests/python/test_native_observer_source.py
-./scripts/compile_native_observer.ps1
+pwsh -NoProfile -File .\scripts\compile_native_observer.ps1
 ```
 
 Build with `scripts/compile_native_observer.ps1`. It compiles the unchanged EA,
 the existing observation harness, and `ClosedBarWindowHarness.mq5` in new
-staging. The generated fixture include is copied beside its harness and hashed.
-Each compile requires a new binary and a log containing `0 errors, 0 warnings`.
+staging (today also the core indicator and risk gate harnesses; PowerShell 7).
+The generated fixture include is copied beside its harness and hashed. Each
+compile requires a new binary and a log line starting
+`Result: 0 errors, 0 warnings,`.
 The retained manifest hashes the MQL sources, compiler, script, binaries and
 raw logs. Nothing is installed into a terminal directory, and no terminal or
 harness is started. The manifest retains the observer scope and lists the

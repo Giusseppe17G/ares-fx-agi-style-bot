@@ -295,4 +295,5 @@ def _redact_login(login: Any) -> str | None:
     text = str(login)
     if len(text) <= 4:
         return "***"
-    return f"{text[:2]}***{text[-2:]}"
+    # PROJECT_SPEC section 10: only a partial suffix may be shown.
+    return f"***{text[-2:]}"
