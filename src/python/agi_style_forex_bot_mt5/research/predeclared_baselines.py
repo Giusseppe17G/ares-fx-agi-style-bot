@@ -25,7 +25,7 @@ from ..core.decision.signal_builder import build_signal_prices
 from ..core.instruments import InstrumentSpec
 from ..data.strategy_features import prepare_strategy_features, strategy_features_at
 from .experiment_plan import BAR_DURATION, ExperimentPlan, ResearchManagement, _binding, _utc, normalize_research_bars
-from .trend_pullback_evaluator import _snapshot, generate_trend_pullback_candidates
+from .trend_pullback_evaluator import _snapshot, evaluate_trend_pullback, generate_trend_pullback_candidates
 
 BASELINE_VERSION = "predeclared_baselines_v1"
 DIRECTIONS = ("BUY", "SELL")
@@ -245,10 +245,16 @@ def evaluate_baselines(plan: ExperimentPlan, candles: pd.DataFrame, cell: CellOu
     strategy = strategy_selection(plan, candles, cell, hypothesis_id=hypothesis_id)
     strategy_trades = [cell.trades[key] for key in strategy if key in cell.trades]
     strategy_summary = summarize_profits(_profits(cell, strategy))
-    # Same definitions as the evaluator's backtester run on these candidates.
     metrics = calculate_metrics(strategy_trades, initial_balance=plan.to_dict()["initial_balance"])
-    if not math.isclose(metrics.net_profit, strategy_summary["net_profit"], rel_tol=0, abs_tol=1e-6):
-        raise ValueError("strategy subset does not reproduce backtester net profit")
+    # The predeclared evaluator's own backtest of this cell must match the strategy
+    # subset of the per-candidate outcomes, or the cell fails.
+    actual = evaluate_trend_pullback(plan, candles, symbol=cell.symbol, hypothesis_id=hypothesis_id, split=cell.split)
+    expected = actual.outcome.metrics
+    if (len(actual.outcome.trades) != strategy_summary["trades"]
+            or not math.isclose(expected.net_profit, strategy_summary["net_profit"], rel_tol=0, abs_tol=1e-6)
+            or not math.isclose(expected.win_rate_pct, strategy_summary["win_rate_pct"], rel_tol=0, abs_tol=1e-9)
+            or not math.isclose(expected.max_drawdown_pct, metrics.max_drawdown_pct, rel_tol=0, abs_tol=1e-9)):
+        raise ValueError("strategy subset does not reproduce the predeclared evaluator")
     strategy_summary["max_drawdown_pct"] = metrics.max_drawdown_pct
     flipped = [(position, "SELL" if direction == "BUY" else "BUY") for position, direction in strategy]
     result = {"hypothesis_id": hypothesis_id, "symbol": cell.symbol, "split": cell.split,

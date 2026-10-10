@@ -32,7 +32,8 @@ def main(argv=None):
         args.output.mkdir(parents=True, exist_ok=False)
         report = run_baseline_matrix(plan, inputs["datasets"], replications=args.replications)
         source = current_source_manifest()
-        report["baseline_code"] = {"git_commit_sha": source.git_commit_sha, "source_tree_hash": source.source_tree_hash}
+        report["baseline_code"] = {"git_commit_sha": source.git_commit_sha, "git_dirty": source.git_dirty,
+                                   "source_tree_hash": source.source_tree_hash}
         report["plan_code"] = {"git_commit_sha": plan.to_dict()["code_commit"], "source_sha256": plan.to_dict()["source_sha256"]}
         with (args.output / "baselines.json").open("x", encoding="utf-8", newline="\n") as handle:
             handle.write(canonical_json(report) + "\n")

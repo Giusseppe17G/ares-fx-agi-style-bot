@@ -1,5 +1,5 @@
 """Matched baselines on explicitly synthetic candles; never a market or promotion test."""
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import json
 from pathlib import Path
 import subprocess
@@ -47,6 +47,17 @@ def test_strategy_subset_reproduces_the_actual_evaluator(study, hypothesis, spli
     assert result["strategy"]["net_profit"] == pytest.approx(actual.outcome.metrics.net_profit, abs=1e-9)
     assert result["strategy"]["win_rate_pct"] == pytest.approx(actual.outcome.metrics.win_rate_pct)
     assert result["strategy"]["max_drawdown_pct"] == pytest.approx(actual.outcome.metrics.max_drawdown_pct)
+
+
+def test_outcomes_that_drift_from_the_evaluator_fail_the_cell(study):
+    plan, bars, cells = study
+    hypothesis_id = plan.hypotheses[0].hypothesis_id
+    cell = cells["validation"]
+    position, direction = baselines.strategy_selection(plan, bars, cell, hypothesis_id=hypothesis_id)[0]
+    trades = dict(cell.trades)
+    trades[(position, direction)] = replace(trades[(position, direction)], profit=trades[(position, direction)].profit + 1.0)
+    with pytest.raises(ValueError, match="does not reproduce the predeclared evaluator"):
+        baselines.evaluate_baselines(plan, bars, replace(cell, trades=trades), hypothesis_id=hypothesis_id, replications=5)
 
 
 def test_baselines_are_deterministic_matched_and_never_authorize(study):
@@ -143,6 +154,7 @@ def test_cli_runs_from_study_inputs_and_never_overwrites(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads((tmp_path / "out/baselines.json").read_text(encoding="utf-8"))
     assert report["plan_id"] == plan.plan_id and len(report["cells"]) == 9
+    assert set(report["baseline_code"]) == {"git_commit_sha", "git_dirty", "source_tree_hash"}
     assert (tmp_path / "out/baselines.csv").read_text(encoding="utf-8").count("\n") == 10
     again = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=600)
     assert again.returncode == 2 and json.loads(again.stdout)["status"] == "REJECTED"
