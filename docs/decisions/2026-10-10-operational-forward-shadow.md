@@ -64,6 +64,12 @@ evidence of the Strategy Promotion Gate, could not:
   the native math runner takes `-PythonVersion` (default `3`); profile names are
   no longer masked by the audit redaction.
 
+Superseded in part by `2026-10-10-declared-mt5-server-time.md`: quotes the
+connector rejects for integrity stop the run with exit code 5 instead of being
+skipped, skips are notified by Telegram, a real account latches even when the
+terminal reports disconnected, the backoff has a 5 s floor and the run stops
+cooperatively between cycles.
+
 ## Limits
 
 Paper evidence only. A green forward-shadow run says nothing about live fills.

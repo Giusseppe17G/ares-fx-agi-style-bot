@@ -12,6 +12,7 @@ import pandas as pd
 
 from agi_style_forex_bot_mt5.config import BotConfig
 from agi_style_forex_bot_mt5.execution import MT5Connector
+from agi_style_forex_bot_mt5.utils.mt5_server_time import server_series_to_utc
 
 REQUIRED_LIVE_CONTRACT_COLUMNS = (
     "timestamp_utc",
@@ -41,8 +42,13 @@ def normalize_ohlcv_contract(
     symbol: str,
     timeframe: str,
     min_rows: int | None = None,
+    server_time: str = "UTC",
 ) -> LiveContractResult:
-    """Normalize historical or live MT5 rates to one canonical schema."""
+    """Normalize historical or live MT5 rates to one canonical schema.
+
+    ``server_time`` is the declared MT5 trade-server clock of live rates; bar
+    times are converted to UTC before any later check (MT5_SERVER_TIME).
+    """
 
     columns_before: tuple[str, ...] = ()
     try:
@@ -75,6 +81,10 @@ def normalize_ohlcv_contract(
     timestamp, timestamp_status = _parse_timestamp(frame["timestamp_utc"])
     if timestamp_status != "OK":
         return LiveContractResult(frame, _diag(timestamp_status, source, symbol, timeframe, columns_before=columns_before, columns_after=tuple(frame.columns)))
+    try:
+        timestamp = server_series_to_utc(timestamp, server_time)
+    except ValueError as exc:
+        return LiveContractResult(frame, _diag("LIVE_SERVER_TIME_INVALID", source, symbol, timeframe, columns_before=columns_before, columns_after=tuple(frame.columns), error=str(exc)))
     frame["timestamp_utc"] = timestamp
     frame["time"] = frame["timestamp_utc"].dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     contract_warnings: list[str] = []
@@ -161,7 +171,7 @@ def build_live_feature_contract_report(
                 count = _bars_for(config, timeframe)
                 mt5_tf = getattr(connector.mt5, f"TIMEFRAME_{timeframe}", timeframe)
                 raw = connector.mt5.copy_rates_from_pos(resolution.broker_symbol, mt5_tf, 0, count)
-                result = normalize_ohlcv_contract(raw, source="live_mt5", symbol=symbol, timeframe=timeframe, min_rows=DIAGNOSTIC_MIN_BARS[timeframe])
+                result = normalize_ohlcv_contract(raw, source="live_mt5", symbol=symbol, timeframe=timeframe, min_rows=DIAGNOSTIC_MIN_BARS[timeframe], server_time=config.mt5_server_time)
                 diag = result.diagnostics
                 rows.append(
                     {

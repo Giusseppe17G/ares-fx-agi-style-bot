@@ -1,8 +1,9 @@
 # Guia de uso: puesta en marcha en Windows con cuenta demo
 
 Version del 2026-10-10. Esta guia usa solo comandos verificados en el codigo
-actual. Para el detalle tecnico ver `PROJECT_SPEC.md` y
-`docs/decisions/2026-10-10-operational-forward-shadow.md`.
+actual. Para el detalle tecnico ver `PROJECT_SPEC.md` (seccion 17.3),
+`docs/decisions/2026-10-10-operational-forward-shadow.md` y
+`docs/decisions/2026-10-10-declared-mt5-server-time.md`.
 
 ## Que hace el bot y que no hace
 
@@ -28,9 +29,15 @@ actual. Para el detalle tecnico ver `PROJECT_SPEC.md` y
   simbolos que vayas a usar visibles en "Observacion del mercado". No hace falta
   activar "Trading algoritmico": el bot nunca opera.
 - Git para Windows: `winget install --id Git.Git -e`.
-- Python 3.14 de 64 bits con el lanzador `py`:
-  `winget install --id Python.Python.3.14 -e`. Es la version que valida la CI y
-  tiene paquete `MetaTrader5` para Windows. Python 3.11-3.13 tambien funcionan.
+- Python 3.14 de 64 bits (x64) con el lanzador `py`:
+  `winget install --id Python.Python.3.14 -e --architecture x64`. Pon
+  `--architecture x64` tambien en Windows ARM: el paquete `MetaTrader5` solo
+  existe para x64. Es la version que valida la CI. Python 3.11-3.13 x64 ejecutan
+  los comandos de esta guia, pero la suite de pruebas y la comprobacion de
+  fixtures nativos solo pasan con 3.14.
+- Reloj de Windows sincronizado ("Configuracion > Hora e idioma > Sincronizar
+  ahora", o `w32tm /resync` como administrador). Un tick que parece llegar del
+  futuro se descarta, aunque sea por un segundo.
 - Opcional, solo para el EA nativo: PowerShell 7 (`winget install --id Microsoft.PowerShell -e`).
 
 ## 2. Instalacion
@@ -47,11 +54,17 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows_setup.ps1
 `constraints.txt` y el paquete `MetaTrader5`, comprueba que se importa y crea
 las carpetas de `data`. No pide ni guarda secretos.
 
-Comprobacion rapida, sin MetaTrader (en cada consola nueva, primero la linea de
-`PYTHONPATH`):
+**En cada consola nueva**, dentro de la carpeta del proyecto, ejecuta primero
+estas dos lineas (la primera permite los scripts `.ps1` solo en esa consola):
 
 ```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 $env:PYTHONPATH = "src/python"
+```
+
+Comprobacion rapida, sin MetaTrader:
+
+```powershell
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode core-invariants
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode shadow --sqlite data\sqlite\smoke.sqlite3
 ```
@@ -60,98 +73,172 @@ $env:PYTHONPATH = "src/python"
 `--mode shadow` (y `--mode demo`) es una prueba sintetica: usa un EURUSD de
 ejemplo y una cuenta ficticia, no toca MT5 ni tu cuenta.
 
-## 3. Configuracion opcional
+## 3. Configuracion
 
-- No hace falta archivo de configuracion: los valores por defecto son los
-  seguros de `config/defaults.example.ini`. Si quieres cambiar algo permitido
-  (por ejemplo simbolos o limites mas estrictos), copia ese archivo fuera del
-  repositorio y pasalo con `--config`. Debe estar en UTF-8.
-- Telegram: define las variables de entorno de la sesion y anade `--telegram`.
-  No las escribas en ningun archivo del repositorio. Un archivo `.env` no se lee.
+Sin archivo de configuracion se usan los valores seguros de
+`config/defaults.example.ini`. Para cambiar algo crea un archivo **fuera del
+repositorio** con solo las lineas que cambias; el resto conserva su valor por
+defecto. Escribe las claves exactamente como en `config/defaults.example.ini`:
+una clave mal escrita se ignora sin aviso. Los limites solo pueden ser iguales o
+mas estrictos que los de por defecto.
+
+**Hora del servidor del broker (importante).** MetaTrader 5 entrega la hora de
+los ticks y las barras en la hora del servidor del broker. Muchos brokers usan
+UTC+2 en invierno y UTC+3 en verano (cierre de Nueva York). Si no lo declaras,
+cada cotizacion parece llegar del futuro y el bot se detiene con el codigo 5.
+Valores de `MT5_SERVER_TIME`:
+
+- `UTC` (por defecto): el broker usa UTC.
+- `NY_CLOSE`: UTC+2 en invierno y UTC+3 mientras EE. UU. tiene horario de
+  verano (cierre de Nueva York). Es lo habitual.
+- `EET`: UTC+2 en invierno y UTC+3 en el horario de verano europeo. Usalo si tu
+  broker dice que sigue el horario europeo; las dos opciones solo difieren unas
+  semanas en marzo y en octubre/noviembre.
+- `UTC+02:00`, `UTC+03:00`, etc.: una hora fija sin cambio de verano.
+
+La seccion 4 te dice cual necesitas. Por ejemplo:
+
+```powershell
+New-Item -ItemType Directory -Force C:\ares-config | Out-Null
+Set-Content -Path C:\ares-config\bot.ini -Value "MT5_SERVER_TIME=NY_CLOSE" -Encoding ASCII
+```
+
+- Los simbolos no se configuran en ese archivo: se eligen con `--symbols` (o
+  `-Symbols` en los scripts; por defecto `EURUSD,GBPUSD,USDJPY`).
+- Telegram (opcional): define las variables de entorno en la consola y anade
+  `--telegram` (o `-Telegram` en los scripts). No las escribas en ningun archivo
+  del repositorio; un archivo `.env` no se lee.
 
 ```powershell
 $env:TELEGRAM_BOT_TOKEN = "<token de tu bot>"
 $env:TELEGRAM_CHAT_ID = "<tu chat id>"
 ```
 
-## 4. Comprobar la conexion con MT5 (solo lectura)
+## 4. Comprobar la conexion y la hora del servidor (solo lectura)
 
-Con el terminal abierto y conectado:
+Con el terminal abierto, conectado y **con el mercado abierto** (de domingo
+noche a viernes noche):
 
 ```powershell
-.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode mt5-diagnose --symbols EURUSD,GBPUSD,USDJPY --sqlite data\sqlite\mt5-diagnose.sqlite3
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode mt5-diagnose --symbols EURUSD,GBPUSD,USDJPY --sqlite data\sqlite\mt5-diagnose.sqlite3 --config C:\ares-config\bot.ini
 ```
 
-Revisa `mt5_connected` y, por simbolo, el diferencial, la edad del tick y el
-desfase horario del broker. Codigo de salida 3 = MT5 no conectado (terminal
-cerrado, sin sesion o paquete no instalado); el motivo queda en `data\logs`.
+Por cada simbolo revisa:
+
+- `status` = `PASSED`, `tick_time_status` = `FRESH` y `tick_age_seconds` entre
+  0 y 5.
+- `server_time_hint` vacio. Si dice que los ticks van 7200 o 10800 s por
+  delante, pon `MT5_SERVER_TIME=NY_CLOSE` (o `EET`, o la hora fija que documente
+  tu broker) y repite. Si dice que van horas atrasados, la declaracion sobra o es
+  incorrecta.
+- `FUTURE_TOO_FAR` con unos pocos segundos negativos: sincroniza el reloj de
+  Windows.
+- `MARKET_CLOSED_OR_NO_TICKS`: mercado cerrado; repite con el mercado abierto.
+
+Codigo de salida 3 = MT5 no conectado (terminal cerrado, sin sesion o paquete no
+instalado); el motivo queda en `data\logs`.
 
 ## 5. Observacion en papel (forward-shadow)
 
 ```powershell
-.\scripts\run_forward_shadow.ps1 -Symbols "EURUSD,GBPUSD,USDJPY"
+.\scripts\run_forward_shadow.ps1 -Config C:\ares-config\bot.ini -Telegram
 ```
+
+(Sin Telegram, quita `-Telegram`; sin archivo de configuracion, quita `-Config ...`.)
 
 - Cada 30 s lee cotizaciones y barras, mide la calidad del broker y la
   correlacion con las posiciones abiertas, evalua la estrategia y el riesgo, y
   abre, gestiona o cierra operaciones **en papel**. Base de datos:
   `data\sqlite\forward-shadow.sqlite3`; registros: `data\logs\forward-shadow`.
+- Un simbolo sin barras suficientes en alguna de las tres temporalidades (M5,
+  M15, H1) se rechaza en ese ciclo (`MARKET_DATA_REJECTED`). Un diferencial por
+  encima del limite baja su puntuacion de calidad.
 - Con el mercado cerrado o el terminal desconectado registra
   `PAPER_CYCLE_SKIPPED` con el motivo, no toca el libro y reintenta con espera
-  creciente (hasta 5 minutos). No hace falta reiniciar nada.
-- Si se detiene con codigo 4, el ciclo de papel quedo bloqueado por un fallo
-  que requiere revision (por ejemplo una cuenta real o un fallo de
-  almacenamiento). Revisa `paper-state-report` (seccion 6) antes de seguir.
-- Para dejarlo funcionando con reinicio automatico usa
-  `.\scripts\watchdog_forward_shadow.ps1` en lugar de `run_forward_shadow.ps1`.
-- La primera vez que el mercado abra, la evidencia de calidad del broker se
-  mide en cada ciclo; un simbolo que no tenga las tres temporalidades (M5, M15,
-  H1) o con el diferencial por encima del limite pierde puntuacion.
+  creciente (hasta 5 minutos). Telegram avisa al empezar cada racha y cuando
+  cambia el motivo, y `PAPER_CYCLE_RESUMED` cuando vuelve a completar ciclos.
+- **Codigo 5:** las cotizaciones no pasaron la comprobacion de integridad (casi
+  siempre `MT5_SERVER_TIME` o el reloj del PC). No se modifico nada: corrige y
+  vuelve a lanzarlo sobre la misma base. El motivo por simbolo esta en el evento
+  `FORWARD_SHADOW_INTEGRITY_STOP`.
+- **Codigo 4:** el ciclo de papel quedo bloqueado (por ejemplo una cuenta real,
+  un fallo de almacenamiento o un proceso matado a mitad de ciclo). El bloqueo
+  es **permanente en esa base**: ni `resume-shadow` ni reiniciar lo quitan.
+  Consulta `halt_reason` con `paper-state-report` (seccion 6), conserva esa base
+  y `data\logs\forward-shadow` como evidencia y continua con otra base:
+  `.\scripts\run_forward_shadow.ps1 -Config C:\ares-config\bot.ini -SqlitePath data\sqlite\forward-shadow-2.sqlite3 -LogDir data\logs\forward-shadow-2`.
+  Usa esas mismas rutas en los comandos de seguimiento y parada.
+- Para dejarlo funcionando con reinicio automatico, en lugar de
+  `run_forward_shadow.ps1` lanza el watchdog en su propia ventana:
+
+```powershell
+Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File .\scripts\watchdog_forward_shadow.ps1 -Config C:\ares-config\bot.ini -Telegram'
+```
+
+  El watchdog relanza el bot si se cae (codigo 1) o pierde MT5 (codigo 3), y se
+  detiene sin relanzar tras una parada pedida (0), argumentos o configuracion
+  invalidos (2), un bloqueo (4) o un fallo de integridad (5). Su registro esta en
+  `data\logs\watchdog`. Las variables de Telegram de la consola se heredan.
 
 ## 6. Seguimiento
 
 ```powershell
 .\scripts\status.ps1
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode health --sqlite data\sqlite\forward-shadow.sqlite3 --log-dir data\logs\forward-shadow
-.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode daily-summary --sqlite data\sqlite\forward-shadow.sqlite3 --log-dir data\logs\forward-shadow
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode paper-state-report --sqlite data\sqlite\forward-shadow.sqlite3 --log-dir data\logs\forward-shadow --output-dir data\reports\paper_state
-.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode forward-acceptance --sqlite data\sqlite\forward-shadow.sqlite3 --log-dir data\logs\forward-shadow
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode daily-summary --sqlite data\sqlite\forward-shadow.sqlite3 --log-dir data\logs\forward-shadow
 ```
 
-Todos son de solo lectura sobre la base de datos y los registros.
+- `status`, `health` y `paper-state-report` no modifican la base
+  (`paper-state-report` escribe su informe en `data\reports\paper_state`).
+  `daily-summary` si escribe: guarda el resumen en la base y deja
+  `data\reports\backtests\<fecha>-summary.json` y `.html`.
+- Si la ruta de `--sqlite` es incorrecta, estos comandos crean una base vacia y
+  terminan con codigo 0: revisa la ruta.
+- `forward-acceptance` es la puerta del perfil `BALANCED_STABLE`; en esta
+  observacion generica siempre responde `PAUSE_FORWARD_SHADOW` ("Stable gate is
+  missing."). No indica un fallo: no la uses para decidir pararla.
 
 ## 7. Parar y reanudar
 
-- Si lo lanzaste en una consola: `Ctrl+C`.
-- Desde otra consola (tambien detiene el watchdog generico):
-  `.\scripts\stop_forward_shadow.ps1`. Primero pausa las entradas nuevas en la
-  base de datos y despues detiene los procesos; las posiciones de papel abiertas
-  se conservan.
-- Antes de volver a arrancar tras `stop_forward_shadow.ps1`:
+- En la consola donde corre: `Ctrl+C` **una vez**. Termina el ciclo en curso y
+  se detiene (codigo 0). Un segundo `Ctrl+C` lo aborta a mitad de ciclo, y eso
+  puede bloquear la base (codigo 4).
+- Desde otra consola (detiene tambien el watchdog):
 
 ```powershell
-.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode resume-shadow --sqlite data\sqlite\forward-shadow.sqlite3 --reason "reanudacion revisada"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop_forward_shadow.ps1
 ```
+
+  Pide la parada, espera a que termine el ciclo en curso (hasta 180 s) y
+  confirma "stopped cleanly". Las posiciones de papel abiertas se conservan. Si
+  no termina a tiempo, la peticion queda pendiente: vuelve a ejecutarlo mas
+  tarde. `-Force` mata el proceso, y solo debe usarse como ultimo recurso.
+  Con otra base, anade `-SqlitePath ...`.
+- Para reanudar, lanza el mismo comando de la seccion 5. Solo si pausaste a mano
+  con `--mode pause-shadow` hace falta antes
+  `--mode resume-shadow --sqlite data\sqlite\forward-shadow.sqlite3 --reason "reanudacion revisada"`.
 
 ## 8. Reunir la evidencia que falta
 
 El protocolo `docs/testing/next-evidence-protocol.md` necesita datos nuevos de
 tu broker demo, sin identificadores personales:
 
-1. Barras historicas en CSV (solo lectura):
+1. Barras historicas en CSV (solo lectura). Usa la misma `--config`: las horas
+   se guardan en UTC segun `MT5_SERVER_TIME`.
 
 ```powershell
-.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode export-history --symbols EURUSD,GBPUSD,USDJPY --timeframes M5,M15,H1 --bars 50000 --output-dir data\historical
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode export-history --symbols EURUSD,GBPUSD,USDJPY --timeframes M5,M15,H1 --bars 50000 --output-dir data\historical --config C:\ares-config\bot.ini
 ```
 
-2. Especificacion de instrumentos. Crea la carpeta `data\runtime` y dentro
-   `symbol_map.json` con el nombre exacto de cada simbolo en tu broker, por
-   ejemplo `{"EURUSD": "EURUSD", "GBPUSD": "GBPUSD", "USDJPY": "USDJPY"}`
-   (guardalo en UTF-8), y ejecuta:
+2. Especificacion de instrumentos. Crea `data\runtime\symbol_map.json` con el
+   nombre exacto de cada simbolo en tu broker y captura con un nombre de salida
+   nuevo (nunca se sobrescribe uno existente):
 
 ```powershell
 New-Item -ItemType Directory -Force data\runtime | Out-Null
-.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode build-instrument-registry --broker-symbol-map data\runtime\symbol_map.json --instrument-registry-output data\runtime\instrument_registry.json
+[IO.File]::WriteAllText("$PWD\data\runtime\symbol_map.json", '{"EURUSD": "EURUSD", "GBPUSD": "GBPUSD", "USDJPY": "USDJPY"}')
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode build-instrument-registry --broker-symbol-map data\runtime\symbol_map.json --instrument-registry-output "data\runtime\instrument_registry-$(Get-Date -Format yyyyMMdd-HHmmss).json"
 ```
 
 3. Comisiones y swap: anotalos a mano desde "Especificacion" del simbolo en MT5,
@@ -164,9 +251,10 @@ cuenta ni nombres de servidor.
 
 ## 9. EA nativo y harness matematico (opcional)
 
-Requieren PowerShell 7 y MetaTrader 5 instalado en `C:\Program Files\MetaTrader 5`
-(o `-InstallDirectory`). Compilan en una carpeta temporal y no instalan nada en
-el terminal:
+Requieren PowerShell 7 y MetaTrader 5 instalado en `C:\Program Files\MetaTrader 5`.
+Si esta en otra carpeta usa `compile_native_observer.ps1 -MetaEditor "<carpeta>\MetaEditor64.exe"`
+y `run_native_math_harness.ps1 -InstallDirectory "<carpeta>"`. Compilan en una
+carpeta temporal y no instalan nada en el terminal:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\compile_native_observer.ps1
@@ -180,10 +268,12 @@ Strategy Tester, sin cuenta. Detalle en `docs/testing/native-math-harness.md`.
 
 | Codigo | Significado |
 | --- | --- |
-| 0 | Completado; el JSON de salida tiene el detalle. |
-| 2 | Argumentos invalidos. |
-| 3 | MT5 no conectado (y, en forward-shadow, ningun ciclo completado). |
-| 4 | forward-shadow: ciclo de papel bloqueado; requiere revision. |
+| 0 | Completado (o forward-shadow parado a peticion); el JSON de salida tiene el detalle. |
+| 1 | Error no controlado; la traza indica la causa. |
+| 2 | Argumentos o configuracion invalidos (por ejemplo `DEMO_ONLY=False`), destino del snapshot ya existente o forward-shadow ya en marcha sobre esa base. |
+| 3 | MT5 no disponible (paquete ausente, terminal cerrado o sin sesion) en `mt5-data`, `mt5-diagnose`, `export-history` y `build-instrument-registry`, o en `forward-shadow` con `-MaxCycles` sin ningun ciclo completado (sin `-MaxCycles` reintenta indefinidamente). |
+| 4 | forward-shadow: ciclo de papel bloqueado de forma permanente en esa base (seccion 5). |
+| 5 | forward-shadow: cotizaciones de MT5 sin integridad (`MT5_SERVER_TIME` o reloj del PC); nada se modifico. |
 
 ## Que falta para poder operar
 

@@ -116,7 +116,26 @@ def pause_shadow(*, database: TelemetryDatabase, reason: str) -> dict[str, Any]:
     return {"mode": "pause-shadow", "paper_shadow_paused": True, "reason": reason, "state": state, "execution_attempted": False, "order_send_called": False, "order_check_called": False}
 
 
+def request_stop_shadow(*, database: TelemetryDatabase, reason: str) -> dict[str, Any]:
+    """Ask a forward-shadow run on this SQLite to stop between cycles.
+
+    The run polls this request before each cycle and while it waits, so a cycle
+    in progress always finishes; resume-shadow clears an unconsumed request.
+    """
+    requested_at = datetime.now(timezone.utc).isoformat()
+    database.update_operational_state({"forward_shadow_stop_requested": requested_at,
+                                       "forward_shadow_stop_reason": reason})
+    _audit(database, "FORWARD_SHADOW_STOP_REQUESTED", Severity.WARNING,
+           {"reason": reason, "requested_at_utc": requested_at, "execution_attempted": False})
+    state = database.get_operational_state()
+    return {"mode": "stop-shadow", "stop_requested": True, "reason": reason, "requested_at_utc": requested_at,
+            "paper_cycle_in_progress": bool(state.get("paper_cycle_in_progress")),
+            "execution_attempted": False, "order_send_called": False, "order_check_called": False}
+
+
 def resume_shadow(*, database: TelemetryDatabase, reason: str) -> dict[str, Any]:
+    if database.get_operational_state().get("forward_shadow_stop_requested"):
+        database.update_operational_state({"forward_shadow_stop_requested": ""})
     state = database.set_shadow_paused(False, reason=reason, paused_by="cli")
     _audit(database, "SHADOW_MANUALLY_RESUMED", Severity.INFO, {"reason": reason, "state": state, "execution_attempted": False})
     return {"mode": "resume-shadow", "paper_shadow_paused": False, "reason": reason, "state": state, "execution_attempted": False, "order_send_called": False, "order_check_called": False}
@@ -160,6 +179,9 @@ def _closed_today(trades: list[Mapping[str, Any]]) -> int:
 
 
 def _halt_reason(metrics: Mapping[str, Any], state: Mapping[str, Any]) -> str:
+    # The durable lifecycle latch outranks the pause it also sets.
+    if state.get("paper_lifecycle_halted") or state.get("paper_cycle_in_progress"):
+        return "PAPER_LIFECYCLE_HALTED"
     if bool(state.get("shadow_paused", False)):
         return "SHADOW_MANUALLY_PAUSED"
     if float(metrics.get("daily_drawdown_shadow", 0.0) or 0.0) <= DEFAULT_DAILY_DRAWDOWN_LIMIT:
@@ -170,6 +192,9 @@ def _halt_reason(metrics: Mapping[str, Any], state: Mapping[str, Any]) -> str:
 
 
 def _recommended_action(halt_reason: str) -> str:
+    if halt_reason == "PAPER_LIFECYCLE_HALTED":
+        return ("Permanent latch on this SQLite: resume-shadow does not clear it. Keep this SQLite and its logs "
+                "as evidence and continue forward-shadow with a new --sqlite.")
     if halt_reason == "PAPER_DAILY_DRAWDOWN_HALT":
         return "Pause shadow, inspect paper-open-trades, then decide whether to paper-close-all."
     if halt_reason == "SHADOW_MANUALLY_PAUSED":

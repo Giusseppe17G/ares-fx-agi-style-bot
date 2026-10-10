@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .utils.mt5_server_time import parse_server_time
+
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "defaults.example.ini"
 
@@ -71,6 +73,8 @@ class BotConfig:
     max_tick_age_seconds: int = 5
     normalize_broker_time: bool = True
     max_future_tick_offset_seconds: int = 21600
+    # Declared trade-server clock (utils/mt5_server_time.py); never inferred.
+    mt5_server_time: str = "UTC"
     known_broker_time_offsets_seconds: tuple[int, ...] = (-10800, -7200, -3600, 0, 3600, 7200, 10800)
     broker_time_offset_detection: bool = True
     broker_time_offset_required_confirmations: int = 1
@@ -108,6 +112,10 @@ class BotConfig:
     risk_profile_used: str = ""
     paper_risk_clearance: str = ""
     paper_daily_risk_ledger: str = ""
+
+    def __post_init__(self) -> None:
+        if parse_server_time(self.mt5_server_time) != self.mt5_server_time:
+            raise ValueError("mt5_server_time must be a canonical MT5_SERVER_TIME value")
 
     def validate_safety(self) -> None:
         """Raise ValueError when config weakens mandatory safety defaults."""
@@ -185,7 +193,8 @@ def load_config(path: str | Path | None = None) -> BotConfig:
         cfg = BotConfig()
         cfg.validate_safety()
         return cfg
-    raw = "[DEFAULT]\n" + config_path.read_text(encoding="utf-8")
+    # utf-8-sig: a BOM written by Windows editors must not hide the first key.
+    raw = "[DEFAULT]\n" + config_path.read_text(encoding="utf-8-sig")
     parser = ConfigParser()
     parser.read_string(raw)
     values = {key.upper(): _coerce(value) for key, value in parser["DEFAULT"].items()}
@@ -213,6 +222,7 @@ def load_config(path: str | Path | None = None) -> BotConfig:
         max_tick_age_seconds=int(values.get("MAX_TICK_AGE_SECONDS", 5)),
         normalize_broker_time=bool(values.get("NORMALIZE_BROKER_TIME", True)),
         max_future_tick_offset_seconds=int(values.get("MAX_FUTURE_TICK_OFFSET_SECONDS", 21600)),
+        mt5_server_time=parse_server_time(values.get("MT5_SERVER_TIME", "UTC")),
         known_broker_time_offsets_seconds=_int_tuple(
             values.get("KNOWN_BROKER_TIME_OFFSETS_SECONDS", "-10800,-7200,-3600,0,3600,7200,10800"),
             (-10800, -7200, -3600, 0, 3600, 7200, 10800),

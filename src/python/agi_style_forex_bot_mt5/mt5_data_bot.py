@@ -37,6 +37,7 @@ from .data.strategy_features import build_strategy_features
 from .rejection_labeling import classify_rejection_event_type
 from .strategy import evaluate_ensemble
 from .telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
+from .utils.mt5_server_time import utc_to_server_wall
 
 
 TIMEFRAMES: tuple[str, ...] = ("M5", "M15", "H1")
@@ -487,6 +488,7 @@ class MT5DataOnlyBot:
                     symbol=canonical_symbol,
                     timeframe=timeframe,
                     min_rows=DIAGNOSTIC_MIN_BARS.get(timeframe, 200),
+                    server_time=self.config.mt5_server_time,
                 )
                 if contract.diagnostics["status"] != "OK":
                     raise ValueError(
@@ -538,7 +540,8 @@ class MT5DataOnlyBot:
             return None
         minutes = {"M5": 5, "M15": 15, "H1": 60}.get(timeframe, 5)
         bars = max(self.bars, self._live_bars_for(timeframe))
-        date_to = datetime.now(timezone.utc)
+        # MT5 range queries use the trade-server clock (MT5_SERVER_TIME).
+        date_to = utc_to_server_wall(datetime.now(timezone.utc), self.config.mt5_server_time)
         date_from = date_to - timedelta(minutes=minutes * (bars + 10))
         return copy_rates_range(broker_symbol, mt5_timeframe, date_from, date_to)
 
@@ -828,6 +831,7 @@ class MT5DiagnoseBot(MT5DataOnlyBot):
             "tick_age_seconds_from_time_msc": freshness.tick_age_seconds_from_time_msc if freshness else None,
             "mt5.last_error()": self.connector.last_error_payload(),
             "market_is_probably_closed": bool(check.payload.get("market_is_probably_closed", False)),
+            "server_time_hint": _server_time_hint(freshness, self.config.mt5_server_time),
             "status": "PASSED" if check.accepted else "REJECTED",
             "reject_code": None if check.accepted else check.code,
             "reject_reason": None if check.accepted else check.reason,
@@ -860,3 +864,20 @@ def summary_to_json(summary: MT5DataOnlySummary | MT5DiagnoseSummary) -> str:
 
     payload = asdict(summary) if is_dataclass(summary) else vars(summary)
     return json.dumps(payload, ensure_ascii=True, sort_keys=True)
+
+
+def _server_time_hint(freshness: Any, declared: str) -> str:
+    """Operator hint when ticks sit a whole number of hours off the declared clock."""
+
+    if freshness is None:
+        return ""
+    suggested = getattr(freshness, "suggested_broker_time_offset_seconds", None)
+    if suggested:
+        return (f"Ticks are {suggested} s ahead of UTC under MT5_SERVER_TIME={declared}: the broker server clock is "
+                f"{suggested / 3600:+g} h further ahead. Declare it in --config as the broker documents it (NY_CLOSE "
+                "or EET = UTC+2 winter / UTC+3 summer on US or European dates, or UTC+HH:MM), then diagnose again.")
+    age = getattr(freshness, "tick_age_seconds", None)
+    if declared != "UTC" and age is not None and any(abs(age - hours * 3600) <= 120 for hours in (1, 2, 3)):
+        return (f"Ticks are about {round(age)} s old under MT5_SERVER_TIME={declared}: check that declaration "
+                "against the broker's documented server time.")
+    return ""

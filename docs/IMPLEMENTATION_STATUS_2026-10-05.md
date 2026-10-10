@@ -294,9 +294,19 @@ abrir una operacion de papel. Ahora los fallos operativos anteriores a cualquier
 mutacion se registran como `PAPER_CYCLE_SKIPPED` y se reintentan. La evidencia
 de calidad y la correlacion se miden en cada ciclo (`live_decision_evidence_v1`).
 La auditoria de telemetria ya no confunde `heartbeat_written` con un timestamp,
-y la CLI devuelve codigos de salida 3/4. Hay un script generico de parada,
+y la CLI devuelve codigos de salida 2/3/4/5. Hay un script generico de parada,
 `constraints.txt` y una guia de uso verificada: `docs/GUIA_DE_USO.md`. Sigue
 siendo solo papel: no se envia ninguna orden.
+
+Una segunda revision (`docs/decisions/2026-10-10-declared-mt5-server-time.md`)
+encontro que con un broker cuyo reloj de servidor va en UTC+2/UTC+3, como el de
+la cuenta demo usada en mayo de 2026, cada tick se rechazaba como futuro y
+forward-shadow no podia completar ningun ciclo. `MT5_SERVER_TIME` declara ese
+reloj y todo se convierte a UTC en la lectura. Ademas: los fallos de integridad
+detienen el run con codigo 5 en vez de saltarse en silencio, los saltos avisan
+por Telegram, una cuenta real con el terminal desconectado bloquea, la parada es
+cooperativa (`stop-shadow`, Ctrl+C) y el watchdog no relanza paradas
+deliberadas, latches ni fallos de integridad.
 
 ## Pendientes que impiden promocion
 

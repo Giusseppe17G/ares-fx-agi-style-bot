@@ -13,6 +13,7 @@ from .contracts import Environment, Event, Severity
 from .execution import MT5Connector
 from .mt5_data_bot import DEFAULT_FOREX_SYMBOLS
 from .telemetry import JsonlAuditLogger, TelemetryDatabase
+from .utils.mt5_server_time import server_series_to_utc
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,19 @@ class MT5HistoryExporter:
                     continue
                 frame = pd.DataFrame(raw)
                 if "time" in frame.columns:
-                    timestamp_utc = pd.to_datetime(frame["time"], unit="s", utc=True)
+                    server_wall = pd.to_datetime(frame["time"], unit="s", utc=True)
+                    try:
+                        # Bar times are on the declared server clock (MT5_SERVER_TIME).
+                        timestamp_utc = server_series_to_utc(server_wall, self.config.mt5_server_time)
+                    except ValueError as exc:
+                        self._audit(
+                            "EXPORT_SERVER_TIME_INVALID",
+                            Severity.WARNING,
+                            {"canonical_symbol": canonical_symbol, "timeframe": timeframe, "reason": str(exc),
+                             "mt5_server_time": self.config.mt5_server_time, "execution_attempted": False},
+                            symbol=canonical_symbol,
+                        )
+                        continue
                     frame["timestamp_utc"] = timestamp_utc.dt.strftime("%Y-%m-%dT%H:%M:%SZ")
                     frame["time"] = frame["timestamp_utc"]
                 output_path = self.output_dir / f"{canonical_symbol}_{timeframe}.csv"
@@ -112,6 +125,7 @@ class MT5HistoryExporter:
                         "timeframe": timeframe,
                         "rows": len(frame),
                         "output_path": str(output_path),
+                        "mt5_server_time": self.config.mt5_server_time,
                         "execution_attempted": False,
                     },
                     symbol=canonical_symbol,

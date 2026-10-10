@@ -154,10 +154,12 @@ def validate_account(observation, now, config):
     account = observation.account
     if not isinstance(account, AccountState):
         raise PaperCycleRejected("ACCOUNT_INFO_UNAVAILABLE", "complete account observation is required")
-    if observation.connected is not True:
-        raise PaperCycleRejected("MT5_CONNECTION_UNVERIFIED", "connection is not explicitly confirmed")
+    # A non-demo account latches even while the terminal reports disconnected:
+    # MT5 keeps returning the cached account, and that is never skipped.
     if account.is_demo is not True or str(account.trade_mode).upper() not in {"DEMO", "0"}:
         raise PaperCycleRejected("ACCOUNT_REAL_DETECTED_READ_ONLY", "known demo account required for this release")
+    if observation.connected is not True:
+        raise PaperCycleRejected("MT5_CONNECTION_UNVERIFIED", "connection is not explicitly confirmed")
     if (type(account.login) is not int or account.login <= 0 or not isinstance(account.currency, str)
             or len(account.currency) != 3 or not account.currency.isascii() or not account.currency.isalpha()):
         raise PaperCycleRejected("ACCOUNT_INFO_INVALID", "account identity and currency are required")
@@ -332,9 +334,11 @@ def process_paper_cycle(bot, cycle: PaperCycleInput) -> PaperCycleResult:
 
 # Operational conditions seen before a cycle writes its intent: the paper book
 # is untouched, so a live run may audit, back off and retry instead of latching.
-# A future-dated timestamp under any of these codes still latches.
-# Replay keeps the latch: a recorded event without quotes is an input defect
-# there, not a closed market. Account, integrity and storage failures always latch.
+# A future-dated timestamp under any of these codes still latches. Quotes the
+# connector rejected for integrity never reach these codes: the live run stops
+# first (MARKET_DATA_INTEGRITY_FAILED). Replay keeps the latch: a recorded event
+# without quotes is an input defect there, not a closed market. Account and
+# storage failures always latch.
 SKIPPABLE_BEFORE_MUTATION = frozenset({
     "MT5_CONNECT_FAILED", "MT5_CONNECTION_UNVERIFIED", "ACCOUNT_INFO_UNAVAILABLE",
     "ACCOUNT_OBSERVATION_STALE", "EVENT_TIME_INVALID", "EVENT_QUOTES_MISSING",
@@ -357,13 +361,20 @@ def skip_paper_cycle(bot, event_id, exc):
     """
     payload = {"event_id": event_id, "reject_code": exc.code, "reason": exc.reason,
                "fatal": False, "skipped": True, "execution_attempted": False}
+    rejected_quotes = getattr(bot, "cycle_quote_rejections", None)
+    if exc.code in {"EVENT_QUOTES_MISSING", "OPEN_POSITION_QUOTE_MISSING"} and rejected_quotes:
+        payload["quote_rejections"] = dict(rejected_quotes)
+    # Telegram on the first skip of a streak and whenever its reason changes;
+    # the run reports PAPER_CYCLE_RESUMED when a cycle completes again.
+    notify = getattr(bot, "skip_notified_code", None) != exc.code
     try:
         runtime = bot.database.get_operational_state()
         if runtime.get("paper_lifecycle_halted") or runtime.get("paper_cycle_in_progress"):
             raise PaperCycleRejected("PAPER_LIFECYCLE_HALTED", "previous uncertain lifecycle requires reconciliation")
-        bot._audit("PAPER_CYCLE_SKIPPED", Severity.WARNING, payload)
+        bot._audit("PAPER_CYCLE_SKIPPED", Severity.WARNING, payload, notify=notify)
         if getattr(bot, "audit_failed", False):
             raise PaperCycleAuditError("cycle skip audit was not confirmed")
+        bot.skip_notified_code = exc.code
         trades = tuple(economic_trade(trade) for trade in bot.manager.load_all_trades())
         paused = bot.database.get_shadow_paused()
     except Exception as failure:

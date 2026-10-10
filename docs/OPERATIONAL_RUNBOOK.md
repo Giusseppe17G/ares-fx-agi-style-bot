@@ -1,6 +1,9 @@
 # Operational Runbook
 
-Use this runbook for Windows EC2 24/7 `forward-shadow` operation.
+Use this runbook for Windows EC2 24/7 `forward-shadow` operation. The verified
+step-by-step guide, including the broker clock (`MT5_SERVER_TIME`), the
+cooperative stop (`scripts\stop_forward_shadow.ps1`) and the exit codes the
+watchdog acts on, is `docs/GUIA_DE_USO.md`.
 
 ## Start Forward Shadow
 

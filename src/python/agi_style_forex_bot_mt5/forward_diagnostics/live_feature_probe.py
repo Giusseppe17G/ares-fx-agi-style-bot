@@ -41,7 +41,7 @@ def probe_live_features(
         snapshot = payload["snapshot"]
         raw_m5 = dict(payload.get("rates") or {}).get("M5")
         try:
-            contract = normalize_ohlcv_contract(raw_m5, source="live_mt5", symbol=symbol, timeframe="M5", min_rows=DIAGNOSTIC_MIN_BARS["M5"])
+            contract = normalize_ohlcv_contract(raw_m5, source="live_mt5", symbol=symbol, timeframe="M5", min_rows=DIAGNOSTIC_MIN_BARS["M5"], server_time=config.mt5_server_time)
             if contract.diagnostics["status"] != "OK":
                 raise LiveFeatureBuildError(contract.diagnostics["status"], contract.diagnostics)
             frame = contract.frame
