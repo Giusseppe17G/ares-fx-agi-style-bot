@@ -231,8 +231,14 @@ def test_failed_halt_audit_remains_incomplete_after_restart(lifecycle_case, tmp_
             raise OSError('injected halt audit failure')
         return original(logger, event)
     monkeypatch.setattr(JsonlAuditLogger, 'append_event', fail_halt_once)
-    with monkeypatch.context() as disconnected:
-        disconnected.setattr(EpisodeClient, 'terminal_info', lambda self: SimpleNamespace(connected=False))
+    original_account = EpisodeClient.account_info
+    def invalid_currency(self):
+        value = original_account(self)
+        value.currency = None
+        return value
+    # An invalid account identity always latches (a disconnection is now skipped).
+    with monkeypatch.context() as invalid:
+        invalid.setattr(EpisodeClient, 'account_info', invalid_currency)
         bot, database, summary, _ = forward_episode(lifecycle_case, tmp_path, [lifecycle_case['event']])
         try:
             assert failures and not summary.audit_complete
@@ -324,7 +330,13 @@ def test_actual_forward_run_matches_replay_economics(lifecycle_case, tmp_path, e
     try:
         actual = bot.paper_cycle_results
         assert summary.cycles_completed == replay.events_completed
-        assert summary.lifecycle_halted == replay.halted
+        if episode == 'missing_quote':
+            # Replay treats a recorded event without quotes as an input defect;
+            # the live run skips it before any paper mutation and keeps going.
+            assert replay.halted and not summary.lifecycle_halted
+            assert summary.skip_reason in {'EVENT_QUOTES_MISSING', 'OPEN_POSITION_QUOTE_MISSING'}
+        else:
+            assert summary.lifecycle_halted == replay.halted
         assert summary.audit_complete == replay.audit_complete
         assert tuple(trade for trade in actual[-1].trades) == replay.trades
         assert [item.to_dict() for result in actual for item in result.decisions] == [item.to_dict() for item in replay.decisions]

@@ -53,7 +53,7 @@ def test_forward_shadow_balanced_stable_accepts_paper_ready_gate(tmp_path: Path,
         def run(self):
             return SimpleNamespace(
                 mode="forward-shadow",
-                mt5_connected=False,
+                mt5_connected=True,
                 cycles_completed=0,
                 open_trades=0,
                 paper_trades_opened=0,

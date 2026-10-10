@@ -197,6 +197,7 @@ def process_paper_cycle(bot, cycle: PaperCycleInput) -> PaperCycleResult:
     decisions, rejections = [], []
     opened = closed = 0
     valuation = None
+    intent_written = False
     try:
         runtime = bot.database.get_operational_state()
         if getattr(bot, "paper_lifecycle_halted", False) or getattr(bot, "audit_failed", False) or runtime.get("paper_lifecycle_halted") or runtime.get("paper_cycle_in_progress"):
@@ -224,6 +225,7 @@ def process_paper_cycle(bot, cycle: PaperCycleInput) -> PaperCycleResult:
         # Write intent BEFORE any financial mutation. A crash or inaccessible
         # store after fill cannot become an apparently clean restart.
         bot.database.update_operational_state({"paper_cycle_in_progress": cycle.event_id})
+        intent_written = True
         for trade in bot.manager.load_open_trades():
             # Recheck against the live clock immediately before every mutation.
             validate_quotes(cycle.quotes, bot.manager.load_open_trades(), bot.clock.now_utc(), bot.config)
@@ -316,10 +318,52 @@ def process_paper_cycle(bot, cycle: PaperCycleInput) -> PaperCycleResult:
         bot._audit("PAPER_CYCLE_COMPLETED", Severity.INFO, result.to_dict())
         bot.database.update_operational_state({"paper_cycle_in_progress": None})
     except Exception as exc:
-        result = halt_paper_cycle(bot, cycle.event_id, exc, decisions=decisions,
-            rejections=rejections, opened=opened, closed=closed)
+        if not intent_written and skippable_before_mutation(bot, exc):
+            result = skip_paper_cycle(bot, cycle.event_id, exc)
+        else:
+            result = halt_paper_cycle(bot, cycle.event_id, exc, decisions=decisions,
+                rejections=rejections, opened=opened, closed=closed)
     bot.paper_cycle_results.append(result)
     return result
+
+
+# Operational conditions seen before a cycle writes its intent: the paper book
+# is untouched, so a live run may audit, back off and retry instead of latching.
+# Replay keeps the latch: a recorded event without quotes is an input defect
+# there, not a closed market. Account, integrity and storage failures always latch.
+SKIPPABLE_BEFORE_MUTATION = frozenset({
+    "MT5_CONNECT_FAILED", "MT5_CONNECTION_UNVERIFIED", "ACCOUNT_INFO_UNAVAILABLE",
+    "ACCOUNT_OBSERVATION_STALE", "EVENT_TIME_INVALID", "EVENT_QUOTES_MISSING",
+    "QUOTE_TIME_INVALID", "OPEN_POSITION_QUOTE_MISSING",
+})
+
+
+def skippable_before_mutation(bot, exc) -> bool:
+    return (getattr(bot, "skip_pre_mutation_failures", False) is True
+            and isinstance(exc, PaperCycleRejected) and exc.code in SKIPPABLE_BEFORE_MUTATION
+            and not getattr(bot, "paper_lifecycle_halted", False) and not getattr(bot, "audit_failed", False))
+
+
+def skip_paper_cycle(bot, event_id, exc):
+    """Audit a live cycle that failed before any paper mutation, without latching.
+
+    A prior latch or an unfinished cycle still halts, and so does any failure to
+    audit the skip durably.
+    """
+    payload = {"event_id": event_id, "reject_code": exc.code, "reason": exc.reason,
+               "fatal": False, "skipped": True, "execution_attempted": False}
+    try:
+        runtime = bot.database.get_operational_state()
+        if runtime.get("paper_lifecycle_halted") or runtime.get("paper_cycle_in_progress"):
+            raise PaperCycleRejected("PAPER_LIFECYCLE_HALTED", "previous uncertain lifecycle requires reconciliation")
+        bot._audit("PAPER_CYCLE_SKIPPED", Severity.WARNING, payload)
+        if getattr(bot, "audit_failed", False):
+            raise PaperCycleAuditError("cycle skip audit was not confirmed")
+        trades = tuple(economic_trade(trade) for trade in bot.manager.load_all_trades())
+        paused = bot.database.get_shadow_paused()
+    except Exception as failure:
+        return halt_paper_cycle(bot, event_id, failure)
+    return PaperCycleResult(event_id, (), (payload,), None, trades, 0, 0, paused, False, True)
 
 
 def halt_paper_cycle(bot, event_id, exc, *, decisions=(), rejections=(), opened=0, closed=0):

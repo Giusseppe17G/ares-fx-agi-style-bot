@@ -8,6 +8,10 @@ data/sqlite/
 data/reports/
 data/runs/
 data/runtime/
+data/historical/
+data/models/
+data/backups/
+.venv/
 *.rdp
 *.pem
 *.key

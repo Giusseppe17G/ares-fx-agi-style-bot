@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict, dataclass, is_dataclass, replace
 from datetime import datetime
 from hashlib import sha256
-from time import sleep
+from time import perf_counter, sleep
 from typing import Any, Callable, Iterable, Mapping
 from uuid import uuid4
 
@@ -34,11 +34,25 @@ from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabas
 from agi_style_forex_bot_mt5.telegram_command_center import TelegramCommandCenter
 
 from .lifecycle import (PaperAccountObservation, PaperCandidate, PaperCycleInput, PaperCycleRejected,
-    PaperEvidence, PaperCycleAuditError, process_paper_cycle, halt_paper_cycle, validate_evidence, validate_account)
+    PaperEvidence, PaperCycleAuditError, process_paper_cycle, halt_paper_cycle, skip_paper_cycle,
+    skippable_before_mutation, validate_evidence, validate_account)
 from .paper_fill_model import PaperFillModel
 from .paper_pnl_engine import extract_paper_risk_multiplier
 from .paper_position_manager import PaperPositionManager
 from .paper_report import write_forward_shadow_report
+
+
+MAX_SKIP_BACKOFF_SECONDS = 300
+
+
+class _StartupSkipped(Exception):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+class _AlreadyHalted(Exception):
+    """The startup skip could not be audited and already latched the lifecycle."""
 
 
 @dataclass(frozen=True)
@@ -66,6 +80,8 @@ class ForwardShadowSummary:
     audit_complete: bool = True
     lifecycle_halted: bool = False
     paper_state_available: bool = True
+    cycles_skipped: int = 0
+    skip_reason: str = ""
 
 
 class ForwardShadowBot:
@@ -88,6 +104,7 @@ class ForwardShadowBot:
         clock: Clock | None = None,
         decision_evidence_provider: Callable[..., Mapping[str, Any]] | None = None,
         ml_filter: Any | None = None,
+        skip_pre_mutation_failures: bool = True,
     ) -> None:
         self.config = config or BotConfig()
         self.config.validate_safety()
@@ -108,6 +125,9 @@ class ForwardShadowBot:
         self.paper_cycle_results = []
         self.paper_lifecycle_halted = False
         self.audit_failed = False
+        # Live runs skip closed markets and terminal outages without latching
+        # (lifecycle.SKIPPABLE_BEFORE_MUTATION); explicit replay passes False.
+        self.skip_pre_mutation_failures = skip_pre_mutation_failures is True
         self.manager = PaperPositionManager(database=database, fill_model=PaperFillModel(max_spread_points=self.config.max_spread_points_default, clock=self.clock, max_tick_age_seconds=self.config.max_market_snapshot_age_seconds), profile_config=self.config.profile_config or None)
         self.heartbeat = HeartbeatWriter(database)
         self.alerts = AlertRuleEngine(database)
@@ -126,6 +146,8 @@ class ForwardShadowBot:
 
     def run(self) -> ForwardShadowSummary:
         opened = closed = cycles = alerts_emitted = commands_processed = 0
+        attempts = skipped = consecutive_skips = 0
+        skip_reason = ""
         heartbeat_written = connected = False
         event_id = "startup"
         try:
@@ -134,25 +156,57 @@ class ForwardShadowBot:
             if recovery.get("status") != "OK":
                 raise PaperCycleRejected("RECOVERY_FAILED", "startup recovery failed")
             if not self._connect():
-                raise PaperCycleRejected("MT5_CONNECT_FAILED", "read-only connection failed")
+                failure = PaperCycleRejected("MT5_CONNECT_FAILED", getattr(self, "_connect_error", "") or "read-only connection failed")
+                if not skippable_before_mutation(self, failure):
+                    raise failure
+                result = skip_paper_cycle(self, event_id, failure)
+                self.paper_cycle_results.append(result)
+                if result.halted:
+                    raise _AlreadyHalted()
+                raise _StartupSkipped(failure.code)
             if self.config.signal_profile == "BALANCED_STABLE_MICRO":
                 multiplier = extract_paper_risk_multiplier(self.config.profile_config or None)
                 if multiplier is None:
                     raise PaperCycleRejected("PAPER_PNL_SCALING_CONFIG_MISSING", "micro sizing multiplier is unavailable")
                 self._audit("PAPER_PNL_SCALING_ACTIVE", Severity.INFO, {"paper_risk_multiplier": multiplier,
                     "pnl_formula_version": "paper_pnl_approved_lot_v1", "execution_attempted": False}, notify=True)
-            while self.max_cycles is None or cycles < self.max_cycles:
-                event_id = f"cycle-{cycles+1}"
+            while self.max_cycles is None or attempts < self.max_cycles:
+                attempts += 1
+                event_id = f"cycle-{attempts}"
                 commands_processed += self.command_center.poll_and_process() if self.telegram_notifier is not None else 0
                 observation = self._observe_account()
                 connected = observation.connected is True
-                validate_account(observation, self.clock.now_utc(), self.config)
-                cycle = self._acquire_paper_cycle(observation, event_id=event_id)
-                result = self.process_paper_cycle(cycle)
+                try:
+                    validate_account(observation, self.clock.now_utc(), self.config)
+                    cycle = self._acquire_paper_cycle(observation, event_id=event_id)
+                except PaperCycleRejected as exc:
+                    if not skippable_before_mutation(self, exc):
+                        raise
+                    result = skip_paper_cycle(self, event_id, exc)
+                    self.paper_cycle_results.append(result)
+                else:
+                    result = self.process_paper_cycle(cycle)
                 opened += result.opened
                 closed += result.closed
                 if result.halted:
                     break
+                if result.valuation is None:
+                    # Skipped before any paper mutation: keep the heartbeat
+                    # alive, report why, and back off before retrying.
+                    skipped += 1
+                    consecutive_skips += 1
+                    skip_reason = str(result.rejections[-1].get("reject_code", ""))
+                    self.heartbeat.write({"mode": "forward-shadow", "mt5_connected": connected,
+                        "symbols_seen": len(self.symbols), "symbols_rejected": 0,
+                        "open_paper_trades": len(self.manager.load_open_trades()), "closed_paper_trades_today": closed,
+                        "last_error": skip_reason, "shadow_paused": result.paused,
+                        "signal_profile_used": self.config.signal_profile, "stable_gate_confirmed": self.stable_gate_confirmed,
+                        "stable_gate_decision": self.stable_gate_decision, "execution_attempted": False})
+                    heartbeat_written = True
+                    if self.max_cycles is None and self.cycle_seconds:
+                        sleep(min(self.cycle_seconds * 2 ** min(consecutive_skips - 1, 4), MAX_SKIP_BACKOFF_SECONDS))
+                    continue
+                consecutive_skips = 0
                 cycles += 1
                 heartbeat = self.heartbeat.write({"mode": "forward-shadow", "mt5_connected": connected,
                     "symbols_seen": len(self.symbols), "symbols_rejected": len(result.rejections),
@@ -180,6 +234,10 @@ class ForwardShadowBot:
             if not self.paper_lifecycle_halted:
                 write_forward_shadow_report(self.manager.load_all_trades(), self.report_dir)
                 self._audit("FORWARD_SHADOW_STOPPED", Severity.INFO, {"cycles": cycles, "execution_attempted": False}, notify=True)
+        except _StartupSkipped as startup:
+            skipped, skip_reason = 1, startup.code
+        except _AlreadyHalted:
+            pass
         except Exception as exc:
             result = halt_paper_cycle(self, event_id, exc)
             self.paper_cycle_results.append(result)
@@ -194,8 +252,11 @@ class ForwardShadowBot:
             if reason in {"RECOVERY_FAILED", "MT5_CONNECT_FAILED", "ACCOUNT_INFO_UNAVAILABLE", "ACCOUNT_INFO_INVALID",
                           "ACCOUNT_REAL_DETECTED_READ_ONLY", "MT5_CONNECTION_UNVERIFIED"}:
                 initial_failure = "CONFIG_ERROR"
+        if not initial_failure and skip_reason and not self.paper_lifecycle_halted and consecutive_skips:
+            initial_failure = "PAPER_CYCLE_SKIPPED"
         return self._summary(connected, cycles, count, opened, closed,
-            heartbeat_written, alerts_emitted, commands_processed, exit_reason=initial_failure)
+            heartbeat_written, alerts_emitted, commands_processed, exit_reason=initial_failure,
+            cycles_skipped=skipped, skip_reason=skip_reason)
 
     def process_paper_cycle(self, cycle: PaperCycleInput):
         """Public economic lifecycle also used by explicit quote replay."""
@@ -222,6 +283,8 @@ class ForwardShadowBot:
         telegram_commands_processed: int,
         exit_reason: str = "",
         halt_reason: str = "",
+        cycles_skipped: int = 0,
+        skip_reason: str = "",
     ) -> ForwardShadowSummary:
         try:
             state = self.database.get_operational_state()
@@ -258,10 +321,16 @@ class ForwardShadowBot:
             next_recommended_command=_next_recommended_command(computed_halt or computed_exit),
             audit_complete=not self.audit_failed, lifecycle_halted=self.paper_lifecycle_halted,
             paper_state_available=open_trades is not None,
+            cycles_skipped=cycles_skipped, skip_reason=skip_reason,
         )
 
     def _connect(self) -> bool:
-        self.connector = MT5Connector(config=self.config, mt5_client=self.mt5_client)
+        try:
+            self.connector = MT5Connector(config=self.config, mt5_client=self.mt5_client)
+        except RuntimeError as exc:
+            # MetaTrader5 package missing: nothing was read or written yet.
+            self._connect_error = str(exc)
+            return False
         initialize = getattr(self.connector.mt5, "initialize", None)
         return (not callable(initialize)) or initialize() is True
 
@@ -304,13 +373,20 @@ class ForwardShadowBot:
             database=_RequiredAuditSink(self, self.database), telegram_notifier=self.telegram_notifier,
             mt5_client=self.connector.mt5, run_id=self.run_id)
         helper.connector = self.connector
-        quotes, candidates = {}, []
+        quotes, candidates, tick_ms = {}, [], {}
+        # Measured evidence is rebuilt from this cycle's reads only.
+        begin_evidence = getattr(self.decision_evidence_provider, "begin_cycle", None)
+        observe_evidence = getattr(self.decision_evidence_provider, "observe_symbol", None)
+        if callable(begin_evidence):
+            begin_evidence(account_trade_allowed=getattr(observation.account, "trade_allowed", None))
         # Collect every mark before position management. No partial book update
         # or secondary quote lookup is permitted by the economic processor.
         for trade in self.manager.load_open_trades():
+            started = perf_counter()
             quote = self._snapshot_for(trade.broker_symbol, trade.symbol)
             if quote is not None:
                 quotes[trade.symbol] = quote
+                tick_ms[trade.symbol] = _elapsed_ms(started)
         for symbol in self.symbols:
             check, resolution = self.connector.resolve_symbol(symbol)
             if not check.accepted or resolution is None:
@@ -318,16 +394,22 @@ class ForwardShadowBot:
                 continue
             snapshot = quotes.get(symbol)
             if snapshot is None:
+                started = perf_counter()
                 snapshot = self._snapshot_for(resolution.broker_symbol, resolution.canonical_symbol)
+                tick_ms[symbol] = _elapsed_ms(started)
             if snapshot is None:
                 continue
             snapshot = replace(snapshot, timeframe="M5")
             quotes[symbol] = snapshot
+            started = perf_counter()
             bars_by_tf = helper._read_timeframes(resolution.canonical_symbol, resolution.broker_symbol, snapshot)
+            rates_ms = _elapsed_ms(started)
             if self.audit_failed:
                 raise PaperCycleAuditError("market-data audit was not durably confirmed")
             if bars_by_tf is None:
                 continue
+            if callable(observe_evidence):
+                observe_evidence(symbol, bars_by_tf, tick_latency_ms=tick_ms[symbol], rates_latency_ms=rates_ms)
             try:
                 features = helper._features_from_bars(bars_by_tf["M5"], snapshot)
             except Exception as exc:
@@ -781,6 +863,10 @@ def _safe_json(payload: str) -> dict[str, Any]:
         return json.loads(payload)
     except Exception:
         return {}
+
+
+def _elapsed_ms(started: float) -> int:
+    return int(round((perf_counter() - started) * 1000))
 
 
 def _next_recommended_command(reason: str) -> str:

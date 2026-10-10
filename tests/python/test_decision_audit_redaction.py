@@ -47,3 +47,12 @@ def test_mapping_event_redacts_before_json_serialization(serialized):
     assert "SYNTHETIC_SECRET" not in record["payload_json"]
     assert "C:\\\\private" not in record["payload_json"]
     assert "123456789" not in stored["message"]
+
+
+def test_profile_names_survive_redaction_but_paths_do_not():
+    from agi_style_forex_bot_mt5.telemetry.logger_setup import redact_secrets
+
+    result = redact_secrets({"signal_profile_used": "BALANCED_STABLE_MICRO", "risk_profile_used": "CONSERVATIVE",
+                             "signal_profile": "data/reports/p.ini", "profile_config": "BALANCED"})
+    assert result["signal_profile_used"] == "BALANCED_STABLE_MICRO" and result["risk_profile_used"] == "CONSERVATIVE"
+    assert "REDACTED" in result["signal_profile"] and "REDACTED" in result["profile_config"]

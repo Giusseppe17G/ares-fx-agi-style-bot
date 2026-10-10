@@ -92,6 +92,7 @@ from .paper_trading import (
     write_stable_shadow_daily_report,
 )
 from .paper_trading.paper_pnl_engine import extract_paper_risk_multiplier
+from .paper_trading.live_decision_evidence import LiveDecisionEvidence
 from .paper_daily_risk_state import run_paper_daily_risk_audit, run_paper_daily_risk_clear, run_paper_legacy_drawdown_audit, validate_micro_daily_risk
 from .paper_pnl_audit import run_paper_pnl_audit, run_paper_pnl_scaling_check, run_paper_risk_post_fix_gate, run_paper_risk_recommendation
 from .paper_risk_calibration import build_paper_risk_profile, run_paper_risk_audit, run_paper_risk_status
@@ -174,6 +175,12 @@ def build_sample_features() -> dict[str, object]:
         "session": "LONDON",
         "volatility": 0.0002,
     }
+
+
+# Exit codes for wrappers and watchdogs. Every other path exits 0 or with
+# argparse's 2; the JSON on stdout always carries the details.
+EXIT_MT5_UNAVAILABLE = 3  # MetaTrader 5 not connected (and no forward cycle completed)
+EXIT_LIFECYCLE_HALTED = 4  # forward-shadow paper lifecycle latched; needs review
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2112,6 +2119,8 @@ def main(argv: list[str] | None = None) -> int:
                 report_dir="data/reports/forward_shadow_stable" if config.signal_profile in stable_shadow_profiles else "data/reports/forward_shadow",
                 stable_gate_confirmed=config.signal_profile in stable_shadow_profiles,
                 stable_gate_decision="PAPER_SHADOW_READY" if config.signal_profile in stable_shadow_profiles else "",
+                # Paper decisions need dated, measured broker evidence (live_decision_evidence_v1).
+                decision_evidence_provider=LiveDecisionEvidence(max_spread_points=config.max_spread_points_default),
             )
             if config.signal_profile in stable_shadow_profiles:
                 event = Event.create(
@@ -2148,7 +2157,12 @@ def main(argv: list[str] | None = None) -> int:
                     payload={"daily_risk_ledger": str(args.daily_risk_ledger), "signal_profile_used": config.signal_profile, "execution_attempted": False},
                 )
                 database.insert_event(event)
-            print(forward_summary_to_json(bot.run()))
+            summary = bot.run()
+            print(forward_summary_to_json(summary))
+            if getattr(summary, "lifecycle_halted", False):
+                return EXIT_LIFECYCLE_HALTED
+            if not getattr(summary, "mt5_connected", False) and not getattr(summary, "cycles_completed", 0):
+                return EXIT_MT5_UNAVAILABLE
             return 0
 
         if args.mode == "stable-health":
@@ -2270,8 +2284,9 @@ def main(argv: list[str] | None = None) -> int:
                     enabled=bool(args.telegram or config.telegram_enabled),
                 ),
             )
-            print(summary_to_json(bot.run()))
-            return 0
+            summary = bot.run()
+            print(summary_to_json(summary))
+            return 0 if getattr(summary, "mt5_connected", False) else EXIT_MT5_UNAVAILABLE
 
         bot = ShadowDemoBot(
             config=config,

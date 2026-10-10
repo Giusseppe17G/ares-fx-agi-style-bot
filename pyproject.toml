@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "agi-style-forex-bot-mt5"
 version = "0.1.0"
 description = "Fail-closed demo-only Forex bot framework for MetaTrader 5."
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
   "numpy>=1.24",
   "pandas>=2.0",

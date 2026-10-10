@@ -133,8 +133,14 @@ def test_forward_shadow_returns_exit_reason_with_zero_cycles(tmp_path: Path) -> 
         summary = bot.run()
         assert summary.cycles_completed == 0
         assert summary.exit_reason == "CONFIG_ERROR"
-        assert summary.halt_reason == "ACCOUNT_INFO_UNAVAILABLE"
+        # An unreadable account before any paper mutation is skipped, not latched.
+        assert summary.skip_reason == "ACCOUNT_INFO_UNAVAILABLE" and summary.cycles_skipped == 1
+        assert summary.halt_reason == "" and summary.lifecycle_halted is False
         assert summary.execution_attempted is False
+        assert not db.get_operational_state().get("paper_lifecycle_halted")
+        rerun = ForwardShadowBot(config=BotConfig(), symbols=("EURUSD",), audit_logger=JsonlAuditLogger(tmp_path / "logs"), database=db, mt5_client=FailingMT5(), max_cycles=1, cycle_seconds=0).run()
+        assert rerun.skip_reason == "ACCOUNT_INFO_UNAVAILABLE" and rerun.halt_reason != "PAPER_LIFECYCLE_HALTED"
+        assert any(row["event_type"] == "PAPER_CYCLE_SKIPPED" for row in db.fetch_all("events"))
     finally:
         db.close()
 
@@ -145,5 +151,24 @@ def test_all_symbols_rejected_aggregation_handles_symbol_list(tmp_path: Path) ->
         # Empty database should not trigger pandas scalar/list errors.
         metrics = MetricsCollector(db).collect()
         assert metrics["execution_attempted"] is False
+    finally:
+        db.close()
+
+
+def test_missing_metatrader5_package_is_skipped_not_latched(tmp_path: Path, monkeypatch) -> None:
+    from agi_style_forex_bot_mt5.execution import mt5_connector
+
+    def missing(_self):
+        raise RuntimeError("MetaTrader5 package is not installed")
+
+    monkeypatch.setattr(mt5_connector.MT5Connector, "_import_mt5", missing)
+    db = TelemetryDatabase(tmp_path / "shadow.sqlite3")
+    try:
+        for _ in range(2):
+            summary = ForwardShadowBot(config=BotConfig(), symbols=("EURUSD",), audit_logger=JsonlAuditLogger(tmp_path / "logs"),
+                database=db, max_cycles=1, cycle_seconds=0).run()
+            assert summary.skip_reason == "MT5_CONNECT_FAILED" and summary.lifecycle_halted is False
+            assert summary.exit_reason == "CONFIG_ERROR" and summary.execution_attempted is False
+        assert not db.get_operational_state().get("paper_lifecycle_halted")
     finally:
         db.close()

@@ -213,7 +213,7 @@ def test_cli_accepts_mt5_data_mode(monkeypatch, tmp_path: Path, capsys) -> None:
 
     monkeypatch.setattr(cli, "MT5DataOnlyBot", FakeMT5DataOnlyBot)
     code = cli.main(["--mode", "mt5-data", "--sqlite", str(tmp_path / "t.sqlite3")])
-    assert code == 0
+    assert code == cli.EXIT_MT5_UNAVAILABLE
     assert '"mode": "mt5-data"' in capsys.readouterr().out
 
 
@@ -234,7 +234,7 @@ def test_cli_accepts_mt5_diagnose_mode(monkeypatch, tmp_path: Path, capsys) -> N
 
     monkeypatch.setattr(cli, "MT5DiagnoseBot", FakeMT5DiagnoseBot)
     code = cli.main(["--mode", "mt5-diagnose", "--sqlite", str(tmp_path / "t.sqlite3")])
-    assert code == 0
+    assert code == cli.EXIT_MT5_UNAVAILABLE
     assert '"mode": "mt5-diagnose"' in capsys.readouterr().out
 
 
