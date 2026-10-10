@@ -792,7 +792,11 @@ El bot no debe operar si:
   definidas en `.github/workflows/validation.yml` (2026-10-10): dependencias
   fijadas, `--check` de los generadores nativos, emulacion C++ (§17.13) y
   suite pytest, sin MetaTrader, broker, secretos ni red mas alla de instalar
-  paquetes. Lint documental sigue pendiente.
+  paquetes. Lint documental (`scripts/check_docs.py`, `docs_lint_v1`): los
+  Markdown versionados decodifican, cierran sus bloques de codigo, sus enlaces
+  relativos y rutas del repo entre backticks apuntan a archivos versionados
+  (salvo la raiz de runtime `data/`), y no contienen rutas de usuario locales,
+  valores con forma de secreto ni emails fuera de dominios de ejemplo.
 
 ## 17. Contratos De Correccion Y Validacion Compartida (2026-10-05)
 
