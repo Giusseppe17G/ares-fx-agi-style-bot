@@ -266,6 +266,16 @@ del harness endurecidos tras revision adversarial (PowerShell 7 obligatorio,
 motivo del primer control fallido, staging/directorios enlazados, ejecuciones
 duplicadas de agentes, parser solo stdlib con `-S`).
 
+**Baselines emparejados** (§17.14): el estudio predeclarado se recalculo con el
+codigo actual (27/27 celdas identicas a lo preservado) y se comparo con no-trade,
+direccion invertida y tres baselines aleatorios con ejecucion y costes
+identicos (1.000 replicas). En train y validation la estrategia es igual o peor
+que entrar al azar en 17 de 18 celdas; invertir su direccion mejora 19 de 27.
+Solo development_test de EURUSD/GBPUSD supera al azar, tramo ya inspeccionado y
+contradicho por los anteriores. **No hay evidencia de ventaja** de las reglas de
+seleccion actuales; no se ajustan reglas con estos datos. Detalle en
+`docs/research/trend-pullback-predeclared-v1-baselines.md`.
+
 ## Pendientes que impiden promocion
 
 1. Capturas nuevas de quotes bid/ask y metadata del broker, con costes y moneda
@@ -284,10 +294,10 @@ duplicadas de agentes, parser solo stdlib con `-S`).
    el run del Tester siguen pendientes de una ejecucion Windows autorizada.
    El risk gate nativo existe pero no esta integrado en el EA; la estrategia
    nativa sigue pendiente.
-6. Completar la validacion financiera del nuevo estudio predeclarado, incluidos
-   baselines y datos intactos. Las etiquetas de candidatos del runner legacy
-   no aplican parametros distintos al backtest y el
-   assessment reutiliza la misma muestra como train/test. Ahora lo declara
+6. Completar la validacion financiera del nuevo estudio predeclarado con datos
+   intactos (los baselines ya estan evaluados sobre desarrollo, §17.14). Las
+   etiquetas de candidatos del runner legacy no aplican parametros distintos al
+   backtest y el assessment reutiliza la misma muestra como train/test. Ahora lo declara
    `OOS_NOT_EVALUATED`, limita resultados a diagnostico y no aprueba candidatos.
    El runner nuevo aplica parametros y separa tramos, pero sus resultados de
    desarrollo tampoco permiten seleccionar una estrategia validada.

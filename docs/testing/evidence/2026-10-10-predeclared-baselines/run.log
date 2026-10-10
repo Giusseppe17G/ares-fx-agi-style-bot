@@ -1,0 +1,6 @@
+{"cells": 27, "execution_authorized": false, "output": "<scratchpad>/predeclared/baselines-run", "plan_id": "6e10245a0ce90d3d044d3aebd60587c1a4c5e87f6485015279ae2b87878f4611", "promotion_eligible": false, "status": "COMPLETED"}
+
+real	13m23.352s
+user	13m15.904s
+sys	0m0.440s
+exit=0

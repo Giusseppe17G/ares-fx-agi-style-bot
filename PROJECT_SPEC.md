@@ -1359,3 +1359,25 @@ con g++ (`-O0 -ffp-contract=off -fno-fast-math -fsanitize=undefined`).
   verifica el compilador MQL5, Tester, broker, reloj real ni ejecucion. La
   compilacion MetaEditor y el run de §17.11 siguen siendo la verificacion
   nativa de referencia.
+
+### 17.14 Baselines Emparejados Del Estudio Predeclarado
+
+`research/predeclared_baselines.py` (`predeclared_baselines_v1`) y
+`scripts/run_predeclared_baselines.py`. Diagnostico de investigacion: no cambia
+estrategia ni evaluador, no selecciona hipotesis y no convierte desarrollo en
+holdout.
+
+- Elegibilidad identica a la del evaluador (alcance causal, warmup, horizonte
+  completo, features validas); si las barras evaluadas por la estrategia
+  difieren, la celda falla.
+- Cada barra elegible se simula una vez en BUY y SELL con el mismo constructor
+  SL/TP, lote, costes, gestion y backtester. La estrategia es un subconjunto y
+  debe reproducir `calculate_metrics`; si no, la celda falla.
+- Baselines: sin operar, direccion invertida, entradas aleatorias del mismo
+  tamano, direccion aleatoria en las mismas barras y barras aleatorias en la
+  direccion EMA20/EMA50. Semillas derivadas de version, plan, celda y nombre.
+  Se reportan percentiles y la cuota `(k+1)/(R+1)` de replicas >= estrategia,
+  descriptiva y sin correccion por comparaciones multiples.
+- El plan congelado debe seguir ligado a los datos; se registran la identidad
+  de codigo del plan y la del codigo de baselines. Flags de promocion,
+  ejecucion y pipeline completo siempre false.
