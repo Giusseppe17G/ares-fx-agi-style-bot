@@ -323,3 +323,35 @@ def test_skip_never_clears_an_existing_latch(review_case, tmp_path, monkeypatch)
         assert summary.cycles_skipped == 0
     finally:
         database.close()
+
+
+def test_terminal_closed_at_startup_is_retried_in_the_loop(review_case, tmp_path, monkeypatch):
+    bot, database, client, _ = forward_bot(review_case, tmp_path, monkeypatch, cycles=2)
+    calls = []
+
+    def initialize():
+        calls.append(True)
+        return len(calls) > 1
+
+    client.initialize = initialize
+    try:
+        summary = bot.run()
+        # Attempt 1 skipped (no terminal), attempt 2 reconnected and completed.
+        assert calls == [True, True]
+        assert summary.cycles_skipped == 1 and summary.cycles_completed == 1
+        assert not summary.lifecycle_halted and summary.paper_trades_opened == 1
+    finally:
+        database.close()
+
+
+def test_terminal_that_stays_closed_is_retried_every_attempt(review_case, tmp_path, monkeypatch):
+    bot, database, client, _ = forward_bot(review_case, tmp_path, monkeypatch, cycles=3)
+    calls = []
+    client.initialize = lambda: calls.append(True) or False
+    try:
+        summary = bot.run()
+        assert len(calls) == 3 and summary.cycles_skipped == 3 and summary.cycles_completed == 0
+        assert summary.skip_reason == "MT5_CONNECT_FAILED" and not summary.lifecycle_halted
+        assert database.count_rows("paper_trades") == 0
+    finally:
+        database.close()

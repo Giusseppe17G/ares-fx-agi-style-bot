@@ -43,16 +43,8 @@ from .paper_report import write_forward_shadow_report
 
 
 MAX_SKIP_BACKOFF_SECONDS = 300
-
-
-class _StartupSkipped(Exception):
-    def __init__(self, code: str) -> None:
-        super().__init__(code)
-        self.code = code
-
-
-class _AlreadyHalted(Exception):
-    """The startup skip could not be audited and already latched the lifecycle."""
+# Skips that may mean the terminal went away: initialize() again next attempt.
+RECONNECT_AFTER_SKIP = frozenset({"MT5_CONNECT_FAILED", "MT5_CONNECTION_UNVERIFIED", "ACCOUNT_INFO_UNAVAILABLE"})
 
 
 @dataclass(frozen=True)
@@ -155,15 +147,6 @@ class ForwardShadowBot:
             recovery = self.recovery_manager.recover()
             if recovery.get("status") != "OK":
                 raise PaperCycleRejected("RECOVERY_FAILED", "startup recovery failed")
-            if not self._connect():
-                failure = PaperCycleRejected("MT5_CONNECT_FAILED", getattr(self, "_connect_error", "") or "read-only connection failed")
-                if not skippable_before_mutation(self, failure):
-                    raise failure
-                result = skip_paper_cycle(self, event_id, failure)
-                self.paper_cycle_results.append(result)
-                if result.halted:
-                    raise _AlreadyHalted()
-                raise _StartupSkipped(failure.code)
             if self.config.signal_profile == "BALANCED_STABLE_MICRO":
                 multiplier = extract_paper_risk_multiplier(self.config.profile_config or None)
                 if multiplier is None:
@@ -174,18 +157,30 @@ class ForwardShadowBot:
                 attempts += 1
                 event_id = f"cycle-{attempts}"
                 commands_processed += self.command_center.poll_and_process() if self.telegram_notifier is not None else 0
-                observation = self._observe_account()
-                connected = observation.connected is True
-                try:
-                    validate_account(observation, self.clock.now_utc(), self.config)
-                    cycle = self._acquire_paper_cycle(observation, event_id=event_id)
-                except PaperCycleRejected as exc:
-                    if not skippable_before_mutation(self, exc):
-                        raise
-                    result = skip_paper_cycle(self, event_id, exc)
+                result = None
+                # (Re)connect inside the loop: a terminal that is closed at
+                # startup or restarted later is retried with the same backoff.
+                if self.connector is None and not self._connect():
+                    self.connector = None
+                    connected = False
+                    failure = PaperCycleRejected("MT5_CONNECT_FAILED", getattr(self, "_connect_error", "") or "read-only connection failed")
+                    if not skippable_before_mutation(self, failure):
+                        raise failure
+                    result = skip_paper_cycle(self, event_id, failure)
                     self.paper_cycle_results.append(result)
-                else:
-                    result = self.process_paper_cycle(cycle)
+                if result is None:
+                    observation = self._observe_account()
+                    connected = observation.connected is True
+                    try:
+                        validate_account(observation, self.clock.now_utc(), self.config)
+                        cycle = self._acquire_paper_cycle(observation, event_id=event_id)
+                    except PaperCycleRejected as exc:
+                        if not skippable_before_mutation(self, exc):
+                            raise
+                        result = skip_paper_cycle(self, event_id, exc)
+                        self.paper_cycle_results.append(result)
+                    else:
+                        result = self.process_paper_cycle(cycle)
                 opened += result.opened
                 closed += result.closed
                 if result.halted:
@@ -196,6 +191,8 @@ class ForwardShadowBot:
                     skipped += 1
                     consecutive_skips += 1
                     skip_reason = str(result.rejections[-1].get("reject_code", ""))
+                    if skip_reason in RECONNECT_AFTER_SKIP:
+                        self.connector = None
                     self.heartbeat.write({"mode": "forward-shadow", "mt5_connected": connected,
                         "symbols_seen": len(self.symbols), "symbols_rejected": 0,
                         "open_paper_trades": len(self.manager.load_open_trades()), "closed_paper_trades_today": closed,
@@ -234,10 +231,6 @@ class ForwardShadowBot:
             if not self.paper_lifecycle_halted:
                 write_forward_shadow_report(self.manager.load_all_trades(), self.report_dir)
                 self._audit("FORWARD_SHADOW_STOPPED", Severity.INFO, {"cycles": cycles, "execution_attempted": False}, notify=True)
-        except _StartupSkipped as startup:
-            skipped, skip_reason = 1, startup.code
-        except _AlreadyHalted:
-            pass
         except Exception as exc:
             result = halt_paper_cycle(self, event_id, exc)
             self.paper_cycle_results.append(result)
@@ -325,6 +318,7 @@ class ForwardShadowBot:
         )
 
     def _connect(self) -> bool:
+        self._connect_error = ""
         try:
             self.connector = MT5Connector(config=self.config, mt5_client=self.mt5_client)
         except RuntimeError as exc:

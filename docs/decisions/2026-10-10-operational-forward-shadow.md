@@ -29,8 +29,12 @@ evidence of the Strategy Promotion Gate, could not:
   `PAPER_CYCLE_SKIPPED`, mutate nothing and do not latch; the live run backs off
   (cycle seconds doubling up to 300 s) and retries. The set covers MT5 not
   connected or not installed, unreadable account, stale observation or
-  acquisition, no quotes and an open position without a quote. Everything else
-  keeps the durable latch: a previous latch or unfinished cycle, a failure to
+  acquisition, no quotes and an open position without a quote. A timestamp
+  ahead of the clock under any of these codes is an integrity failure and still
+  latches (`PaperCycleRejected.future`). The MT5 connection is (re)established
+  inside the loop, so a terminal closed at startup or restarted later is retried
+  with the same backoff instead of ending the run. Everything else keeps the
+  durable latch: a previous latch or unfinished cycle, a failure to
   audit the skip, real account, invalid or changed account identity, quote
   integrity, reversed or duplicate events, storage and audit failures. The
   stateful replay passes `skip_pre_mutation_failures=False`: a recorded event

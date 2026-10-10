@@ -77,9 +77,11 @@ class PaperCycleResult:
 
 
 class PaperCycleRejected(ValueError):
-    def __init__(self, code: str, reason: str):
+    def __init__(self, code: str, reason: str, *, future: bool = False):
         super().__init__(reason)
-        self.code, self.reason = code, reason
+        # future=True marks a timestamp ahead of the clock: an integrity
+        # failure that is never skipped, even under a "stale" code.
+        self.code, self.reason, self.future = code, reason, future is True
 
 
 class PaperCycleAuditError(RuntimeError):
@@ -131,7 +133,7 @@ def validate_quotes(quotes, open_trades, now, config):
         quote.validate()
         age = (utc(now) - utc(quote.timestamp_utc)).total_seconds()
         if not 0 <= age <= min(config.max_tick_age_seconds, config.max_market_snapshot_age_seconds):
-            raise PaperCycleRejected("QUOTE_TIME_INVALID", "quote is stale or from the future")
+            raise PaperCycleRejected("QUOTE_TIME_INVALID", "quote is stale or from the future", future=age < 0)
         if not all(finite(getattr(quote, field)) for field in ("bid", "ask", "spread_points")):
             raise PaperCycleRejected("QUOTE_INVALID", "quote values must be finite")
         if not all(is_price_on_tick_grid(getattr(quote, field), quote.tick_size) for field in ("bid", "ask")):
@@ -148,7 +150,7 @@ def validate_account(observation, now, config):
         raise PaperCycleRejected("ACCOUNT_OBSERVATION_MISSING", "cycle requires an account observation")
     age = (utc(now)-utc(observation.observed_at_utc)).total_seconds()
     if not 0 <= age <= config.max_market_snapshot_age_seconds:
-        raise PaperCycleRejected("ACCOUNT_OBSERVATION_STALE", "account observation is stale or future")
+        raise PaperCycleRejected("ACCOUNT_OBSERVATION_STALE", "account observation is stale or future", future=age < 0)
     account = observation.account
     if not isinstance(account, AccountState):
         raise PaperCycleRejected("ACCOUNT_INFO_UNAVAILABLE", "complete account observation is required")
@@ -204,8 +206,9 @@ def process_paper_cycle(bot, cycle: PaperCycleInput) -> PaperCycleResult:
             raise PaperCycleRejected("PAPER_LIFECYCLE_HALTED", "previous uncertain lifecycle requires reconciliation")
         now = utc(bot.clock.now_utc())
         event_time = utc(cycle.observed_at_utc)
-        if not 0 <= (now-event_time).total_seconds() <= bot.config.max_market_snapshot_age_seconds:
-            raise PaperCycleRejected("EVENT_TIME_INVALID", "cycle acquisition is stale or future")
+        event_age = (now-event_time).total_seconds()
+        if not 0 <= event_age <= bot.config.max_market_snapshot_age_seconds:
+            raise PaperCycleRejected("EVENT_TIME_INVALID", "cycle acquisition is stale or future", future=event_age < 0)
         previous = getattr(bot, "_paper_previous_cycle_time", None)
         seen = getattr(bot, "_paper_cycle_ids", set())
         if previous is not None and event_time < previous:
@@ -329,6 +332,7 @@ def process_paper_cycle(bot, cycle: PaperCycleInput) -> PaperCycleResult:
 
 # Operational conditions seen before a cycle writes its intent: the paper book
 # is untouched, so a live run may audit, back off and retry instead of latching.
+# A future-dated timestamp under any of these codes still latches.
 # Replay keeps the latch: a recorded event without quotes is an input defect
 # there, not a closed market. Account, integrity and storage failures always latch.
 SKIPPABLE_BEFORE_MUTATION = frozenset({
@@ -341,6 +345,7 @@ SKIPPABLE_BEFORE_MUTATION = frozenset({
 def skippable_before_mutation(bot, exc) -> bool:
     return (getattr(bot, "skip_pre_mutation_failures", False) is True
             and isinstance(exc, PaperCycleRejected) and exc.code in SKIPPABLE_BEFORE_MUTATION
+            and not getattr(exc, "future", False)
             and not getattr(bot, "paper_lifecycle_halted", False) and not getattr(bot, "audit_failed", False))
 
 
