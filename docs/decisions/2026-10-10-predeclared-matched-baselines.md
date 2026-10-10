@@ -24,8 +24,11 @@ could not say whether the strategy's choices were better or worse than chance.
   SELL with the strategy's `build_signal_prices`, lot, costs, management and
   backtester. `Backtester._simulate_candidate` keeps no state between
   candidates, so the strategy and all baselines are subsets of the same
-  outcomes. The strategy subset must reproduce `calculate_metrics` exactly or
-  the cell fails; on the preserved data it reproduces the archived metrics.
+  outcomes. Each cell also runs `evaluate_trend_pullback`; its trade count,
+  net profit (1e-6), win rate and max drawdown must match the strategy subset
+  or the cell fails. Against the archived study, trades, win rate and drawdown
+  are identical and net profit and profit factor differ only by float summation
+  order (at most 2e-12).
 - **Baselines.** `no_trade`; `direction_flip` (the strategy's bars, opposite
   direction: an ablation of its directional choice); `random_entries` (as many
   random eligible bars as the strategy's closed trades, random direction);

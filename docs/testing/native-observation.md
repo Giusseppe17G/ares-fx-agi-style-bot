@@ -7,15 +7,19 @@ It generates observations and rejection reasons, not strategy signals.
 Build without opening or configuring MetaTrader:
 
 ```powershell
-./scripts/compile_native_observer.ps1
+pwsh -NoProfile -File .\scripts\compile_native_observer.ps1
 py -3.14 -B -m pytest tests/python/test_native_observer_source.py
 ```
+
+The script requires PowerShell 7 (`pwsh`); Windows PowerShell 5.1 stops at
+`#Requires -Version 7.0`.
 
 The build script copies repository MQL sources and the fixture harness to a new
 directory under the system temporary directory. An explicitly supplied staging
 path must be new and inside that directory or the worktree. MetaEditor runs
-hidden. Success requires both logs to contain `0 errors, 0 warnings` and newly
-created binaries. A process exit code alone is insufficient; the installed
+hidden. It compiles the EA and the four script harnesses; success requires each
+log to have a line starting `Result: 0 errors, 0 warnings,` and a newly created
+binary. A process exit code alone is insufficient; the installed
 compiler returned code 1 with successful logs. The manifest records source,
 compiler, build-script, binary and raw log SHA256 hashes. Staging is retained;
 neither source nor binaries are copied into a terminal's data directories.

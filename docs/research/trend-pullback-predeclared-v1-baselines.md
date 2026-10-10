@@ -26,8 +26,10 @@ estrategia supera al baseline; cerca de 1 el baseline la iguala o supera.
 ## Reproducibilidad
 
 Las 27 celdas de la estrategia recalculadas con el codigo actual coinciden
-exactamente con el estudio preservado (`predeclared-3e9b4d4`): PnL neto, PF,
-win rate y drawdown de cierres. Cero discrepancias.
+con el estudio preservado (`predeclared-3e9b4d4`): trades, win rate y drawdown
+de cierres identicos; PnL neto y PF iguales salvo el orden de suma en coma
+flotante (diferencia maxima 1,8e-12). Cada celda verifica ademas, al ejecutarse,
+que el evaluador predeclarado produce los mismos trades y metricas.
 
 ## Resultados (PnL en USD supuestos)
 

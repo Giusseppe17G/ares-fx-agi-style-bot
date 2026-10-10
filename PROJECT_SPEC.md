@@ -1375,8 +1375,9 @@ holdout.
   completo, features validas); si las barras evaluadas por la estrategia
   difieren, la celda falla.
 - Cada barra elegible se simula una vez en BUY y SELL con el mismo constructor
-  SL/TP, lote, costes, gestion y backtester. La estrategia es un subconjunto y
-  debe reproducir `calculate_metrics`; si no, la celda falla.
+  SL/TP, lote, costes, gestion y backtester. La estrategia es un subconjunto:
+  trades, PnL neto, win rate y drawdown deben coincidir con el backtest propio
+  de `evaluate_trend_pullback` para esa celda; si no, la celda falla.
 - Baselines: sin operar, direccion invertida, entradas aleatorias del mismo
   tamano, direccion aleatoria en las mismas barras y barras aleatorias en la
   direccion EMA20/EMA50. Semillas derivadas de version, plan, celda y nombre.

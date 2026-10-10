@@ -223,8 +223,10 @@ repitio el estudio financiero para atribuir beneficio a cambios de software.
 
 La ampliacion del 2026-10-10 completa la herramienta de verificacion matematica
 nativa (§17.11): el runner invocaba `scripts/check_native_math_logs.py`, que no
-existia; compilaba y copiaba binarios y fallaba antes de iniciar el terminal. El parser nuevo es fail-closed: solo
-acepta la secuencia exacta de nueve registros con 2.482 aserciones, sin
+existia; compilaba y copiaba binarios y fallaba antes de iniciar el terminal.
+Primera entrega (wrapper v1, superada por la v2 del parrafo siguiente: once
+registros, cuatro stages, 3.915 aserciones y 88 pruebas). El parser nuevo es
+fail-closed: solo acepta la secuencia exacta de nueve registros con 2.482 aserciones, sin
 rechazos, ticks ni fallos, y una config `Model=3` sin cuenta ni agentes
 remotos. El runner ancla la comprobacion de compilacion (la subcadena anterior
 aceptaba `10 errors, 0 warnings`) y ejecuta el parser con `-I`. 80 pruebas nuevas
@@ -233,10 +235,10 @@ temporales confirmaron que detectan regresiones. Ver
 `docs/testing/native-math-harness.md` y
 `docs/decisions/2026-10-10-native-math-log-parser.md`. **No se compilo el
 wrapper ni se inicio MetaTrader** (entorno Linux); el runtime MQL sigue sin
-verificar. Suite completa con Python 3.14.4/pandas 3.0.2/NumPy 2.4.4 en sabado:
-**2.522 passed y 5 fallos** que dependen del reloj (mercado cerrado). Con el
-reloj fijado en dia laborable pasan, y solo falla de forma intermitente un test
-previo que identifica loggers con `id()`. Logs:
+verificar. Suite completa con Python 3.14.4/pandas 3.0.2/NumPy 2.4.4 en sabado,
+en ese momento: **2.522 passed y 5 fallos** que dependian del reloj (mercado
+cerrado) y un test intermitente que identificaba loggers con `id()`; los tres
+problemas se corrigieron despues (ver mas abajo). Logs:
 `docs/testing/evidence/2026-10-10-native-math-parser/`.
 
 La continuacion del 2026-10-10 implementa el **Risk Gate nativo puro**
@@ -266,8 +268,15 @@ del harness endurecidos tras revision adversarial (PowerShell 7 obligatorio,
 motivo del primer control fallido, staging/directorios enlazados, ejecuciones
 duplicadas de agentes, parser solo stdlib con `-S`).
 
+**CI offline** (§16): `.github/workflows/validation.yml` ejecuta en cada push y
+PR el lint documental (`scripts/check_docs.py`), `--check` de los tres
+generadores de fixtures nativas, la emulacion C++ y la suite pytest con
+dependencias fijadas, sin MetaTrader, broker, cuenta ni secretos. Decision en
+`docs/decisions/2026-10-10-offline-ci-validation.md`. No compila MQL5.
+
 **Baselines emparejados** (§17.14): el estudio predeclarado se recalculo con el
-codigo actual (27/27 celdas identicas a lo preservado) y se comparo con no-trade,
+codigo actual (27/27 celdas iguales a lo preservado salvo redondeo de suma
+<= 2e-12) y se comparo con no-trade,
 direccion invertida y tres baselines aleatorios con ejecucion y costes
 identicos (1.000 replicas). En train y validation la estrategia es igual o peor
 que entrar al azar en 17 de 18 celdas; invertir su direccion mejora 19 de 27.
