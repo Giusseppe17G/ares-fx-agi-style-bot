@@ -55,7 +55,8 @@ class EmptyRatesMT5:
         return SimpleNamespace(name=symbol, visible=True, trade_mode=1, filling_mode=0, digits=5, point=0.00001, trade_tick_value=1, trade_tick_size=0.00001, trade_contract_size=100000, volume_min=0.01, volume_max=100, volume_step=0.01, trade_stops_level=10, trade_freeze_level=5)
 
     def symbol_info_tick(self, symbol: str):
-        now = int(utc_now().timestamp())
+        # Stamped 1 s back: the connector reads its clock before polling, and a later stamp reads as a future tick.
+        now = int(utc_now().timestamp()) - 1
         return SimpleNamespace(bid=1.1000, ask=1.1001, time=now, time_msc=now * 1000)
 
     def copy_rates_from_pos(self, symbol: str, timeframe, start_pos: int, count: int):

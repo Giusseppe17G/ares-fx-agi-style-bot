@@ -107,7 +107,8 @@ class FakeMT5:
 
     def symbol_info_tick(self, symbol: str):
         info = self.symbol_info(symbol)
-        timestamp = utc_now().timestamp() - self.tick_age_seconds
+        # Stamped 1 s back: the connector reads its clock before polling, and a later stamp reads as a future tick.
+        timestamp = utc_now().timestamp() - 1 - self.tick_age_seconds
         return SimpleNamespace(
             bid=info._bid,
             ask=info._ask,

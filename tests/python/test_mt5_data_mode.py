@@ -119,7 +119,8 @@ class MockMT5DataClient:
     def symbol_info_tick(self, symbol: str):
         self.calls.append("symbol_info_tick")
         is_stale = self.stale_tick or symbol in self.stale_symbols
-        timestamp = int(utc_now().timestamp()) - (999 if is_stale else 0)
+        # Stamped 1 s back: the connector reads its clock before polling, and a later stamp reads as a future tick.
+        timestamp = int(utc_now().timestamp()) - 1 - (999 if is_stale else 0)
         return SimpleNamespace(
             bid=1.10000,
             ask=1.10010,
