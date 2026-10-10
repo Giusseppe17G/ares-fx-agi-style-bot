@@ -46,7 +46,8 @@ if (-not $compileProcess.WaitForExit(60000)) {
 $compileLog = [IO.Path]::ChangeExtension($wrapperSource, '.log')
 $compiledBinary = [IO.Path]::ChangeExtension($wrapperSource, '.ex5')
 if (-not (Test-Path -LiteralPath $compileLog) -or -not (Test-Path -LiteralPath $compiledBinary)) { throw 'Wrapper compile evidence missing; terminal was not started.' }
-if ((Get-Content -LiteralPath $compileLog -Raw) -notmatch '0 errors, 0 warnings') { throw 'Wrapper did not compile cleanly; terminal was not started.' }
+# Anchored: an unanchored '0 errors, 0 warnings' also matches '10 errors, 0 warnings'.
+if ((Get-Content -LiteralPath $compileLog -Raw) -notmatch '(?m)^Result: 0 errors, 0 warnings,') { throw 'Wrapper did not compile cleanly; terminal was not started.' }
 $binary = Join-Path $mqlRoot 'Experts\NativeMathHarness.ex5'
 Copy-Item -LiteralPath $compiledBinary -Destination $binary
 $publicBinaries = [ordered]@{}
@@ -149,7 +150,7 @@ try {
     Save-Manifest $manifest $manifestPath
 }
 $logEvidencePath = Join-Path $stage 'native-math-log-evidence.json'
-& py -3.14 -B $parser --stage $stage --output $logEvidencePath
+& py -3.14 -I -B $parser --stage $stage --output $logEvidencePath
 $parserExit = $LASTEXITCODE
 $manifest.parser_exit_code = $parserExit
 if (Test-Path -LiteralPath $logEvidencePath) {

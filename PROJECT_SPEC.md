@@ -1287,3 +1287,15 @@ conteos/fallos y finalizacion, sin aceptar ausencia de log como exito.
 - Un resultado positivo solo verifica estas fixtures sinteticas en la version
   concreta de MQL5. No certifica adquisicion, reloj real, broker, asignacion
   fallida, rentabilidad, ejecucion de trading ni Strategy Promotion Gate.
+- Parser `scripts/check_native_math_logs.py` (solo stdlib, `-I -B`): lee todo
+  `.log` del staging salvo el de compilacion, agrupado por directorio; cada
+  fuente con registros debe tener la secuencia identica. Solo pasa la secuencia
+  exacta BEGIN, tres resumenes de suite con su STAGE aceptado (31/1103/1348),
+  TOTAL 2482 sin fallos/ticks y COMPLETE completed=1. Rechazo, aserciones
+  fallidas, duplicados, truncado, gramatica distinta o config sin `Model=3`,
+  con agentes remotos/cloud, trading/DLL o entradas de cuenta fallan cerrados.
+- Evidencia `native_math_log_evidence_v1`: rutas relativas y hashes, nunca
+  sobrescribe un archivo existente (salida 2), salida 0 solo si `passed=true`.
+  `execution_authorized`, `full_pipeline_verified`, `promotion_eligible` y
+  `model_verified_in_mql` siempre son false. La compilacion exige la linea
+  anclada `Result: 0 errors, 0 warnings,`.

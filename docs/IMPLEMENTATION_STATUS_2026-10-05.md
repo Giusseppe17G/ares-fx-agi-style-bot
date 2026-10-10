@@ -221,6 +221,20 @@ intencional. Log: `docs/testing/evidence/2026-10-05-shared-pipeline/tests-core-i
 Ambos generadores de fixtures pasaron `--check` antes de esa corrida. No se
 repitio el estudio financiero para atribuir beneficio a cambios de software.
 
+La ampliacion del 2026-10-10 completa la herramienta de verificacion matematica
+nativa (§17.11): el runner invocaba `scripts/check_native_math_logs.py`, que no
+existia, y fallaba antes de iniciar nada. El parser nuevo es fail-closed: solo
+acepta la secuencia exacta de nueve registros con 2.482 aserciones, sin
+rechazos, ticks ni fallos, y una config `Model=3` sin cuenta ni agentes
+remotos. El runner ancla la comprobacion de compilacion (la subcadena anterior
+aceptaba `10 errors, 0 warnings`) y ejecuta el parser con `-I`. 80 pruebas nuevas
+cruzan gramatica, conteos, macros, include guards y runner; mutaciones
+temporales confirmaron que detectan regresiones. Ver
+`docs/testing/native-math-harness.md` y
+`docs/decisions/2026-10-10-native-math-log-parser.md`. **No se compilo el
+wrapper ni se inicio MetaTrader** (entorno Linux); el runtime MQL sigue sin
+verificar.
+
 ## Pendientes que impiden promocion
 
 1. Capturas nuevas de quotes bid/ask y metadata del broker, con costes y moneda
@@ -234,6 +248,9 @@ repitio el estudio financiero para atribuir beneficio a cambios de software.
 5. Verificacion runtime del observador y posterior implementacion/verificacion
    de estrategia/riesgo nativos si se entrega el EA completo contemplado en la
    vision. Compilar el observador no acredita esos modulos ni paridad Python.
+   El wrapper matematico ya tiene runner, parser y guards Python; su
+   compilacion combinada y el run del terminal siguen pendientes de una
+   ejecucion Windows autorizada.
 6. Completar la validacion financiera del nuevo estudio predeclarado, incluidos
    baselines y datos intactos. Las etiquetas de candidatos del runner legacy
    no aplican parametros distintos al backtest y el
@@ -246,4 +263,5 @@ Uso offline: `docs/testing/stateful-replay-input.md`. Fuentes publicas y decisio
 de metodologia: `docs/EXTERNAL_TRADING_BENCHMARK_2026-10-05.md`.
 Proximo paquete de evidencia: `docs/testing/next-evidence-protocol.md`.
 Compilacion y limitaciones nativas: `docs/testing/native-observation.md`.
+Verificacion matematica nativa: `docs/testing/native-math-harness.md`.
 Recalculo de secuencias: `docs/testing/sequence-diagnostic-replay.md`.
