@@ -9,6 +9,7 @@ from agi_style_forex_bot_mt5 import cli
 from agi_style_forex_bot_mt5.micro_v2_dry_run_monitor import run_micro_v2_dry_run_monitor
 from agi_style_forex_bot_mt5.micro_v2_symbol_rejection_audit import run_micro_v2_symbol_rejection_audit
 from agi_style_forex_bot_mt5.rejection_labeling import classify_rejection_event_type, run_rejection_labeling_audit
+from agi_style_forex_bot_mt5.rejection_labeling.rejection_taxonomy import is_suspected_misclassified_symbol_rejection
 
 
 def test_stale_tick_is_not_labeled_symbol_rejected() -> None:
@@ -29,6 +30,18 @@ def test_market_closed_hint_does_not_relabel_timestamp_integrity_failures() -> N
     assert future == "FUTURE_SIGNAL_REJECTION"
     assert invalid == "INVALID_MARKET_SNAPSHOT_REJECTION"
     assert stale == "MARKET_CLOSED_REJECTION"
+
+
+def test_legacy_closed_code_does_not_hide_timestamp_integrity_failures() -> None:
+    # Records written before the connector fix carry the closed code with the integrity status.
+    legacy = {"market_is_probably_closed": True, "reject_code": "MARKET_CLOSED_OR_NO_TICKS"}
+    future = classify_rejection_event_type(payload={**legacy, "tick_time_status": "FUTURE_TOO_FAR"})
+    invalid = classify_rejection_event_type(payload={**legacy, "tick_time_status": "INVALID_TIMESTAMP"})
+    stale = classify_rejection_event_type(payload={**legacy, "tick_time_status": "STALE"})
+    assert future == "FUTURE_SIGNAL_REJECTION"
+    assert invalid == "INVALID_MARKET_SNAPSHOT_REJECTION"
+    assert stale == "MARKET_CLOSED_REJECTION"
+    assert is_suspected_misclassified_symbol_rejection("SYMBOL_REJECTED", {**legacy, "tick_time_status": "FUTURE_TOO_FAR"})
 
 
 def test_true_symbol_rejection_stays_symbol_rejected() -> None:
