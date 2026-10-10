@@ -12,8 +12,11 @@ from agi_style_forex_bot_mt5 import cli
 from agi_style_forex_bot_mt5.bot import AuditUnavailableError
 from agi_style_forex_bot_mt5.config import BotConfig
 from agi_style_forex_bot_mt5.contracts import RiskDecision, utc_now
+from agi_style_forex_bot_mt5.core.clock import FrozenClock
 from agi_style_forex_bot_mt5.execution import MT5Connector, is_market_probably_closed
+from agi_style_forex_bot_mt5.execution import mt5_connector as connector_module
 from agi_style_forex_bot_mt5.mt5_data_bot import MT5DataOnlyBot, MT5DiagnoseBot
+from agi_style_forex_bot_mt5.risk import risk_engine as risk_engine_module
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelegramNotifier, TelemetryDatabase
 
 
@@ -156,6 +159,26 @@ class RejectingRiskEngine:
         )
 
 
+# Wednesday 12:00 UTC: a weekday instant inside the London/NY overlap.
+LIQUID_SESSION_UTC = datetime(2026, 10, 7, 12, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def liquid_session_clock(monkeypatch):
+    """Pin the synthetic feed and every decision clock to one liquid weekday instant.
+
+    On this synthetic series the only ensemble voter is session momentum, which
+    requires a London/NY session taken from the tick time. With the wall clock
+    the shadow-order tests failed every day from 21:00 to 07:00 UTC.
+    """
+
+    clock = FrozenClock(LIQUID_SESSION_UTC)
+    monkeypatch.setitem(globals(), "utc_now", clock.now_utc)
+    monkeypatch.setattr(connector_module, "utc_now", clock.now_utc)
+    monkeypatch.setattr(risk_engine_module, "utc_now", clock.now_utc)
+    return clock
+
+
 def _bot(tmp_path: Path, mt5_client, **kwargs) -> tuple[MT5DataOnlyBot, TelemetryDatabase]:
     db = TelemetryDatabase(tmp_path / "telemetry.sqlite3")
     bot = MT5DataOnlyBot(
@@ -214,6 +237,7 @@ def test_cli_accepts_mt5_diagnose_mode(monkeypatch, tmp_path: Path, capsys) -> N
     assert '"mode": "mt5-diagnose"' in capsys.readouterr().out
 
 
+@pytest.mark.usefixtures("liquid_session_clock")
 def test_mt5_data_never_calls_order_send_and_creates_shadow_order(tmp_path: Path) -> None:
     client = MockMT5DataClient()
     bot, db = _bot(tmp_path, client)
@@ -302,12 +326,16 @@ def test_tick_time_msc_is_preferred_for_correct_age() -> None:
     assert 1.0 <= float(freshness.tick_age_seconds) <= 3.0
 
 
-def test_weekend_stale_tick_uses_market_closed_reject_code() -> None:
+def test_weekend_stale_tick_uses_market_closed_reject_code(monkeypatch) -> None:
     saturday = datetime(2026, 5, 16, 12, 0, tzinfo=timezone.utc)
+    # The mock tick is relative to utc_now; without this pin it lies months in
+    # the future of `saturday` and the test silently exercised FUTURE_TOO_FAR.
+    monkeypatch.setitem(globals(), "utc_now", lambda: saturday)
     client = MockMT5DataClient(stale_tick=True)
     connector = MT5Connector(config=BotConfig(), mt5_client=client)
     check, snapshot = connector.ensure_symbol_snapshot("EURUSD", now_utc=saturday)
     assert snapshot is None
+    assert check.payload["tick_time_status"] == "STALE"
     assert check.code == "MARKET_CLOSED_OR_NO_TICKS"
     assert check.payload["market_is_probably_closed"] is True
     assert is_market_probably_closed(saturday, "EURUSD") is True
@@ -371,6 +399,7 @@ def test_empty_market_data_uses_copy_rates_range_fallback(tmp_path: Path) -> Non
         db.close()
 
 
+@pytest.mark.usefixtures("liquid_session_clock")
 def test_risk_rejected_creates_no_shadow_order(tmp_path: Path) -> None:
     client = MockMT5DataClient()
     bot, db = _bot(tmp_path, client, risk_engine=RejectingRiskEngine())
@@ -394,6 +423,7 @@ def test_missing_audit_sink_fails_closed(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.usefixtures("liquid_session_clock")
 def test_telegram_failure_does_not_break_mt5_data_loop(tmp_path: Path) -> None:
     def failing_sender(_url: str, _payload: object, _timeout: float):
         raise requests.Timeout("telegram timeout token 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ")

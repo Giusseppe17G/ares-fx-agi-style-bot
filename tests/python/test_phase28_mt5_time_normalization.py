@@ -4,12 +4,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from agi_style_forex_bot_mt5 import cli as _cli  # noqa: F401 - mirrors CLI import order used by integration tests.
 from agi_style_forex_bot_mt5.config import BotConfig
 from agi_style_forex_bot_mt5.contracts import utc_now
+from agi_style_forex_bot_mt5.core.clock import FrozenClock
 from agi_style_forex_bot_mt5.execution import MT5Connector, normalize_tick_time
 from agi_style_forex_bot_mt5.mt5_data_bot import MT5DiagnoseBot
 from agi_style_forex_bot_mt5.paper_trading import ForwardShadowBot
+from agi_style_forex_bot_mt5.rejection_labeling import classify_rejection_event_type
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase
 
 
@@ -246,3 +250,52 @@ def test_inferred_offset_is_not_persisted_as_confirmed_evidence(tmp_path: Path, 
     assert not (tmp_path / "data/runtime/broker_time_offset.json").exists()
     assert "order_send" not in client.calls
     assert "order_check" not in client.calls
+
+
+# An unverified future tick is a data-integrity rejection on any day; the
+# weekend market-closed heuristic must not relabel it.
+MARKET_HOURS_CASES = (
+    datetime(2026, 5, 13, 12, 0, tzinfo=timezone.utc),  # Wednesday, market open
+    datetime(2026, 5, 16, 12, 0, tzinfo=timezone.utc),  # Saturday, market closed
+)
+
+
+@pytest.mark.parametrize("now", MARKET_HOURS_CASES, ids=("weekday", "weekend"))
+def test_future_tick_is_market_data_invalid_regardless_of_market_hours(tmp_path: Path, monkeypatch, now) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setitem(globals(), "utc_now", lambda: now)
+    connector = MT5Connector(config=BotConfig(), mt5_client=OffsetMT5(offset_seconds=10800))
+    check, snapshot = connector.ensure_symbol_snapshot("EURUSD", now_utc=now)
+    assert snapshot is None
+    assert check.payload["tick_time_status"] == "FUTURE_TOO_FAR"
+    assert check.code == "MARKET_DATA_INVALID"
+    assert check.reason == "BROKER_TIME_OFFSET_UNVERIFIED"
+    assert classify_rejection_event_type(reject_code=check.code, reject_reason=check.reason, payload=check.payload) == "FUTURE_SIGNAL_REJECTION"
+
+
+@pytest.mark.parametrize("now", MARKET_HOURS_CASES, ids=("weekday", "weekend"))
+def test_forward_shadow_future_tick_is_future_signal_rejection_regardless_of_market_hours(tmp_path: Path, monkeypatch, now) -> None:
+    monkeypatch.chdir(tmp_path)
+    clock = FrozenClock(now)
+    monkeypatch.setitem(globals(), "utc_now", clock.now_utc)
+    db = TelemetryDatabase(tmp_path / "forward.sqlite3")
+    try:
+        bot = ForwardShadowBot(
+            config=BotConfig(),
+            symbols=("EURUSD",),
+            audit_logger=JsonlAuditLogger(tmp_path / "logs"),
+            database=db,
+            mt5_client=OffsetMT5(offset_seconds=10800),
+            max_cycles=1,
+            cycle_seconds=0,
+            report_dir=str(tmp_path / "reports"),
+            clock=clock,
+        )
+        summary = bot.run()
+        events = [row["event_type"] for row in db.fetch_all("events")]
+        assert summary.execution_attempted is False
+        assert "FUTURE_SIGNAL_REJECTION" in events
+        assert "MARKET_CLOSED_REJECTION" not in events
+        assert summary.paper_trades_opened == 0
+    finally:
+        db.close()

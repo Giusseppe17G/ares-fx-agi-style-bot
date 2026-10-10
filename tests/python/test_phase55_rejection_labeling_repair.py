@@ -21,6 +21,16 @@ def test_market_closed_is_not_labeled_symbol_rejected() -> None:
     assert event_type == "MARKET_CLOSED_REJECTION"
 
 
+def test_market_closed_hint_does_not_relabel_timestamp_integrity_failures() -> None:
+    closed = {"market_is_probably_closed": True}
+    future = classify_rejection_event_type(reject_code="MARKET_DATA_INVALID", payload={**closed, "tick_time_status": "FUTURE_TOO_FAR"})
+    invalid = classify_rejection_event_type(reject_code="MARKET_DATA_INVALID", payload={**closed, "tick_time_status": "INVALID_TIMESTAMP"})
+    stale = classify_rejection_event_type(reject_code="MARKET_CLOSED_OR_NO_TICKS", payload={**closed, "tick_time_status": "STALE"})
+    assert future == "FUTURE_SIGNAL_REJECTION"
+    assert invalid == "INVALID_MARKET_SNAPSHOT_REJECTION"
+    assert stale == "MARKET_CLOSED_REJECTION"
+
+
 def test_true_symbol_rejection_stays_symbol_rejected() -> None:
     event_type = classify_rejection_event_type(reject_code="SYMBOL_NOT_FOUND", reject_reason="symbol not found", payload={"symbol": "EURUSD"})
     assert event_type == "SYMBOL_REJECTED"

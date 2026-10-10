@@ -121,10 +121,12 @@ def test_stale_quality_cannot_open_in_actual_forward_run(lifecycle_case, tmp_pat
 @pytest.mark.parametrize('event_type', ['SIGNAL_GENERATED', 'PAPER_TRADE_OPENED', 'PAPER_CYCLE_COMPLETED'])
 def test_shared_audit_failures_match_actual_callers(lifecycle_case, tmp_path, monkeypatch, event_type):
     original = JsonlAuditLogger.append_event
-    failures = set()
+    # Keep each failed logger alive: the replay logger is freed before the
+    # forward one exists, and CPython may reuse its id() for the new logger.
+    failures = {}
     def fail_once_per_store(logger, event):
         if event.event_type == event_type and id(logger) not in failures:
-            failures.add(id(logger))
+            failures[id(logger)] = logger
             raise OSError('injected audit unavailable')
         return original(logger, event)
     monkeypatch.setattr(JsonlAuditLogger, 'append_event', fail_once_per_store)

@@ -38,3 +38,12 @@ future values, stale ticks, exact accepted boundaries, classifier consistency
 and the inability of legacy flags to restore inferred conversion. Existing
 phase28 integration tests retain read-only fake clients and now require rejection
 with no paper entry and no automatic offset file.
+
+Addendum 2026-10-10: the weekend heuristic `is_market_probably_closed` explains
+missing or old ticks only. A `FUTURE_TOO_FAR` or `INVALID_TIMESTAMP` tick keeps
+`reject_code=MARKET_DATA_INVALID` in the connector and is labeled
+`FUTURE_SIGNAL_REJECTION` or `INVALID_MARKET_SNAPSHOT_REJECTION` even when
+`market_is_probably_closed=true`; only stale ticks during closure use
+`MARKET_CLOSED_OR_NO_TICKS`. Rejection is unchanged on every path; only the
+code and label were wrong on weekends. Guarded by weekday and weekend pinned
+tests in `test_phase28_mt5_time_normalization.py` and `test_phase55_rejection_labeling_repair.py`.

@@ -27,7 +27,8 @@ def classify_rejection_event_type(
     reason = str(reject_reason or data.get("reject_reason") or data.get("reason") or "").lower()
     tick_status = str(data.get("tick_time_status") or "").upper()
     normalization_reason = str(data.get("normalization_reason") or "").lower()
-    market_closed = bool(data.get("market_is_probably_closed", False))
+    # The weekend hint never relabels an invalid or future-dated timestamp.
+    market_closed = bool(data.get("market_is_probably_closed", False)) and tick_status not in {"INVALID_TIMESTAMP", "FUTURE_TOO_FAR"}
     if market_closed or code == "MARKET_CLOSED_OR_NO_TICKS":
         return "MARKET_CLOSED_REJECTION"
     if tick_status in {"FUTURE_TOO_FAR"} or "future" in reason or "future" in normalization_reason:

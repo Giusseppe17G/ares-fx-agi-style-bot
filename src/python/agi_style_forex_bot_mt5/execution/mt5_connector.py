@@ -486,8 +486,13 @@ class MT5Connector:
             )
         fresh_statuses = {"FRESH", "NORMALIZED_FRESH"}
         if freshness.tick_time_status not in fresh_statuses or abs(tick_age) > self.config.max_tick_age_seconds:
-            market_closed = is_market_probably_closed(now, canonical)
-            reject_code = "MARKET_CLOSED_OR_NO_TICKS" if market_closed and freshness.tick_time_status != "INVALID_TIMESTAMP" else "MARKET_DATA_INVALID"
+            # A closed market explains missing or old ticks, never an invalid or
+            # future-dated timestamp: those stay data-integrity rejections.
+            market_closed = is_market_probably_closed(now, canonical) and freshness.tick_time_status not in {
+                "INVALID_TIMESTAMP",
+                "FUTURE_TOO_FAR",
+            }
+            reject_code = "MARKET_CLOSED_OR_NO_TICKS" if market_closed else "MARKET_DATA_INVALID"
             reject_reason = freshness.reject_reason or (
                 "market appears closed or symbol has no fresh ticks" if market_closed else "tick timestamp is stale or in the future"
             )
