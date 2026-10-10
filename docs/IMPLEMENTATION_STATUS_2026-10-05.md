@@ -223,7 +223,7 @@ repitio el estudio financiero para atribuir beneficio a cambios de software.
 
 La ampliacion del 2026-10-10 completa la herramienta de verificacion matematica
 nativa (§17.11): el runner invocaba `scripts/check_native_math_logs.py`, que no
-existia, y fallaba antes de iniciar nada. El parser nuevo es fail-closed: solo
+existia; compilaba y copiaba binarios y fallaba antes de iniciar el terminal. El parser nuevo es fail-closed: solo
 acepta la secuencia exacta de nueve registros con 2.482 aserciones, sin
 rechazos, ticks ni fallos, y una config `Model=3` sin cuenta ni agentes
 remotos. El runner ancla la comprobacion de compilacion (la subcadena anterior
@@ -239,6 +239,33 @@ reloj fijado en dia laborable pasan, y solo falla de forma intermitente un test
 previo que identifica loggers con `id()`. Logs:
 `docs/testing/evidence/2026-10-10-native-math-parser/`.
 
+La continuacion del 2026-10-10 implementa el **Risk Gate nativo puro**
+(§17.12, `native_risk_gate_v1`): mismo orden y codigos que el `RiskEngine`
+Python, limites con los techos de §6, aritmetica exacta en lattice decimal para
+reproducir el dimensionado `Decimal` sin redondear riesgo hacia arriba, y
+politicas mas estrictas documentadas (rejilla de tick, NaN/Inf, metadata
+explicita de posiciones). 113 fixtures con el `RiskEngine` real y 1.433
+aserciones; es el cuarto stage del harness matematico v2 (3.915 aserciones) y
+se compila con `compile_native_observer.ps1`. No esta conectado al EA ni
+autoriza ejecucion.
+
+Por primera vez se **ejecutan** aserciones nativas: la emulacion C++ de §17.13
+corre barras cerradas (1.103), indicadores (1.348) y risk gate (1.433) con g++,
+UBSan y sin contraccion FMA: 3.884/3.884 pasan, sin warnings. Mutaciones
+deliberadas del gate son detectadas. No es runtime MQL5 ni Tester.
+
+Correcciones de la misma entrega: (a) un tick con fecha futura o timestamp
+invalido ya no se etiqueta como mercado cerrado en fin de semana (conector y
+taxonomia); seguia rechazandose, pero ocultaba fallos de reloj del broker;
+(b) tres tests de `mt5_data_mode` dependian de la hora UTC (sesion
+London/NY), no del fin de semana, y ahora fijan el reloj; (c) un test
+intermitente identificaba loggers con `id()` reutilizable; (d)
+`scripts/healthcheck.ps1` no parseaba en PowerShell (`"$Level: ..."`), hallado
+con el parser de PowerShell 7.4.6 sobre todos los scripts; (e) runner y parser
+del harness endurecidos tras revision adversarial (PowerShell 7 obligatorio,
+motivo del primer control fallido, staging/directorios enlazados, ejecuciones
+duplicadas de agentes, parser solo stdlib con `-S`).
+
 ## Pendientes que impiden promocion
 
 1. Capturas nuevas de quotes bid/ask y metadata del broker, con costes y moneda
@@ -252,9 +279,11 @@ previo que identifica loggers con `id()`. Logs:
 5. Verificacion runtime del observador y posterior implementacion/verificacion
    de estrategia/riesgo nativos si se entrega el EA completo contemplado en la
    vision. Compilar el observador no acredita esos modulos ni paridad Python.
-   El wrapper matematico ya tiene runner, parser y guards Python; su
-   compilacion combinada y el run del terminal siguen pendientes de una
-   ejecucion Windows autorizada.
+   El wrapper matematico v2 ya tiene runner, parser y guards Python, y las
+   suites puras pasan en emulacion C++; la compilacion MetaEditor combinada y
+   el run del Tester siguen pendientes de una ejecucion Windows autorizada.
+   El risk gate nativo existe pero no esta integrado en el EA; la estrategia
+   nativa sigue pendiente.
 6. Completar la validacion financiera del nuevo estudio predeclarado, incluidos
    baselines y datos intactos. Las etiquetas de candidatos del runner legacy
    no aplican parametros distintos al backtest y el
@@ -268,4 +297,5 @@ de metodologia: `docs/EXTERNAL_TRADING_BENCHMARK_2026-10-05.md`.
 Proximo paquete de evidencia: `docs/testing/next-evidence-protocol.md`.
 Compilacion y limitaciones nativas: `docs/testing/native-observation.md`.
 Verificacion matematica nativa: `docs/testing/native-math-harness.md`.
+Risk gate nativo: `docs/testing/native-risk-gate.md`.
 Recalculo de secuencias: `docs/testing/sequence-diagnostic-replay.md`.

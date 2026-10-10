@@ -10,13 +10,15 @@ source changes.
 
 `scripts/run_native_math_harness.ps1` hashes and invokes
 `scripts/check_native_math_logs.py`, but that parser was not part of the
-previous handoff. The runner therefore threw before launching anything. The
+previous handoff. The runner therefore compiled the wrapper and copied the
+public binaries into a new staging, then threw while hashing the missing
+parser, before starting the terminal. The
 wrapper ADR also left Python guards to the root agent.
 
 ## Decision
 
 `check_native_math_logs.py` uses only the standard library and is run as
-`py -3.14 -I -B ... --stage <staging> --output <new json>`.
+`py -3.14 -I -S -B ... --stage <staging> --output <new json>`.
 
 - Sources: every `.log` file inside the staging except the wrapper compile log
   `MQL5/Experts/NativeMathHarness/NativeMathHarness.log`. Files are grouped by
@@ -80,3 +82,28 @@ run fails closed and a reviewed update must choose the authoritative source. A
 pass would still only verify these synthetic fixtures in one MQL build; it does
 not verify broker data, real clock provenance, allocation failure, financial
 performance, execution or the Strategy Promotion Gate.
+
+## Addendum: wrapper v2 and review hardening (2026-10-10)
+
+- The wrapper is now `native_math_harness_v2` with a fourth stage, `risk_gate`
+  (1433 assertions, PROJECT_SPEC 17.12). The exact accepted sequence has eleven
+  records and TOTAL/COMPLETE carry 3915 checks and four stages. A v1 record is
+  malformed for this parser.
+- Records in two `Tester/Agent-*/logs` directories are two runs
+  (`DUPLICATE_AGENT_RUN`), even if identical; only other directories may mirror.
+- The CLI passes `--stage` through `absolute()`, not `resolve()`, so a linked
+  stage reaches the link check and reports `STAGE_MISSING`.
+- Unreadable directories (`os.walk` errors) and unreadable files fail as
+  `LOG_DIRECTORY_UNREADABLE` / `LOG_UNREADABLE` instead of being skipped.
+- The runner starts with `#Requires -Version 7.0` because
+  `[IO.Path]::GetRelativePath` needs .NET Core; a stop during cleanup of a
+  process that already exited is ignored and the re-enumeration decides
+  `cleanup_verified`; parser invocation and binding checks are wrapped so a
+  missing `py` launcher is recorded; the final reason names the first failed
+  gate. `compile_native_observer.ps1` gets the same `#Requires` and anchored
+  compile-result check.
+- PowerShell syntax of every `scripts/*.ps1` was checked with the PowerShell 7.4.6
+  parser. It found a pre-existing parse error in `scripts/healthcheck.ps1`
+  (`"$Level: $Message"` is a drive-qualified variable), fixed as
+  `"${Level}: $Message"` and guarded by a Python test over all scripts.
+

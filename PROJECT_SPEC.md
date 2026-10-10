@@ -788,7 +788,11 @@ El bot no debe operar si:
 - Definir formato de presets `.set`.
 - Definir matriz de simbolos permitidos.
 - Definir versionado de parametros.
-- Definir CI para validaciones Python y lint documental.
+- Definir CI para validaciones Python y lint documental. Validaciones Python
+  definidas en `.github/workflows/validation.yml` (2026-10-10): dependencias
+  fijadas, `--check` de los generadores nativos, emulacion C++ (§17.13) y
+  suite pytest, sin MetaTrader, broker, secretos ni red mas alla de instalar
+  paquetes. Lint documental sigue pendiente.
 
 ## 17. Contratos De Correccion Y Validacion Compartida (2026-10-05)
 
@@ -1266,7 +1270,8 @@ de estrategia ni usa funciones iMA/iRSI/iATR de semantica no acreditada.
 ### 17.11 Verificacion Matematica Nativa Aislada
 
 Herramienta de pruebas, no release del EA ni backtest financiero. Un wrapper
-en `tests/mt5/` reutiliza las aserciones de observacion, barras e indicadores;
+(`native_math_harness_v2`) en `tests/mt5/` reutiliza las aserciones de
+observacion, barras, indicadores y risk gate (§17.12);
 solo admite MQL_TESTER con modo de calculo matematico. No envia ordenes, lee
 cuentas/simbolos/historial ni usa DLL, red o archivos desde MQL. Publica en logs
 conteos/fallos y finalizacion, sin aceptar ausencia de log como exito.
@@ -1287,15 +1292,70 @@ conteos/fallos y finalizacion, sin aceptar ausencia de log como exito.
 - Un resultado positivo solo verifica estas fixtures sinteticas en la version
   concreta de MQL5. No certifica adquisicion, reloj real, broker, asignacion
   fallida, rentabilidad, ejecucion de trading ni Strategy Promotion Gate.
-- Parser `scripts/check_native_math_logs.py` (solo stdlib, `-I -B`): lee todo
+- Parser `scripts/check_native_math_logs.py` (solo stdlib, `-I -S -B`): lee todo
   `.log` del staging salvo el de compilacion, agrupado por directorio; cada
-  fuente con registros debe tener la secuencia identica. Solo pasa la secuencia
-  exacta BEGIN, tres resumenes de suite con su STAGE aceptado (31/1103/1348),
-  TOTAL 2482 sin fallos/ticks y COMPLETE completed=1. Rechazo, aserciones
-  fallidas, duplicados, truncado, gramatica distinta o config sin `Model=3`,
-  con agentes remotos/cloud, trading/DLL o entradas de cuenta fallan cerrados.
+  fuente con registros debe tener la secuencia identica y registros en dos
+  directorios de agente son dos ejecuciones. Solo pasa la secuencia exacta
+  BEGIN, cuatro resumenes de suite con su STAGE aceptado (31/1103/1348/1433),
+  TOTAL 3915 sin fallos/ticks y COMPLETE completed=1. Rechazo, aserciones
+  fallidas, duplicados, truncado, gramatica distinta, staging/directorio/log
+  enlazado o ilegible, o config sin `Model=3`, con agentes remotos/cloud,
+  trading/DLL o entradas de cuenta (sin distinguir mayusculas) fallan cerrados.
+- Runner y compilador nativo exigen PowerShell 7 (`#Requires -Version 7.0`).
+  Si el run no pasa, `reason` nombra el primer control fallido.
 - Evidencia `native_math_log_evidence_v1`: rutas relativas y hashes, nunca
   sobrescribe un archivo existente (salida 2), salida 0 solo si `passed=true`.
   `execution_authorized`, `full_pipeline_verified`, `promotion_eligible` y
   `model_verified_in_mql` siempre son false. La compilacion exige la linea
   anclada `Result: 0 errors, 0 warnings,`.
+
+### 17.12 Risk Gate Nativo Puro
+
+Paquete `native_risk_gate_v1`: `NativeEvaluateRisk` en
+`src/mt5/Include/Risk/NativeRiskGate.mqh` con contrato en
+`Contracts/RiskContract.mqh`. Funcion pura y aislada del EA: no lee terminal,
+cuenta, simbolo, reloj, archivos ni red; recibe todo explicito, incluido
+`now_utc_msc`, y reutiliza `MarketSnapshot` del observer. Solo entradas a
+mercado. No construye requests; `execution_authorized` y
+`full_pipeline_verified` son siempre false.
+
+- Orden y codigos de rechazo iguales a `RiskEngine.evaluate` (limites, estado,
+  cuenta, kill switch, simbolo, edad de senal/snapshot, geometria con stops
+  level, auditoria, spread, drawdown diario y flotante, perdidas consecutivas,
+  cooldown, porcentaje de riesgo, lote, riesgo por trade, conteos y riesgo
+  abierto), con los valores de drawdown que Python asocia a cada rechazo.
+- Limites explicitos con techos de §6: DEMO_ONLY true, LIVE_TRADING_APPROVED
+  false, riesgo por trade (0,0.5], riesgo abierto (0,5], trades 1..10,
+  por simbolo 1..trades, drawdown diario (0,3] y flotante (0,5], spread (0,25],
+  edad de senal 1..30 s y de snapshot 1..5 s, perdidas consecutivas >= 1.
+  Limites invalidos rechazan con RISK_LIMITS_INVALID antes de todo.
+- Aritmetica exacta en lattice decimal 1e-8 (valores <= 1e6) para reproducir
+  `Decimal(str(x))` de Python: lote redondeado hacia abajo sin redondear riesgo
+  hacia arriba, ticks enteros entre precios de la rejilla y producto exacto con
+  tick value en lattice. Tick value fuera del lattice puede diferir en un ulp.
+- Mas estricto que Python, con alcance documentado: precios y volumenes en
+  rejilla/lattice, NaN/Inf rechazados, conteo de perdidas negativo rechazado y
+  posiciones abiertas valoradas solo con su metadata explicita o riesgo conocido.
+- Referencias del `RiskEngine` real en 113 fixtures sinteticas (95 comparables)
+  y 1433 aserciones MQL; harness cuarto stage de §17.11 y compilado por
+  `compile_native_observer.ps1`. No decide referencias diarias, perdidas ni
+  cooldowns: los recibe auditados del llamador futuro. No acredita rentabilidad,
+  ejecucion broker ni Strategy Promotion Gate.
+
+### 17.13 Emulacion C++ De Modulos Nativos Puros
+
+`scripts/run_native_cpp_emulation.py` traduce los harnesses puros (barras
+cerradas, indicadores, risk gate) y su grafo de includes a C++ y los ejecuta
+con g++ (`-O0 -ffp-contract=off -fno-fast-math -fsanitize=undefined`).
+
+- Solo cambia la sintaxis de arrays MQL5 (`MqlArray<T>` con acceso verificado) y
+  elimina `#property`; un shim explicito cubre arrays, strings y Math*. APIs de
+  terminal, cuenta, simbolo, reloj, archivos, red o trading no se emulan: un
+  fuente que las use se rechaza. El harness del observer queda fuera.
+- Un suite pasa solo con el conteo revisado exacto, cero fallos, salida 0, sin
+  informe UBSan y un unico resumen. Evidencia `native_cpp_emulation_v1` con
+  compilador, flags y hashes; `mql5_runtime_verified` siempre false.
+- Es evidencia de la logica sobre IEEE-754 binary64, no del runtime MQL5: no
+  verifica el compilador MQL5, Tester, broker, reloj real ni ejecucion. La
+  compilacion MetaEditor y el run de §17.11 siguen siendo la verificacion
+  nativa de referencia.

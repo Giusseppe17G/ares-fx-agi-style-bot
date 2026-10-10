@@ -1,9 +1,10 @@
 """Native math wrapper guards and fail-closed log parser; MQL is never run here."""
+import ast
 from hashlib import sha256
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import subprocess
 import sys
@@ -22,7 +23,11 @@ SUITES = (
     ("observer", "Observer", "ObservationPolicyHarness.mq5", None),
     ("closed_bars", "ClosedBars", "ClosedBarWindowHarness.mq5", "GeneratedClosedBarFixtures.mqh"),
     ("core_indicators", "CoreIndicators", "CoreIndicatorsHarness.mq5", "GeneratedCoreIndicatorFixtures.mqh"),
+    ("risk_gate", "RiskGate", "RiskGateHarness.mq5", "GeneratedRiskGateFixtures.mqh"),
 )
+STAGE_COUNTS = (("observer", "NATIVE_POLICY_HARNESS", 31), ("closed_bars", "NATIVE_CLOSED_BAR_HARNESS", 1103),
+                ("core_indicators", "NATIVE_CORE_INDICATORS_HARNESS", 1348), ("risk_gate", "NATIVE_RISK_GATE_HARNESS", 1433))
+TOTAL = sum(count for _, _, count in STAGE_COUNTS)
 RENAMED = ("OnStart", "Check", "checks", "failures")
 FLAGS = "execution_authorized=false full_pipeline_verified=false"
 
@@ -48,18 +53,16 @@ def _formats(source):
 
 
 def _clean_run(reason=1):
-    lines = [f"AGI_NATIVE_MATH_BEGIN version=native_math_harness_v1 expected_checks=2482 model_required=3 "
+    lines = [f"AGI_NATIVE_MATH_BEGIN version=native_math_harness_v2 expected_checks={TOTAL} model_required=3 "
              f"model_verified_in_mql=false {FLAGS}"]
-    for name, summary, count in (("observer", "NATIVE_POLICY_HARNESS", 31),
-                                 ("closed_bars", "NATIVE_CLOSED_BAR_HARNESS", 1103),
-                                 ("core_indicators", "NATIVE_CORE_INDICATORS_HARNESS", 1348)):
+    for name, summary, count in STAGE_COUNTS:
         lines.append(f"{summary} checks={count} failures=0")
         lines.append(f"AGI_NATIVE_MATH_STAGE name={name} checks={count} failures=0 expected_checks={count} "
                      f"accepted=1 {FLAGS}")
-    lines.append(f"AGI_NATIVE_MATH_TOTAL checks=2482 failures=0 ticks=0 accepted=1 wrapper_failures=0 stages=3 "
-                 f"expected_checks=2482 {FLAGS}")
-    lines.append(f"AGI_NATIVE_MATH_COMPLETE checks=2482 failures=0 ticks=0 accepted=1 reason={reason} completed=1 "
-                 f"wrapper_failures=0 stages=3 expected_checks=2482 model_verified_in_mql=false {FLAGS}")
+    lines.append(f"AGI_NATIVE_MATH_TOTAL checks={TOTAL} failures=0 ticks=0 accepted=1 wrapper_failures=0 stages=4 "
+                 f"expected_checks={TOTAL} {FLAGS}")
+    lines.append(f"AGI_NATIVE_MATH_COMPLETE checks={TOTAL} failures=0 ticks=0 accepted=1 reason={reason} completed=1 "
+                 f"wrapper_failures=0 stages=4 expected_checks={TOTAL} model_verified_in_mql=false {FLAGS}")
     return lines
 
 
@@ -110,7 +113,7 @@ def _replace(index, old, new):
 def test_exact_clean_run_passes_and_never_authorizes(checker, tmp_path, encoding):
     evidence = checker.evaluate_stage(_stage(tmp_path, _clean_run(reason=1), encoding=encoding))
     assert evidence["passed"] is True and evidence["reason"] == "NATIVE_MATH_FIXTURES_PASSED"
-    assert evidence["record_count"] == 9 and evidence["deinit_reason"] == 1
+    assert evidence["record_count"] == 11 and evidence["deinit_reason"] == 1
     assert evidence["config"]["valid"] is True and evidence["config"]["model"] == 3
     assert evidence["assertion_failures"] == {"count": 0, "labels": []}
     for flag in ("execution_authorized", "full_pipeline_verified", "promotion_eligible", "model_verified_in_mql"):
@@ -142,22 +145,25 @@ MUTATIONS = {
                        "RECORD_SEQUENCE_MISMATCH"),
     "stage_not_accepted": (_replace(4, "accepted=1", "accepted=0"), "RECORD_SEQUENCE_MISMATCH"),
     "summary_failure_without_label": (_replace(5, "failures=0", "failures=1"), "RECORD_SEQUENCE_MISMATCH"),
-    "total_not_accepted": (_replace(7, "accepted=1", "accepted=0"), "RECORD_SEQUENCE_MISMATCH"),
-    "not_completed": (_replace(8, "completed=1", "completed=0"), "RECORD_SEQUENCE_MISMATCH"),
-    "tick_delivered": (_replace(8, "ticks=0", "ticks=1"), "RECORD_SEQUENCE_MISMATCH"),
-    "wrapper_failure": (_replace(7, "wrapper_failures=0", "wrapper_failures=1"), "RECORD_SEQUENCE_MISMATCH"),
-    "two_stages": (_replace(8, "stages=3", "stages=2"), "RECORD_SEQUENCE_MISMATCH"),
-    "different_expected_total": (_replace(0, "expected_checks=2482", "expected_checks=2481"), "RECORD_SEQUENCE_MISMATCH"),
-    "execution_flag": (_replace(8, "execution_authorized=false", "execution_authorized=true"), "MALFORMED_RECORD"),
+    "total_not_accepted": (_replace(-2, "accepted=1", "accepted=0"), "RECORD_SEQUENCE_MISMATCH"),
+    "not_completed": (_replace(-1, "completed=1", "completed=0"), "RECORD_SEQUENCE_MISMATCH"),
+    "tick_delivered": (_replace(-1, "ticks=0", "ticks=1"), "RECORD_SEQUENCE_MISMATCH"),
+    "wrapper_failure": (_replace(-2, "wrapper_failures=0", "wrapper_failures=1"), "RECORD_SEQUENCE_MISMATCH"),
+    "three_stages": (_replace(-1, "stages=4", "stages=3"), "RECORD_SEQUENCE_MISMATCH"),
+    "different_expected_total": (_replace(0, f"expected_checks={TOTAL}", f"expected_checks={TOTAL - 1}"),
+                                 "RECORD_SEQUENCE_MISMATCH"),
+    "missing_risk_gate_stage": (lambda lines: lines[:7] + lines[9:], "RECORD_SEQUENCE_MISMATCH"),
+    "risk_gate_count": (_replace(8, "checks=1433 ", "checks=1432 "), "RECORD_SEQUENCE_MISMATCH"),
+    "execution_flag": (_replace(-1, "execution_authorized=false", "execution_authorized=true"), "MALFORMED_RECORD"),
     "pipeline_flag": (_replace(2, "full_pipeline_verified=false", "full_pipeline_verified=true"), "MALFORMED_RECORD"),
     "model_claimed": (_replace(0, "model_verified_in_mql=false", "model_verified_in_mql=true"), "MALFORMED_RECORD"),
     "other_model": (_replace(0, "model_required=3", "model_required=1"), "MALFORMED_RECORD"),
-    "other_version": (_replace(0, "native_math_harness_v1", "native_math_harness_v2"), "MALFORMED_RECORD"),
+    "previous_version": (_replace(0, "native_math_harness_v2", "native_math_harness_v1"), "MALFORMED_RECORD"),
     "extra_field": (_replace(2, FLAGS, FLAGS + " extra=1"), "MALFORMED_RECORD"),
     "reordered_fields": (_replace(1, "checks=31 failures=0", "failures=0 checks=31"), "MALFORMED_RECORD"),
-    "double_space": (_replace(7, "AGI_NATIVE_MATH_TOTAL ", "AGI_NATIVE_MATH_TOTAL  "), "MALFORMED_RECORD"),
+    "double_space": (_replace(-2, "AGI_NATIVE_MATH_TOTAL ", "AGI_NATIVE_MATH_TOTAL  "), "MALFORMED_RECORD"),
     "leading_zero": (_replace(1, "checks=31", "checks=031"), "MALFORMED_RECORD"),
-    "integer_overflow": (_replace(8, "reason=1 ", "reason=2147483648 "), "MALFORMED_RECORD"),
+    "integer_overflow": (_replace(-1, "reason=1 ", "reason=2147483648 "), "MALFORMED_RECORD"),
     "trailing_space": (_replace(3, "failures=0", "failures=0 "), "MALFORMED_RECORD"),
     "unknown_kind": (lambda lines: lines[:1] + ["AGI_NATIVE_MATH_DEBUG value=1"] + lines[1:], "MALFORMED_RECORD"),
 }
@@ -179,7 +185,7 @@ def test_assertion_labels_and_rejections_are_preserved_with_bounds(checker, tmp_
     assert evidence["reason"] == "ASSERTION_FAILURES"
     assert evidence["assertion_failures"]["count"] == 150
     assert evidence["assertion_failures"]["labels"] == labels[:100]
-    assert evidence["records_truncated"] is False and evidence["record_count"] == 159
+    assert evidence["records_truncated"] is False and evidence["record_count"] == 161
     (tmp_path / "rejected").mkdir()
     rejected = [f"AGI_NATIVE_MATH_REJECT reason=TEST_CONTEXT_REQUIRED {FLAGS}"]
     other = checker.evaluate_stage(_stage(tmp_path / "rejected", rejected))
@@ -204,6 +210,14 @@ def test_identical_mirrors_and_daily_rotation_are_one_consistent_run(checker, tm
     _write(rotated, "Tester/Agent-127.0.0.1-3000/logs/20261011.log", _clean_run()[4:])
     evidence = checker.evaluate_stage(rotated)
     assert evidence["passed"] is True and [len(item["files"]) for item in evidence["sources"]] == [2]
+
+
+def test_records_from_two_local_agents_are_two_runs_even_if_identical(checker, tmp_path):
+    stage = _stage(tmp_path, _clean_run())
+    _write(stage, "Tester/Agent-127.0.0.1-3001/logs/20261010.log", _clean_run())
+    evidence = checker.evaluate_stage(stage)
+    assert evidence["passed"] is False and evidence["reason"] == "DUPLICATE_AGENT_RUN"
+    assert evidence["detail"] == "Tester/Agent-127.0.0.1-3000/logs, Tester/Agent-127.0.0.1-3001/logs"
 
 
 @pytest.mark.parametrize("mirror", ("partial", "different_reason"))
@@ -268,6 +282,20 @@ def test_unreadable_directories_logs_or_configuration_fail_closed(checker, tmp_p
     assert evidence["reason"] == "LOG_UNREADABLE" and evidence["config"]["reason"] == "CONFIG_UNREADABLE"
 
 
+def test_linked_log_directory_is_rejected_instead_of_skipped(checker, tmp_path):
+    stage = _stage(tmp_path, _clean_run())
+    outside = tmp_path / "outside"
+    (outside / "logs").mkdir(parents=True)
+    (outside / "logs/20261010.log").write_bytes(_log_bytes(["ASSERTION_FAILED: hidden outside the staging"]))
+    try:
+        os.symlink(outside, stage / "Tester/Agent-127.0.0.1-3001", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symbolic links unavailable")
+    evidence = checker.evaluate_stage(stage)
+    assert evidence["passed"] is False and evidence["reason"] == "LOG_SOURCE_LINK"
+    assert evidence["detail"] == "Tester/Agent-127.0.0.1-3001"
+
+
 CONFIG_CHANGES = {
     "model_every_tick": ("Model=3", "Model=0", "CONFIG_TESTER_MODEL_INVALID"),
     "model_missing": ("Model=3\n", "", "CONFIG_TESTER_MODEL_INVALID"),
@@ -309,12 +337,28 @@ def test_missing_configuration_or_stage_is_not_verified(checker, tmp_path):
     assert checker.evaluate_stage(tmp_path / "absent")["reason"] == "STAGE_MISSING"
 
 
+def _strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+
+
 def test_cli_writes_relative_evidence_once_and_exit_code_matches(checker, tmp_path, capsys):
     stage = _stage(tmp_path, _clean_run())
     output = tmp_path / "evidence.json"
     assert checker.main(["--stage", str(stage), "--output", str(output)]) == 0
     payload = output.read_text(encoding="utf-8")
-    assert str(tmp_path) not in payload and json.loads(payload)["passed"] is True
+    document = json.loads(payload)
+    assert document["passed"] is True
+    # Inspect decoded strings: raw JSON escapes Windows backslashes and non-ASCII.
+    for text in _strings(document):
+        assert str(tmp_path) not in text and tmp_path.as_posix() not in text
+        assert not os.path.isabs(text) and not PureWindowsPath(text).is_absolute()
     assert checker.main(["--stage", str(stage), "--output", str(output)]) == 2
     assert output.read_text(encoding="utf-8") == payload
     missing = tmp_path / "missing.json"
@@ -323,10 +367,30 @@ def test_cli_writes_relative_evidence_once_and_exit_code_matches(checker, tmp_pa
     capsys.readouterr()
 
 
+def test_cli_rejects_a_linked_stage_instead_of_following_it(checker, tmp_path):
+    stage = _stage(tmp_path, _clean_run())
+    link = tmp_path / "linked-stage"
+    try:
+        os.symlink(stage, link, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symbolic links unavailable")
+    output = tmp_path / "linked.json"
+    assert checker.main(["--stage", str(link), "--output", str(output)]) == 1
+    assert json.loads(output.read_text(encoding="utf-8"))["reason"] == "STAGE_MISSING"
+
+
+def test_parser_imports_only_the_standard_library():
+    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+    modules = {alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+    modules |= {node.module.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module}
+    assert modules and modules <= set(sys.stdlib_module_names)
+
+
 def test_parser_runs_isolated_with_stdlib_from_another_directory(tmp_path):
     stage = _stage(tmp_path, _clean_run())
     output = tmp_path / "isolated.json"
-    result = subprocess.run([sys.executable, "-I", "-B", str(SCRIPT), "--stage", str(stage), "--output", str(output)],
+    # -S removes site-packages as well, so a third-party import cannot hide here.
+    result = subprocess.run([sys.executable, "-I", "-S", "-B", str(SCRIPT), "--stage", str(stage), "--output", str(output)],
                             cwd=tmp_path, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert "passed=true reason=NATIVE_MATH_FIXTURES_PASSED" in result.stdout
@@ -385,7 +449,9 @@ def test_suite_summaries_counts_and_stage_order_match_the_parser(checker):
         assert f'NativeMathRecordStage("{name}",NativeMath{infix}Checks,' in tester
         assert tester.index(f"NativeMathRun{infix}();") < tester.index(f'NativeMathRecordStage("{name}"')
     assert positions == sorted(positions)
-    assert int(constants["TOTAL"]) == checker.EXPECTED_TOTAL == 2482
+    assert int(constants["TOTAL"]) == checker.EXPECTED_TOTAL == TOTAL == 3915
+    assert int(constants["STAGES"]) == len(checker.EXPECTED_STAGES) == 4
+    assert [tuple(item) for item in checker.EXPECTED_STAGES] == list(STAGE_COUNTS)
     assert checker.expected_sequence()[0]["fields"]["expected_checks"] == checker.EXPECTED_TOTAL
 
 
@@ -478,7 +544,7 @@ def test_suite_definitions_do_not_collide_inside_the_combined_translation_unit()
         owned.append(defined - set(RENAMED))
     owned.append(set(definition.findall(_code(WRAPPER.read_text()))) - {"OnInit", "OnTick", "OnTester", "OnDeinit"})
     assert "RunGeneratedClosedBarFixtures" in owned[1] and "RunGeneratedCoreIndicatorFixtures" in owned[2]
-    assert "NativeMathPassed" in owned[3]
+    assert "RunGeneratedRiskGateFixtures" in owned[3] and "NativeMathPassed" in owned[-1]
     for index, names in enumerate(owned):
         for other in owned[index + 1:]:
             assert not names & other
@@ -516,11 +582,19 @@ def test_runner_configuration_is_math_only_without_account_or_remote_agents(chec
     assert not re.search(r"(?im)^\s*(login|password|server|certpassword)\s*=", _runner_config())
 
 
+def test_runner_requires_powershell_7_before_creating_any_staging():
+    runner = RUNNER.read_text()
+    assert runner.splitlines()[0] == "#Requires -Version 7.0"
+    assert runner.index("GetRelativePath") > runner.index("#Requires -Version 7.0")
+
+
 def test_runner_requires_fresh_temp_staging_and_owned_processes_only():
     runner = RUNNER.read_text()
     assert "if (-not $stage.StartsWith($tempPrefix, [StringComparison]::OrdinalIgnoreCase))" in runner
     assert "if (Test-Path -LiteralPath $stage) { throw 'Staging must not already exist.' }" in runner
-    assert "Stop-Process -Id $owned.Id -Force" in runner
+    assert "Stop-Process -Id $owned.Id -Force -ErrorAction SilentlyContinue" in runner
+    parser_call = runner[runner.index("$parserExit = $null"):runner.index("$manifest.parser_exit_code = $parserExit")]
+    assert parser_call.lstrip("$parserExit = $null").count("try {") == 1 and "} catch {" in parser_call
     assert "$_.ExecutablePath -in $ownedExecutablePaths" in runner
     lowered = runner.lower()
     for forbidden in ("stop-process -name", "taskkill", "get-process -name", "netsh", "new-netfirewallrule",
@@ -535,13 +609,33 @@ def test_runner_verdict_requires_clean_compile_parser_and_bindings():
     assert "-notmatch '(?m)^Result: 0 errors, 0 warnings,'" in runner
     assert "-notmatch '0 errors, 0 warnings'" not in runner
     assert "$parser = Join-Path $PSScriptRoot 'check_native_math_logs.py'" in runner and SCRIPT.is_file()
-    assert "& py -3.14 -I -B $parser --stage $stage --output $logEvidencePath" in runner
+    assert "& py -3.14 -I -S -B $parser --stage $stage --output $logEvidencePath" in runner
     verdict = re.search(r"\$manifest\.passed = (.*?)\n\$manifest\.status", runner, re.S).group(1)
     for clause in ("$manifest.terminal_started", "$manifest.terminal_exited", "-not $manifest.timed_out",
                    "$manifest.terminal_exit_code -eq 0", "$manifest.cleanup_verified", "$bindingsUnchanged",
                    "$parserExit -eq 0", "$manifest.log_evidence_passed"):
         assert clause in verdict
-    assert "$manifest.log_evidence_passed = $evidence.passed -eq $true" in runner
+    assert "$manifest.log_evidence_passed = $null -ne $evidence -and $evidence.passed -eq $true" in runner
+    # The first failed gate names the reason; a parser pass reason never labels a failed run.
+    reason = re.search(r"\$manifest\.reason = \$\(if (.*?)\n\$manifest\.status", runner, re.S).group(1)
+    ordered = ["'TERMINAL_EXIT_CODE_'", "'CLEANUP_NOT_VERIFIED'", "'LAUNCH_BINDINGS_CHANGED'",
+               "'PARSER_EVIDENCE_MISSING'", "'PARSER_EXIT_CODE_'", "[string]$evidence.reason"]
+    assert [reason.index(item) for item in ordered] == sorted(reason.index(item) for item in ordered)
+    assert runner.index("$manifest.passed =") < runner.index("$manifest.reason = $(if ($manifest.reason -in")
     for flag in ("execution_authorized", "full_pipeline_verified", "promotion_eligible", "account_or_profile_copied",
                  "credentials_configured", "network_isolation_verified"):
         assert re.search(rf"\b{flag} = \$false\b", runner), flag
+
+
+def test_powershell_scripts_never_interpolate_a_drive_qualified_name_by_accident():
+    # "$Level: text" parses as a drive-qualified variable and makes the whole
+    # script unparseable (scripts/healthcheck.ps1 had this); use "${Level}: text".
+    scopes = {"env", "script", "global", "local", "using", "private", "variable", "function"}
+    offenders = []
+    for path in sorted((ROOT / "scripts").glob("*.ps1")):
+        for number, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), start=1):
+            for literal in re.findall(r'"(?:`.|[^"`])*"', line):
+                for name in re.findall(r"(?<![`$])\$([A-Za-z_][A-Za-z0-9_]*):(?![A-Za-z0-9_{:\\/])", literal):
+                    if name.lower() not in scopes:
+                        offenders.append(f"{path.name}:{number}")
+    assert offenders == []

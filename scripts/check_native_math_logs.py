@@ -22,16 +22,18 @@ import sys
 
 SCHEMA_VERSION = "native_math_log_evidence_v1"
 PARSER_VERSION = "native_math_log_parser_v1"
-WRAPPER_VERSION = "native_math_harness_v1"
+WRAPPER_VERSION = "native_math_harness_v2"
 REQUIRED_MODEL = 3
 # (wrapper stage name, suite summary record, fixed assertion count)
 EXPECTED_STAGES = (
     ("observer", "NATIVE_POLICY_HARNESS", 31),
     ("closed_bars", "NATIVE_CLOSED_BAR_HARNESS", 1103),
     ("core_indicators", "NATIVE_CORE_INDICATORS_HARNESS", 1348),
+    ("risk_gate", "NATIVE_RISK_GATE_HARNESS", 1433),
 )
 EXPECTED_TOTAL = sum(count for _, _, count in EXPECTED_STAGES)
 COMPILE_LOG = "MQL5/Experts/NativeMathHarness/NativeMathHarness.log"
+AGENT_LOG_DIRECTORY = re.compile(r"Tester/Agent-[^/]+/logs", re.IGNORECASE)
 CONFIG_NAME = "native-math.ini"
 MAX_LOG_FILES = 256
 MAX_LOG_BYTES = 64 * 1024 * 1024
@@ -69,13 +71,14 @@ GRAMMAR: dict[str, tuple[tuple[str, re.Pattern[str] | str], ...]] = {
     "NATIVE_POLICY_HARNESS": (("checks", INT), ("failures", INT)),
     "NATIVE_CLOSED_BAR_HARNESS": (("checks", INT), ("failures", INT)),
     "NATIVE_CORE_INDICATORS_HARNESS": (("checks", INT), ("failures", INT)),
+    "NATIVE_RISK_GATE_HARNESS": (("checks", INT), ("failures", INT)),
 }
 ASSERTION_TOKEN = "ASSERTION_FAILED:"
 # A record starts at the beginning of a line or after whitespace, never inside
 # another word. Unknown AGI_NATIVE_MATH_* kinds are captured and rejected.
 TOKEN = re.compile(
     r"(?:(?<=\s)|^)(AGI_NATIVE_MATH_[A-Z_]*|NATIVE_POLICY_HARNESS|NATIVE_CLOSED_BAR_HARNESS"
-    r"|NATIVE_CORE_INDICATORS_HARNESS|ASSERTION_FAILED:)"
+    r"|NATIVE_CORE_INDICATORS_HARNESS|NATIVE_RISK_GATE_HARNESS|ASSERTION_FAILED:)"
 )
 ANY = object()  # expected value wildcard (deinitialization reason only)
 
@@ -379,6 +382,12 @@ def evaluate_stage(stage: Path) -> dict:
     completes = [record for record in records if record["kind"] == "AGI_NATIVE_MATH_COMPLETE"]
     if len(completes) == 1:
         evidence["deinit_reason"] = completes[0]["fields"]["reason"]
+    agents = [source["directory"] for source in with_records if AGENT_LOG_DIRECTORY.fullmatch(source["directory"])]
+    if len(agents) > 1:
+        # Local agents never mirror one another: records from two agents are two runs.
+        evidence["reason"] = "DUPLICATE_AGENT_RUN"
+        evidence["detail"] = ", ".join(agents)
+        return evidence
     for source in with_records[1:]:
         if source["records"] != records:
             evidence["reason"] = "LOG_SOURCES_INCONSISTENT"
@@ -411,7 +420,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stage", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
-    evidence = evaluate_stage(args.stage.resolve())
+    # absolute(), not resolve(): a linked stage must reach the link check.
+    evidence = evaluate_stage(args.stage.absolute())
     payload = json.dumps(evidence, indent=2, ensure_ascii=True) + "\n"
     try:
         # Never overwrite earlier evidence; the runner always supplies a new path.
