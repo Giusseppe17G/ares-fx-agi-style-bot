@@ -252,6 +252,10 @@ def _looks_like_timestamp_field(field_path: str) -> bool:
         return False
     if lowered.endswith("_count") or lowered.endswith(".count") or lowered.endswith("_counts") or "count_by" in lowered:
         return False
+    # Flags and durations named after a timestamp (heartbeat_written, ..._age_seconds)
+    # are not timestamps; a real timestamp field still fails on a bool or number.
+    if lowered.rsplit(".", 1)[-1].endswith(("_written", "_recent", "_stale", "_attempted", "_age_seconds")):
+        return False
     return any(marker in lowered for marker in TIMESTAMP_FIELD_MARKERS)
 
 

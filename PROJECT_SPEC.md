@@ -1032,6 +1032,28 @@ persiste y valora el libro. No obtiene cotizaciones faltantes por su cuenta.
   bloquea hasta reconciliacion; la integridad fisica de SQLite no demuestra
   integridad semantica del libro. Los fills ya persistidos siguen visibles aunque
   se revoquen las aprobaciones del ciclo incompleto.
+- Solo en forward en vivo (`skip_pre_mutation_failures=True`; el replay lo
+  desactiva), los fallos operativos anteriores a escribir la intencion de ciclo
+  no dejan latch: `lifecycle.SKIPPABLE_BEFORE_MUTATION` (MT5 no conectado o
+  paquete ausente, cuenta ilegible u observacion caducada, adquisicion lenta,
+  sin cotizaciones o con una posicion abierta sin cotizacion). Un timestamp
+  futuro bajo esos codigos es fallo de integridad y bloquea. Se auditan como
+  `PAPER_CYCLE_SKIPPED`, no mutan nada y el run reintenta con backoff (hasta
+  300 s), reconectando MT5 dentro del bucle. Un latch previo, un ciclo incompleto o un fallo al auditar el salto
+  siguen bloqueando. Cuenta real, identidad/moneda invalida o cambiante,
+  integridad de cotizaciones, eventos invertidos o duplicados, almacenamiento y
+  auditoria siempre bloquean. En replay un evento sin cotizaciones es un defecto
+  de entrada y sigue bloqueando.
+- La CLI `forward-shadow` pasa `LiveDecisionEvidence` (`live_decision_evidence_v1`):
+  puntuacion de `score_symbol_readiness` con cotizacion, metadata, permiso de
+  cuenta, latencias y timeframes leidos en el mismo ciclo, y la correlacion de
+  mayor magnitud entre retornos log de cierres M5 cerrados (300 barras, minimo
+  100) con cada simbolo expuesto. Un simbolo no observado en el ciclo no recibe
+  evidencia (`BROKER_EVIDENCE_MISSING`) y una exposicion sin correlacion medible
+  deja `correlation=None` (`CORRELATION_UNVERIFIED`). Nada se rellena por defecto.
+- Codigos de salida: `forward-shadow` devuelve 4 con lifecycle bloqueado y 3 sin
+  MT5 conectado ni ciclos completados; `mt5-data`/`mt5-diagnose` devuelven 3 sin
+  MT5 conectado. El JSON de stdout conserva los detalles.
 - Los rechazos normales de estrategia no impiden evaluar el siguiente candidato
   con exposicion actualizada. Se conservan gates de recuperacion, microforward,
   estabilidad, riesgo y limites paper. Solo una pausa propia por drawdown diario

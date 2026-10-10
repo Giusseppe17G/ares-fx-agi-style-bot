@@ -609,7 +609,8 @@ def test_runner_verdict_requires_clean_compile_parser_and_bindings():
     assert "-notmatch '(?m)^Result: 0 errors, 0 warnings,'" in runner
     assert "-notmatch '0 errors, 0 warnings'" not in runner
     assert "$parser = Join-Path $PSScriptRoot 'check_native_math_logs.py'" in runner and SCRIPT.is_file()
-    assert "& py -3.14 -I -S -B $parser --stage $stage --output $logEvidencePath" in runner
+    assert "& py ('-' + $PythonVersion) -I -S -B $parser --stage $stage --output $logEvidencePath" in runner
+    assert "[ValidatePattern('^3(\\.(1[1-9]|[2-9][0-9]))?$')][string]$PythonVersion = '3'" in runner
     verdict = re.search(r"\$manifest\.passed = (.*?)\n\$manifest\.status", runner, re.S).group(1)
     for clause in ("$manifest.terminal_started", "$manifest.terminal_exited", "-not $manifest.timed_out",
                    "$manifest.terminal_exit_code -eq 0", "$manifest.cleanup_verified", "$bindingsUnchanged",

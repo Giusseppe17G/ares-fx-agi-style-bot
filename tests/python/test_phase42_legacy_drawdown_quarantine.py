@@ -201,7 +201,7 @@ def test_forward_shadow_micro_preflight_accepts_legacy_quarantined(tmp_path: Pat
             pass
 
         def run(self):
-            return SimpleNamespace(mode="forward-shadow", mt5_connected=False, cycles_completed=0, open_trades=0, paper_trades_opened=0, paper_trades_closed=0, heartbeat_written=False, alerts_emitted=0, telegram_commands_processed=0, shadow_paused=False, execution_attempted=False, signal_profile_used="BALANCED_STABLE_MICRO", stable_gate_confirmed=True, order_send_called=False, order_check_called=False, exit_reason="", halt_reason="", paper_shadow_paused=False, critical_alerts_recent=(), next_recommended_command="")
+            return SimpleNamespace(mode="forward-shadow", mt5_connected=True, cycles_completed=0, open_trades=0, paper_trades_opened=0, paper_trades_closed=0, heartbeat_written=False, alerts_emitted=0, telegram_commands_processed=0, shadow_paused=False, execution_attempted=False, signal_profile_used="BALANCED_STABLE_MICRO", stable_gate_confirmed=True, order_send_called=False, order_check_called=False, exit_reason="", halt_reason="", paper_shadow_paused=False, critical_alerts_recent=(), next_recommended_command="")
 
     monkeypatch.setattr(cli, "ForwardShadowBot", FakeForwardShadowBot)
     assert cli.main(["--mode", "forward-shadow", "--sqlite", str(tmp_path / "paper.sqlite3"), "--log-dir", str(logs), "--reports-root", str(reports), "--paper-risk-dir", str(paper_risk), "--signal-profile", "BALANCED_STABLE_MICRO", "--profile-config", str(paper_risk / "balanced_stable_micro.ini"), "--stable-gate", str(reports / "stable_gate" / "stable_gate_summary.json"), "--paper-risk-clearance", str(clearance), "--daily-risk-ledger", str(daily), "--max-cycles", "0"]) == 0

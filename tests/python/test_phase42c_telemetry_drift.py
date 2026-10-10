@@ -69,6 +69,30 @@ def test_active_invalid_timestamp_still_blocks(tmp_path: Path) -> None:
     assert status["active_blocking_count"] >= 1
 
 
+def test_forward_shadow_cycle_flags_are_not_timestamps(tmp_path: Path) -> None:
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    now = datetime.now(timezone.utc).isoformat()
+    _write_jsonl(log_dir / "events.jsonl", {"event_type": "FORWARD_SHADOW_CYCLE", "timestamp_utc": now,
+        "payload": {"heartbeat_written": True, "cycle": 1, "execution_attempted": False}})
+
+    status = run_telemetry_status(log_dir=log_dir, reports_root=tmp_path / "reports", output_dir=tmp_path / "out")
+
+    assert status["telemetry_status"] == "TELEMETRY_CLEAN"
+    assert status["telemetry_acceptance_clear"] is True
+
+
+def test_boolean_in_a_real_timestamp_field_still_blocks(tmp_path: Path) -> None:
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    _write_jsonl(log_dir / "events.jsonl", {"event_type": "HEARTBEAT", "timestamp_utc": True})
+
+    status = run_telemetry_status(log_dir=log_dir, reports_root=tmp_path / "reports", output_dir=tmp_path / "out")
+
+    assert status["telemetry_status"] != "TELEMETRY_CLEAN"
+    assert status["telemetry_acceptance_clear"] is False
+
+
 def test_quarantine_telemetry_issues_is_idempotent_for_drift(tmp_path: Path) -> None:
     log_dir = tmp_path / "logs"
     out = tmp_path / "out"

@@ -41,6 +41,8 @@ POSIX_HOME_PATH_RE = re.compile(r"(?<!\w)/(?:Users|home)/[^\s\"']+")
 # redaction for arbitrary strings, nested secrets and all unknown field names.
 AUDIT_CHECK_FIELDS = frozenset({"account_equity", "account_known", "account_trade_allowed"})
 AUDIT_HASH_FIELDS = frozenset({"profile_hash", "stable_profile_hash"})
+# Profile names contain "file" ("pro-file") but are plain identifiers, never paths.
+AUDIT_PROFILE_NAME_FIELDS = frozenset({"signal_profile", "signal_profile_used", "risk_profile_used", "base_profile"})
 
 
 def utc_now_iso() -> str:
@@ -113,6 +115,8 @@ def redact_secrets(value: Any, *, parent_key: str = "") -> Any:
             if lowered == "risk_amount_account_currency" and isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(item):
                 redacted[key_text] = item
             elif lowered in AUDIT_HASH_FIELDS and isinstance(item, str) and re.fullmatch(r"[0-9a-f]{64}", item):
+                redacted[key_text] = item
+            elif lowered in AUDIT_PROFILE_NAME_FIELDS and isinstance(item, str) and re.fullmatch(r"[A-Z0-9_]{1,64}", item):
                 redacted[key_text] = item
             elif lowered in AUDIT_CHECK_FIELDS and isinstance(item, Mapping):
                 redacted[key_text] = redact_secrets(item, parent_key=key_text)
