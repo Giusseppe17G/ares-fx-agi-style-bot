@@ -13,22 +13,30 @@ Entradas: plan congelado y CSV extraidos de
 - `inputs/USDJPY_M5.csv`: `3d00ce997b53a9f15a213de58cb0cb6eca9d5eca15a148287eeb4f1f446a1d1f`
 - `inputs/inputs.json`: `ba8d926b41f5fc962558e35e06abb82b47ac496e9d4c20dfba70f418d003cd0e`
 
-Codigo de baselines usado (bytes del arbol de trabajo sobre `0915dcb`, que
-`baselines.json` registra como `baseline_code`; el commit que conserva esta
-evidencia contiene los mismos bytes):
+Codigo de baselines usado: commit `2fa174c` con el arbol limpio
+(`baseline_code.git_dirty=false` en `baselines.json`); su `src/` y `scripts/`
+son los de `8ec083f`, que anade la verificacion de paridad contra el evaluador:
 
-- `src/python/agi_style_forex_bot_mt5/research/predeclared_baselines.py`: `afe9e86dc0656027112b04cbc4affca4484628477f087721411a7804193f90cc`
-- `scripts/run_predeclared_baselines.py`: `08a489f48b1d1f29cd3903563756330ca2d568b2033b5e5454ae316d0bf0d46c`
+- `src/python/agi_style_forex_bot_mt5/research/predeclared_baselines.py`: `b88dba6bddd738941cacaa45707d09472990bbd1de57a33eb28c5f6a87bcdbf7`
+- `scripts/run_predeclared_baselines.py`: `2d19254320aefb4a8493279bad4e2d0cfbfbdf9ccf499a5953aea014774f1120`
 
-Comando (Python 3.14.4, pandas 3.0.2, NumPy 2.4.4; 13 min 23 s):
+Comando (Python 3.14.4, pandas 3.0.2, NumPy 2.4.4; 22 min 24 s):
 
 ```bash
 python -B scripts/run_predeclared_baselines.py --source-root <repo> \
-  --inputs inputs/inputs.json --plan frozen-plan.json --output baselines-run --replications 1000
+  --inputs inputs/inputs.json --plan frozen-plan.json --output baselines-run-8ec083f --replications 1000
 ```
 
-Salidas: `baselines.json` (`1baec2dfa21eb99cd2d1e6daece3b7f2567776dd2e4fe59c3ed0a275f16bb4bc`),
+Salidas: `baselines.json` (`b84a7a5321965174a025d63216dbc8e8f1f55bceb087318df4d61225b3d3a93f`),
 `baselines.csv` (`09d74e5836035be08faba2f2d7df0fbeb1b605801a44ef8cf80d95f14a0214eb`) y `run.log`.
-Las 27 celdas de la estrategia coinciden exactamente con `summary.json` del
-estudio preservado. Flags `promotion_eligible`, `execution_authorized`,
-`full_pipeline_verified` y `full_risk_pipeline_applied` son false.
+En las 27 celdas, `evaluate_trend_pullback` produjo los mismos trades, PnL neto,
+win rate y drawdown que el subconjunto de la estrategia (si no, la celda habria
+fallado). Frente a `summary.json` del estudio preservado, trades, win rate y
+drawdown son identicos y PnL neto y PF difieren solo por el orden de suma en
+coma flotante (maximo 1,8e-12). Flags `promotion_eligible`,
+`execution_authorized`, `full_pipeline_verified` y `full_risk_pipeline_applied`
+son false.
+
+Una ejecucion previa del codigo sin esa verificacion (arbol de trabajo sobre
+`0915dcb`) produjo un `baselines.json` identico salvo `baseline_code` y el
+mismo `baselines.csv` byte a byte.
