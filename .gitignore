@@ -7,6 +7,7 @@ data/logs/
 data/sqlite/
 data/reports/
 data/runs/
+data/runtime/
 *.rdp
 *.pem
 *.key

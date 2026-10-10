@@ -106,6 +106,8 @@ Minimum forward shadow evidence:
 
 If forward evidence is missing, unstable, or materially worse than research evidence, the strategy remains `WATCHLIST` or becomes `REJECTED`.
 
+The final demo-executable gate is `PROJECT_SPEC.md` section 12.1. It is cumulative with this document: shadow approval, this Phase 8 evidence and the section 12.1 OOS criteria must all hold, and the stricter threshold applies where they overlap. Broker execution remains removed from the current release regardless of any approval.
+
 ## Phase 11 ML Meta-Filter Requirement
 
 ML is optional and fail-safe. A missing, corrupt, uncalibrated, expired, or weak model must result in `ML_DISABLED` or `WATCHLIST`, not approval.

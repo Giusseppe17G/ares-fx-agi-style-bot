@@ -620,6 +620,17 @@ Una estrategia solo puede pasar a demo ejecutable si cumple todos los puntos:
 - Walk-forward aprobado si hubo optimizacion.
 - Forward test o shadow mode con senales auditadas antes de permitir ejecucion demo.
 
+El gate es acumulativo con `docs/STRATEGY_PROMOTION_GATE.md`: demo ejecutable
+exige (a) `APPROVED_FOR_SHADOW_OBSERVATION` con sus minimos (>= 300 trades de
+backtest o justificacion escrita, PF > 1.25, DD < 12%, expectancy R > 0), (b) la
+evidencia forward shadow de su Phase 8 (al menos dos semanas o 200 paper trades,
+lo que tarde mas, con PF forward > 1.15) y (c) los criterios OOS de esta
+seccion. Si los umbrales se solapan, aplica el mas estricto; los 200/1.15 de
+aqui nunca relajan los minimos de shadow. Deuda tecnica: hoy
+`strategy/scoring_engine.py:evaluate_promotion_gate` solo comprueba el
+subconjunto de esta seccion; antes de cualquier release ejecutable debe exigir
+(a) y (b). No es explotable mientras `EXECUTION_NOT_RELEASED` bloquee todo envio.
+
 ### 12.2 Reproducibilidad Y Datos
 
 Todo backtest debe declarar calidad de datos: tipo de dato usado, proveedor, zona horaria, rango disponible, huecos detectados, ticks/barras descartados, duplicados, fines de semana, cambios de horario/DST y porcentaje de cobertura. Si la calidad no puede verificarse, el resultado queda marcado como no apto para decision operativa.
