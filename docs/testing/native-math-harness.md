@@ -75,7 +75,9 @@ queda `NOT_VERIFIED`; no se introduce una cuenta para forzar la prueba.
 
 ## Verificacion de esta entrega (2026-10-10)
 
-- 80 pruebas nuevas pasan con Python 3.14.4, pandas 3.0.2 y NumPy 2.4.4.
+- 80 pruebas nuevas pasan con Python 3.14.4, pandas 3.0.2 y NumPy 2.4.4. Suite
+  completa y fallos ajenos (reloj de fin de semana, un test intermitente previo)
+  en `docs/testing/evidence/2026-10-10-native-math-parser/`.
 - Mutaciones temporales detectadas por los guards y revertidas: orden de campos
   en el wrapper, `#undef` faltante, constante de conteo alterada, regex de
   compilacion sin anclar, `UseCloud=1` en el runner y conteo distinto en el parser.

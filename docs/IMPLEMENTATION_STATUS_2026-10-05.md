@@ -233,7 +233,11 @@ temporales confirmaron que detectan regresiones. Ver
 `docs/testing/native-math-harness.md` y
 `docs/decisions/2026-10-10-native-math-log-parser.md`. **No se compilo el
 wrapper ni se inicio MetaTrader** (entorno Linux); el runtime MQL sigue sin
-verificar.
+verificar. Suite completa con Python 3.14.4/pandas 3.0.2/NumPy 2.4.4 en sabado:
+**2.522 passed y 5 fallos** que dependen del reloj (mercado cerrado). Con el
+reloj fijado en dia laborable pasan, y solo falla de forma intermitente un test
+previo que identifica loggers con `id()`. Logs:
+`docs/testing/evidence/2026-10-10-native-math-parser/`.
 
 ## Pendientes que impiden promocion
 
