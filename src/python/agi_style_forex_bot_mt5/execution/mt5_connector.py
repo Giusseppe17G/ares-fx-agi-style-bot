@@ -151,6 +151,19 @@ class TickFreshness:
         }
 
 
+def _not_populated(*values: Any) -> bool:
+    """MT5 reports 0 for a quote or symbol property it has not received yet
+    (just after symbol_select or a terminal reconnect): transient, not integrity."""
+
+    for value in values:
+        try:
+            if value is not None and float(value) == 0.0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def is_market_probably_closed(now_utc: datetime, symbol: str) -> bool:
     """Return true during common Forex weekend closure windows."""
 
@@ -462,7 +475,7 @@ class MT5Connector:
                     symbol=canonical,
                     canonical_symbol=canonical,
                     broker_symbol=symbol,
-                    integrity_failure=True,
+                    integrity_failure=not _not_populated(raw_bid, raw_ask, raw_point),
                 ),
                 None,
             )
@@ -488,7 +501,7 @@ class MT5Connector:
                     "MARKET_DATA_INVALID",
                     freshness.reject_reason or "tick timestamp is unavailable or invalid",
                     **base_payload,
-                    integrity_failure=True,
+                    integrity_failure=not _not_populated(getattr(tick, "time", None), getattr(tick, "time_msc", None)),
                 ),
                 None,
             )
@@ -503,9 +516,10 @@ class MT5Connector:
             reject_code = "MARKET_CLOSED_OR_NO_TICKS" if market_closed else "MARKET_DATA_INVALID"
             # Integrity, not a transient outage: an invalid timestamp, or a tick
             # further ahead of the clock than the freshness window (clock skew).
-            integrity_failure = freshness.tick_time_status == "INVALID_TIMESTAMP" or (
-                freshness.tick_time_status == "FUTURE_TOO_FAR" and tick_age < -self.config.max_tick_age_seconds
-            )
+            integrity_failure = (
+                freshness.tick_time_status == "INVALID_TIMESTAMP"
+                and not _not_populated(getattr(tick, "time", None), getattr(tick, "time_msc", None))
+            ) or (freshness.tick_time_status == "FUTURE_TOO_FAR" and tick_age < -self.config.max_tick_age_seconds)
             reject_reason = freshness.reject_reason or (
                 "market appears closed or symbol has no fresh ticks" if market_closed else "tick timestamp is stale or in the future"
             )
@@ -554,7 +568,8 @@ class MT5Connector:
                     symbol=canonical,
                     canonical_symbol=canonical,
                     broker_symbol=symbol,
-                    integrity_failure=True,
+                    integrity_failure=not _not_populated(snapshot.bid, snapshot.ask, snapshot.point, snapshot.tick_value,
+                        snapshot.tick_size, snapshot.volume_min, snapshot.volume_max, snapshot.volume_step),
                 ),
                 None,
             )

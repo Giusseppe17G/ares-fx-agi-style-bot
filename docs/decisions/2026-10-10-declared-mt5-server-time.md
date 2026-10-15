@@ -57,9 +57,15 @@ relaunched latched runs forever.
   Telegram), `exit_reason=MARKET_DATA_INTEGRITY_FAILED`, exit code 5. It does not
   latch: nothing in the book is uncertain, the usual cause is configuration or
   the PC clock, and every restart validates again. The watchdog does not
-  relaunch it.
+  relaunch it. A zero quote or symbol property (not yet received after
+  `symbol_select` or a reconnect) is transient and skipped, not integrity. A
+  symbol that fails integrity while the cycle continues with the others is
+  excluded and notified once per streak (`QUOTE_INTEGRITY_REJECTED`).
 - **Skip notices.** The first `PAPER_CYCLE_SKIPPED` of a streak and every change
   of reason go to Telegram; `PAPER_CYCLE_RESUMED` reports the end of a streak.
+  `PAPER_CYCLE_RESUMED`, `FORWARD_SHADOW_STARTED` and `FORWARD_SHADOW_STOPPED` are
+  INFO, so they are listed in the notifier's important event types, and the
+  message carries `reject_code`, `reason`, `stop_reason` and streak counters.
   Skips caused by missing quotes carry each symbol's rejection reason. The
   backoff of an unbounded run starts at `max(cycle_seconds, 5 s)`.
 - **Real account first.** `validate_account` checks demo before connection, so a
@@ -74,19 +80,32 @@ relaunched latched runs forever.
   clears a pending request. `stop_forward_shadow.ps1`
   asks the watchdog to stop through `data\runtime\forward-shadow-watchdog.stop`,
   requests the stop, waits, and kills only with `-Force` after its timeout.
-- **Watchdog and scripts.** The watchdog relaunches only after exit 1 or 3; it
-  stops after 0 (deliberate stop), 2, 4 and 5, and refuses a second instance.
+- **Watchdog and scripts.** The watchdog relaunches after any exit code other
+  than 0 (deliberate stop), 2, 4 and 5, after which it stops; a launch that fails
+  before Python runs (missing `.venv` or `-Config`) exits 2 and also stops it. It
+  refuses a second instance. Scripts match runs by the resolved SQLite path,
+  case-insensitively, and the run is given that resolved path; the stop script
+  says so when it finds nothing to stop (exit 1).
   `run_forward_shadow.ps1` refuses a second run on the same SQLite, forwards
   `-Config` and `-Telegram`, rejects unknown or positional arguments (`[CmdletBinding(PositionalBinding = $false)]`) and
   no longer lets a Python warning on stderr abort the wrapper in Windows
-  PowerShell 5.1.
+  PowerShell 5.1. After a Ctrl+C it still waits for the cycle to finish and
+  prints the run's result.
 - **Exit codes.** 2 also covers a configuration that `load_config` rejects and
   an existing instrument snapshot destination; 3 covers `export-history` and
   `build-instrument-registry` without MT5; `forward-shadow --max-cycles 0` is a
   startup preflight and exits 0. Configuration files and the broker symbol map
   are read as `utf-8-sig`, so a BOM no longer hides the first key or breaks the
-  map. `paper-state-report` reports `PAPER_LIFECYCLE_HALTED` ahead of the pause
-  the latch also sets, and says the SQLite must be replaced.
+  map. An explicit `--config` that does not exist, a repeated key, a line
+  without `=` or a bad `%` are rejected (exit 2) instead of running on defaults
+  or failing with a traceback. `paper-state-report` reports
+  `PAPER_LIFECYCLE_HALTED` ahead of the pause the latch also sets, with its cause
+  in `lifecycle_halt_reason`, and `PAPER_CYCLE_IN_PROGRESS` for an open cycle,
+  which is normal while a run is live.
+- **Cross-process state.** `stop-shadow`, `pause-shadow` and `resume-shadow`
+  write the operational state row while a run is live, so every
+  read-modify-write of that row runs inside `BEGIN IMMEDIATE`: no update is
+  lost and the run's `paper_cycle_in_progress` intent cannot be erased.
 
 ## Verification
 
@@ -101,7 +120,11 @@ and a corrected restart continues the same book; a one-second lead is skipped
 with its reason; server-stamped ticks complete a cycle under `NY_CLOSE` and stop
 under `UTC`; the skip notices, the real-account latch, the backoff floor,
 stop requests and Ctrl+C. `tests/python/test_cli_operational_exit_codes.py`
-covers the exit codes and the script contracts. The three PowerShell scripts
+covers the exit codes, malformed and missing configuration files, the
+paper-state report, the operational-state write lock and the script contracts.
+A second review round added tests for the Telegram path through the real
+notifier (severity filter and message), zero quotes after a reconnect and the
+per-symbol integrity notice. The three PowerShell scripts
 were run with PowerShell 7 on Linux against a fake interpreter and a stubbed
 process list: exit-code propagation, argument quoting, rejection of unknown or
 positional arguments, the single-instance refusal, watchdog relaunch after 1 and

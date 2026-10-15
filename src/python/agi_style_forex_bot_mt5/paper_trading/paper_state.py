@@ -57,6 +57,7 @@ def build_paper_state_report(*, database: TelemetryDatabase, log_dir: str | Path
         "daily_drawdown_limit": -3.0,
         "paper_shadow_paused": bool(state.get("shadow_paused", False)),
         "halt_reason": halt_reason,
+        "lifecycle_halt_reason": str(state.get("halt_reason") or "") if state.get("paper_lifecycle_halted") else "",
         "recommended_action": _recommended_action(halt_reason),
         "duration_parse_status": metrics.get("duration_parse_status"),
         "invalid_timestamp_count": metrics.get("invalid_timestamp_count", 0),
@@ -179,9 +180,12 @@ def _closed_today(trades: list[Mapping[str, Any]]) -> int:
 
 
 def _halt_reason(metrics: Mapping[str, Any], state: Mapping[str, Any]) -> str:
-    # The durable lifecycle latch outranks the pause it also sets.
-    if state.get("paper_lifecycle_halted") or state.get("paper_cycle_in_progress"):
+    # The durable lifecycle latch outranks the pause it also sets. An open cycle
+    # is normal while a run is live; it only latches if no run finishes it.
+    if state.get("paper_lifecycle_halted"):
         return "PAPER_LIFECYCLE_HALTED"
+    if state.get("paper_cycle_in_progress"):
+        return "PAPER_CYCLE_IN_PROGRESS"
     if bool(state.get("shadow_paused", False)):
         return "SHADOW_MANUALLY_PAUSED"
     if float(metrics.get("daily_drawdown_shadow", 0.0) or 0.0) <= DEFAULT_DAILY_DRAWDOWN_LIMIT:
@@ -193,8 +197,12 @@ def _halt_reason(metrics: Mapping[str, Any], state: Mapping[str, Any]) -> str:
 
 def _recommended_action(halt_reason: str) -> str:
     if halt_reason == "PAPER_LIFECYCLE_HALTED":
-        return ("Permanent latch on this SQLite: resume-shadow does not clear it. Keep this SQLite and its logs "
-                "as evidence and continue forward-shadow with a new --sqlite.")
+        return ("Permanent latch on this SQLite (cause in lifecycle_halt_reason): resume-shadow does not clear it. "
+                "Keep this SQLite and its logs as evidence and continue forward-shadow with a new --sqlite.")
+    if halt_reason == "PAPER_CYCLE_IN_PROGRESS":
+        return ("A paper cycle is open. If forward-shadow is running on this SQLite, run the report again. If no "
+                "run is alive, it stopped mid-cycle and the next start latches: keep this SQLite as evidence and "
+                "continue with a new --sqlite.")
     if halt_reason == "PAPER_DAILY_DRAWDOWN_HALT":
         return "Pause shadow, inspect paper-open-trades, then decide whether to paper-close-all."
     if halt_reason == "SHADOW_MANUALLY_PAUSED":

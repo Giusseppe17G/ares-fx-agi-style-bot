@@ -32,7 +32,8 @@ function Get-ForwardShadowRun {
     @(Get-CimInstance Win32_Process | Where-Object {
         $_.CommandLine -and $_.CommandLine -match 'agi_style_forex_bot_mt5\.cli' -and
         $_.CommandLine -match '--mode\s+forward-shadow' -and
-        ($_.CommandLine.Contains($SqlitePath) -or $_.CommandLine.Contains($sqliteFull))
+        ($_.CommandLine.IndexOf($SqlitePath, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+         $_.CommandLine.IndexOf($sqliteFull, [StringComparison]::OrdinalIgnoreCase) -ge 0)
     })
 }
 
@@ -45,6 +46,12 @@ function Get-Watchdog {
     return $null
 }
 
+$runs = Get-ForwardShadowRun
+if ($runs.Count -eq 0 -and -not (Get-Watchdog)) {
+    Write-Host "No forward-shadow run or watchdog found for $sqliteFull. Nothing was stopped."
+    exit 1
+}
+
 # 1) The watchdog must not relaunch the run once it ends.
 if (Get-Watchdog) {
     New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
@@ -53,7 +60,6 @@ if (Get-Watchdog) {
 }
 
 # 2) Ask the run to stop between cycles; it finishes the current one first.
-$runs = Get-ForwardShadowRun
 if ($runs.Count -gt 0) {
     $env:PYTHONPATH = "src/python"
     & $venvPython -m agi_style_forex_bot_mt5.cli --mode stop-shadow --sqlite $SqlitePath --reason $Reason

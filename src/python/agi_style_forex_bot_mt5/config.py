@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from configparser import ConfigParser
+from configparser import ConfigParser, Error as ConfigParserError
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -190,14 +190,20 @@ def load_config(path: str | Path | None = None) -> BotConfig:
 
     config_path = Path(path) if path else DEFAULT_CONFIG_PATH
     if not config_path.exists():
+        if path:
+            # A mistyped --config must not silently run on defaults.
+            raise FileNotFoundError(f"configuration file not found: {config_path}")
         cfg = BotConfig()
         cfg.validate_safety()
         return cfg
     # utf-8-sig: a BOM written by Windows editors must not hide the first key.
     raw = "[DEFAULT]\n" + config_path.read_text(encoding="utf-8-sig")
-    parser = ConfigParser()
-    parser.read_string(raw)
-    values = {key.upper(): _coerce(value) for key, value in parser["DEFAULT"].items()}
+    try:
+        parser = ConfigParser()
+        parser.read_string(raw)
+        values = {key.upper(): _coerce(value) for key, value in parser["DEFAULT"].items()}
+    except ConfigParserError as exc:
+        raise ValueError(f"invalid configuration file {config_path}: {exc}") from exc
     allowed = str(values.get("ALLOWED_ACCOUNT_LOGINS", "")).strip()
     allowed_logins = tuple(
         int(item.strip()) for item in allowed.split(",") if item.strip().isdigit()

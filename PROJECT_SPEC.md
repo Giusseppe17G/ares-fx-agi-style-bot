@@ -1055,7 +1055,11 @@ persiste y valora el libro. No obtiene cotizaciones faltantes por su cuenta.
   el run se detiene antes de mutar (`FORWARD_SHADOW_INTEGRITY_STOP`, CRITICAL,
   Telegram) con `exit_reason=MARKET_DATA_INTEGRITY_FAILED` y codigo 5, sin
   latch: la causa suele ser configuracion (`MT5_SERVER_TIME`) o el reloj del
-  PC, y el reinicio vuelve a validar todo.
+  PC, y el reinicio vuelve a validar todo. Un valor a cero (cotizacion o
+  propiedad que MT5 aun no ha recibido, tras `symbol_select` o una reconexion)
+  es transitorio, no integridad. Un simbolo que falla integridad mientras el
+  ciclo sigue con otros se excluye y se notifica una vez por racha
+  (`QUOTE_INTEGRITY_REJECTED`, WARNING).
 - Reloj del servidor MT5: `MT5_SERVER_TIME` (`UTC` por defecto, `NY_CLOSE` =
   UTC+2 invierno / UTC+3 con horario de verano de EE. UU., `EET` = lo mismo con
   fechas europeas, o `UTC+HH:MM`) es
@@ -1069,8 +1073,16 @@ persiste y valora el libro. No obtiene cotizaciones faltantes por su cuenta.
   termina el ciclo en curso, consume la peticion y sale con 0
   (`exit_reason=STOP_REQUESTED`); un segundo Ctrl+C aborta. Una peticion anterior
   al arranque del proceso se descarta al arrancar. `resume-shadow` borra una
-  peticion pendiente. `paper-state-report` informa
-  `PAPER_LIFECYCLE_HALTED` (permanente en esa SQLite) antes que la pausa.
+  peticion pendiente. `paper-state-report` informa `PAPER_LIFECYCLE_HALTED`
+  (permanente en esa SQLite, causa en `lifecycle_halt_reason`) antes que la
+  pausa, y `PAPER_CYCLE_IN_PROGRESS` para un ciclo abierto, que con un run vivo
+  es normal. Las lecturas-modificacion-escritura del estado operativo se hacen
+  en una transaccion `BEGIN IMMEDIATE`, porque `stop-shadow`, `pause-shadow` y
+  `resume-shadow` escriben la misma fila desde otro proceso.
+- Telegram: `FORWARD_SHADOW_STARTED`, `FORWARD_SHADOW_STOPPED` y
+  `PAPER_CYCLE_RESUMED` son eventos importantes aunque sean INFO, y el mensaje
+  incluye `reject_code`, `reason`, `stop_reason` y los contadores de racha cuando
+  el evento los trae.
 - La CLI `forward-shadow` pasa `LiveDecisionEvidence` (`live_decision_evidence_v1`):
   puntuacion de `score_symbol_readiness` con cotizacion, metadata, permiso de
   cuenta, latencias y timeframes leidos en el mismo ciclo, y la correlacion de
@@ -1079,7 +1091,9 @@ persiste y valora el libro. No obtiene cotizaciones faltantes por su cuenta.
   evidencia (`BROKER_EVIDENCE_MISSING`) y una exposicion sin correlacion medible
   deja `correlation=None` (`CORRELATION_UNVERIFIED`). Nada se rellena por defecto.
 - Codigos de salida: 2 configuracion o argumentos invalidos (incluida una
-  configuracion rechazada por `load_config` y un destino de snapshot existente);
+  configuracion rechazada por `load_config`: valor invalido, clave repetida,
+  linea sin `=` o ruta explicita inexistente; y un destino de snapshot
+  existente);
   `forward-shadow` devuelve 4 con lifecycle bloqueado, 5 tras una parada por
   integridad y 3 sin MT5 conectado ni ciclos completados (salvo `--max-cycles 0`,
   que es una comprobacion de arranque y devuelve 0); `mt5-data`, `mt5-diagnose`,

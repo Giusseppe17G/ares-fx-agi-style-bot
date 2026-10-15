@@ -123,24 +123,82 @@ class ScriptedClient:
         return SimpleNamespace(connected=connected, trade_allowed=True)
 
 
+def _telegram(database):
+    """Real notifier (severity filter, formatting, outbox) with a recording sender."""
+    from agi_style_forex_bot_mt5.telemetry import TelegramNotifier
+
+    sent = []
+
+    def sender(_url, payload, _timeout):
+        sent.append(payload["text"])
+        return SimpleNamespace(status_code=200, text="ok", headers={})
+
+    return TelegramNotifier(database=database, enabled=True, bot_token="123456:test-token-value",
+                            chat_id="42", sender=sender), sent
+
+
 def test_skip_streak_notifies_once_per_reason_and_again_on_resume(review_case, tmp_path, monkeypatch):
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     bot, database, client, _ = forward_bot(review_case, tmp_path, monkeypatch, cycles=5)
-    notified = []
-    bot.telegram_notifier = SimpleNamespace(notify_event=notified.append)
+    bot.telegram_notifier, sent = _telegram(database)
     # Attempts: 1-2 disconnected, 3 initialize fails, 4 completes, 5 disconnected.
     bot.mt5_client = ScriptedClient(client, [True, True, False, True], lambda reads: reads == 3)
     try:
         summary = bot.run()
         assert summary.cycles_completed == 1 and summary.cycles_skipped == 4
         assert summary.lifecycle_halted is False
-        sequence = [(event.event_type, event.payload.get("reject_code")) for event in notified
-                    if event.event_type in {"PAPER_CYCLE_SKIPPED", "PAPER_CYCLE_RESUMED"}]
-        assert sequence == [("PAPER_CYCLE_SKIPPED", "MT5_CONNECTION_UNVERIFIED"),
-                            ("PAPER_CYCLE_SKIPPED", "MT5_CONNECT_FAILED"),
-                            ("PAPER_CYCLE_RESUMED", None),
-                            ("PAPER_CYCLE_SKIPPED", "MT5_CONNECTION_UNVERIFIED")]
+        sequence = [text.split(" | ")[0] + " " + next((part for part in text.split(" | ")
+                    if part.startswith("reject_code=")), "") for text in sent
+                    if "PAPER_CYCLE_SKIPPED" in text or "PAPER_CYCLE_RESUMED" in text]
+        assert sequence == ["[WARNING] PAPER_CYCLE_SKIPPED reject_code=MT5_CONNECTION_UNVERIFIED",
+                            "[WARNING] PAPER_CYCLE_SKIPPED reject_code=MT5_CONNECT_FAILED",
+                            "[INFO] PAPER_CYCLE_RESUMED ",
+                            "[WARNING] PAPER_CYCLE_SKIPPED reject_code=MT5_CONNECTION_UNVERIFIED"]
+        assert any("FORWARD_SHADOW_STARTED" in text for text in sent)
+        assert any("FORWARD_SHADOW_STOPPED" in text for text in sent)
         assert len(_events(database, "PAPER_CYCLE_SKIPPED")) == 4
+    finally:
+        database.close()
+
+
+def test_unpopulated_quote_after_reconnect_is_skipped_not_an_integrity_stop(review_case, tmp_path, monkeypatch):
+    bot, database, client, _ = forward_bot(review_case, tmp_path, monkeypatch, cycles=2)
+    original, reads = client.symbol_info_tick, []
+
+    def first_empty(symbol):
+        reads.append(symbol)
+        if len(reads) == 1:
+            return SimpleNamespace(bid=0.0, ask=0.0, time=0, time_msc=0)
+        return original(symbol)
+
+    client.symbol_info_tick = first_empty
+    try:
+        summary = bot.run()
+        assert summary.exit_reason != "MARKET_DATA_INTEGRITY_FAILED"
+        assert summary.cycles_skipped == 1 and summary.cycles_completed == 1
+    finally:
+        database.close()
+
+
+def test_a_symbol_failing_integrity_is_notified_once_while_others_continue(review_case, tmp_path, monkeypatch):
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    bot, database, client, _ = forward_bot(review_case, tmp_path, monkeypatch, symbols=("EURUSD", "GBPUSD"), cycles=3)
+    bot.telegram_notifier, sent = _telegram(database)
+    original = client.symbol_info_tick
+
+    def gbpusd_ahead(symbol):
+        tick = original(symbol)
+        if symbol != "GBPUSD":
+            return tick
+        return SimpleNamespace(bid=tick.bid, ask=tick.ask, time=tick.time + 3600, time_msc=tick.time_msc + 3_600_000)
+
+    client.symbol_info_tick = gbpusd_ahead
+    try:
+        summary = bot.run()
+        assert summary.cycles_completed == 3 and summary.exit_reason != "MARKET_DATA_INTEGRITY_FAILED"
+        notices = [text for text in sent if "QUOTE_INTEGRITY_REJECTED" in text]
+        assert len(notices) == 1 and "symbol=GBPUSD" in notices[0]
+        assert len(_events(database, "QUOTE_INTEGRITY_REJECTED")) == 1
     finally:
         database.close()
 

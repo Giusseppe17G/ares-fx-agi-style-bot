@@ -131,6 +131,7 @@ class ForwardShadowBot:
         self.skip_pre_mutation_failures = skip_pre_mutation_failures is True
         self.skip_notified_code: str | None = None
         self.cycle_quote_rejections: dict[str, dict[str, Any]] = {}
+        self._integrity_notified: set[str] = set()
         self._interrupt_requested = False
         # Wall clock, not the injected clock: stop requests carry wall time.
         self._started_wall = datetime.now(timezone.utc)
@@ -527,6 +528,15 @@ class ForwardShadowBot:
         if integrity and (not quotes or unquoted_positions & set(integrity)):
             raise PaperCycleRejected(MARKET_DATA_INTEGRITY_FAILED,
                 f"MT5 quotes failed integrity checks for {', '.join(integrity)}; check MT5_SERVER_TIME and the PC clock")
+        # The cycle goes on without those symbols; tell the operator once per
+        # streak and symbol, and again after the symbol has quoted normally.
+        self._integrity_notified = {symbol for symbol in self._integrity_notified if symbol not in quotes}
+        for symbol in integrity:
+            if symbol not in self._integrity_notified:
+                self._audit("QUOTE_INTEGRITY_REJECTED", Severity.WARNING, {"event_id": event_id,
+                    **self.cycle_quote_rejections[symbol], "mt5_server_time": self.config.mt5_server_time,
+                    "execution_attempted": False}, symbol=symbol, notify=True)
+                self._integrity_notified.add(symbol)
         return PaperCycleInput(event_id, observation.observed_at_utc, observation, quotes, tuple(candidates), {})
 
     def _paper_signal_already_traded(self, decision_id: str, symbol: str) -> bool:

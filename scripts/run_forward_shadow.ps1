@@ -18,12 +18,15 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $repoRoot
 
+# Problems the operator must fix exit 2, so the watchdog does not relaunch them.
 $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
-    throw "Virtual environment not found. Run scripts\windows_setup.ps1 first."
+    Write-Host "Virtual environment not found. Run scripts\windows_setup.ps1 first."
+    exit 2
 }
 if ($Config -and -not (Test-Path -LiteralPath $Config -PathType Leaf)) {
-    throw "Config file not found: $Config"
+    Write-Host "Config file not found: $Config"
+    exit 2
 }
 
 $sqliteParent = Split-Path $SqlitePath -Parent
@@ -31,12 +34,14 @@ if (-not $sqliteParent) { $sqliteParent = "." }
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 New-Item -ItemType Directory -Force -Path $sqliteParent | Out-Null
 
-# One run per SQLite: two writers on the same paper book are refused.
+# One run per SQLite: two writers on the same paper book are refused. Python
+# gets the resolved path, so any spelling of the same file is recognised.
 $sqliteFull = Join-Path (Resolve-Path -LiteralPath $sqliteParent).Path (Split-Path $SqlitePath -Leaf)
 $existing = @(Get-CimInstance Win32_Process | Where-Object {
     $_.CommandLine -and $_.CommandLine -match 'agi_style_forex_bot_mt5\.cli' -and
     $_.CommandLine -match '--mode\s+forward-shadow' -and
-    ($_.CommandLine.Contains($SqlitePath) -or $_.CommandLine.Contains($sqliteFull))
+    ($_.CommandLine.IndexOf($SqlitePath, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+     $_.CommandLine.IndexOf($sqliteFull, [StringComparison]::OrdinalIgnoreCase) -ge 0)
 })
 if ($existing.Count -gt 0) {
     Write-Host "forward-shadow is already running on $SqlitePath (PID $($existing[0].ProcessId)). Not starting a second run."
@@ -56,7 +61,7 @@ $argsList = @(
     "--mode", "forward-shadow",
     "--symbols", $Symbols,
     "--log-dir", $LogDir,
-    "--sqlite", $SqlitePath,
+    "--sqlite", $sqliteFull,
     "--cycle-seconds", "$CycleSeconds"
 )
 if ($MaxCycles -gt 0) {
@@ -80,9 +85,14 @@ Write-Host "Running. Ctrl+C once stops it after the current cycle; output is wri
 $process = Start-Process -FilePath $venvPython -ArgumentList $argumentString -NoNewWindow -PassThru `
     -RedirectStandardOutput $runLog -RedirectStandardError $errorLog
 $null = $process.Handle  # keeps ExitCode readable after the process ends
-$process.WaitForExit()
-$exitCode = $process.ExitCode
-Get-Content -LiteralPath $runLog, $errorLog -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-
-Write-Host "[$(Get-Date -Format o)] forward-shadow finished with exit code $exitCode"
+try {
+    $process.WaitForExit()
+} finally {
+    # Ctrl+C also stops this script; Python finishes its cycle first, so wait
+    # for it here and still show its result.
+    $process.WaitForExit()
+    $exitCode = $process.ExitCode
+    Get-Content -LiteralPath $runLog, $errorLog -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+    Write-Host "[$(Get-Date -Format o)] forward-shadow finished with exit code $exitCode"
+}
 exit $exitCode

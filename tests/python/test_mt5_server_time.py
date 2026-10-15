@@ -142,3 +142,12 @@ def test_diagnose_hint_names_the_missing_or_wrong_declaration():
     assert "check that declaration" in _server_time_hint(behind, "NY_CLOSE")
     fresh = SimpleNamespace(suggested_broker_time_offset_seconds=None, tick_age_seconds=1.0)
     assert _server_time_hint(fresh, "NY_CLOSE") == "" and _server_time_hint(None, "UTC") == ""
+
+
+def test_forward_diagnostics_report_last_candles_in_utc():
+    from agi_style_forex_bot_mt5.forward_diagnostics.runtime_data_quality import _last_candle_timestamp
+
+    wall = datetime(2026, 7, 15, 15, 0, tzinfo=timezone.utc)  # server wall for 12:00 UTC in summer
+    raw = [{"time": int(wall.timestamp())}]
+    assert _last_candle_timestamp(raw, "NY_CLOSE") == "2026-07-15T12:00:00+00:00"
+    assert _last_candle_timestamp(raw) == "2026-07-15T15:00:00+00:00"

@@ -73,11 +73,22 @@ def test_instrument_registry_exit_codes(monkeypatch, tmp_path, capsys):
     assert _last_json(capsys)["status"] == "OUTPUT_EXISTS"
 
 
-def test_invalid_config_exits_two_without_running_the_mode(tmp_path, capsys):
+import pytest
+
+
+@pytest.mark.parametrize("content", ("DEMO_ONLY=False\n", "MT5_SERVER_TIME=UTC\nMT5_SERVER_TIME=NY_CLOSE\n",
+                                     "MT5_SERVER_TIME\n", "PROFILE_CONFIG=50%\n", "MT5_SERVER_TIME=AUTO\n"))
+def test_invalid_config_exits_two_without_running_the_mode(tmp_path, capsys, content):
     config = tmp_path / "bot.ini"
-    config.write_text("DEMO_ONLY=False\n", encoding="utf-8")
+    config.write_text(content, encoding="utf-8")
     assert cli.main(["--mode", "core-invariants", "--config", str(config)]) == cli.EXIT_INVALID_ARGUMENTS
     assert _last_json(capsys)["status"] == "CONFIG_INVALID"
+
+
+def test_a_mistyped_config_path_is_rejected_not_replaced_by_defaults(tmp_path, capsys):
+    missing = tmp_path / "typo-bot.ini"
+    assert cli.main(["--mode", "core-invariants", "--config", str(missing)]) == cli.EXIT_INVALID_ARGUMENTS
+    assert "typo-bot.ini" in _last_json(capsys)["reason"]
 
 
 def test_stop_shadow_records_a_request_that_resume_clears(tmp_path, capsys):
@@ -108,7 +119,55 @@ def test_paper_state_report_names_the_permanent_latch(tmp_path, capsys):
     assert cli.main(["--mode", "paper-state-report", "--sqlite", sqlite, "--output-dir", str(tmp_path / "report")]) == 0
     summary = _last_json(capsys)
     assert summary["halt_reason"] == "PAPER_LIFECYCLE_HALTED"
+    assert summary["lifecycle_halt_reason"] == "ACCOUNT_REAL_DETECTED_READ_ONLY"
     assert "new --sqlite" in summary["recommended_action"]
+
+
+def test_paper_state_report_does_not_call_an_open_cycle_a_latch(tmp_path, capsys):
+    sqlite = str(tmp_path / "f.sqlite3")
+    database = TelemetryDatabase(sqlite)
+    try:
+        database.update_operational_state({"paper_cycle_in_progress": "cycle-7"})
+    finally:
+        database.close()
+    assert cli.main(["--mode", "paper-state-report", "--sqlite", sqlite, "--output-dir", str(tmp_path / "report")]) == 0
+    summary = _last_json(capsys)
+    assert summary["halt_reason"] == "PAPER_CYCLE_IN_PROGRESS" and summary["lifecycle_halt_reason"] == ""
+    assert "Permanent latch" not in summary["recommended_action"]
+
+
+def test_operational_state_read_modify_write_holds_the_write_lock(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "f.sqlite3"
+    run, operator = TelemetryDatabase(path), TelemetryDatabase(path)
+    blocked = []
+    original = run.get_operational_state
+
+    def read_then_interleave():
+        state = original()
+        # Another process tries to write between this read and its write.
+        other = sqlite3.connect(path, timeout=0.05)
+        try:
+            other.execute("UPDATE operational_state SET payload_json = payload_json WHERE state_key = 'runtime'")
+            other.commit()
+        except sqlite3.OperationalError:
+            blocked.append(True)
+        finally:
+            other.close()
+        return state
+
+    try:
+        operator.update_operational_state({"forward_shadow_stop_requested": "2026-10-10T00:00:00+00:00"})
+        run.get_operational_state = read_then_interleave
+        run.update_operational_state({"paper_cycle_in_progress": "cycle-1"})
+        run.get_operational_state = original
+        assert blocked == [True]
+        state = operator.get_operational_state()
+        assert state["forward_shadow_stop_requested"] and state["paper_cycle_in_progress"] == "cycle-1"
+    finally:
+        run.close()
+        operator.close()
 
 
 def test_operator_scripts_match_the_exit_code_contract():

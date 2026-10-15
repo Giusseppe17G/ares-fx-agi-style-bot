@@ -33,13 +33,19 @@ function Write-WatchdogLog {
     $line | Tee-Object -FilePath $watchdogLog -Append
 }
 
+$sqliteParent = Split-Path $SqlitePath -Parent
+if (-not $sqliteParent) { $sqliteParent = "." }
+New-Item -ItemType Directory -Force -Path $sqliteParent | Out-Null
+$sqliteFull = Join-Path (Resolve-Path -LiteralPath $sqliteParent).Path (Split-Path $SqlitePath -Leaf)
+
 function Get-RunningForwardShadowProcess {
     Get-CimInstance Win32_Process |
         Where-Object {
             $_.CommandLine -and
             $_.CommandLine -match "agi_style_forex_bot_mt5\.cli" -and
             $_.CommandLine -match "--mode\s+forward-shadow" -and
-            $_.CommandLine.Contains($SqlitePath)
+            ($_.CommandLine.IndexOf($SqlitePath, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+             $_.CommandLine.IndexOf($sqliteFull, [StringComparison]::OrdinalIgnoreCase) -ge 0)
         }
 }
 
@@ -79,7 +85,9 @@ try {
             $exitCode = $LASTEXITCODE
             Write-WatchdogLog "forward-shadow exited with code $exitCode"
         } catch {
+            # The run never started (for example a missing .venv): relaunching cannot fix it.
             Write-WatchdogLog "forward-shadow launch failed: $($_.Exception.Message)"
+            $exitCode = 2
         }
         if ($exitCode -in @(0, 2, 4, 5)) {
             Write-WatchdogLog "WATCHDOG_STOPPED: exit code $exitCode (0 stopped on request; 2, 4, 5 need the operator, see docs/GUIA_DE_USO.md); not relaunching."

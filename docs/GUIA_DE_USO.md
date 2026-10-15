@@ -79,8 +79,12 @@ Sin archivo de configuracion se usan los valores seguros de
 `config/defaults.example.ini`. Para cambiar algo crea un archivo **fuera del
 repositorio** con solo las lineas que cambias; el resto conserva su valor por
 defecto. Escribe las claves exactamente como en `config/defaults.example.ini`:
-una clave mal escrita se ignora sin aviso. Los limites solo pueden ser iguales o
-mas estrictos que los de por defecto.
+una clave mal escrita se ignora sin aviso, y una clave repetida o una linea sin
+`=` termina con codigo 2. Los limites de riesgo por operacion y abierto, los
+drawdowns diario y flotante, las operaciones abiertas y la edad de ticks y
+senales solo pueden ser iguales o mas estrictos que los de por defecto (otro
+valor termina con codigo 2). `MAX_SPREAD_POINTS_DEFAULT` y
+`MAX_PAPER_TRADES_PER_DAY` no tienen tope en Python: no los aumentes.
 
 **Hora del servidor del broker (importante).** MetaTrader 5 entrega la hora de
 los ticks y las barras en la hora del servidor del broker. Muchos brokers usan
@@ -96,15 +100,19 @@ Valores de `MT5_SERVER_TIME`:
   semanas en marzo y en octubre/noviembre.
 - `UTC+02:00`, `UTC+03:00`, etc.: una hora fija sin cambio de verano.
 
-La seccion 4 te dice cual necesitas. Por ejemplo:
+La seccion 4 te dice cual necesitas. Crea el archivo antes de usar `--config`
+(si tu broker usa UTC basta con `MT5_SERVER_TIME=UTC`): una ruta de `--config`
+que no existe termina con codigo 2. Por ejemplo:
 
 ```powershell
 New-Item -ItemType Directory -Force C:\ares-config | Out-Null
 Set-Content -Path C:\ares-config\bot.ini -Value "MT5_SERVER_TIME=NY_CLOSE" -Encoding ASCII
 ```
 
-- Los simbolos no se configuran en ese archivo: se eligen con `--symbols` (o
-  `-Symbols` en los scripts; por defecto `EURUSD,GBPUSD,USDJPY`).
+- Los simbolos no se configuran en ese archivo: se eligen con `--symbols` o con
+  `-Symbols` en los scripts. Los scripts usan por defecto `EURUSD,GBPUSD,USDJPY`;
+  la CLI sin `--symbols` usa ocho pares (EURUSD, GBPUSD, USDJPY, USDCAD, USDCHF,
+  AUDUSD, EURJPY, NZDUSD).
 - Telegram (opcional): define las variables de entorno en la consola y anade
   `--telegram` (o `-Telegram` en los scripts). No las escribas en ningun archivo
   del repositorio; un archivo `.env` no se lee.
@@ -155,8 +163,12 @@ instalado); el motivo queda en `data\logs`.
   encima del limite baja su puntuacion de calidad.
 - Con el mercado cerrado o el terminal desconectado registra
   `PAPER_CYCLE_SKIPPED` con el motivo, no toca el libro y reintenta con espera
-  creciente (hasta 5 minutos). Telegram avisa al empezar cada racha y cuando
-  cambia el motivo, y `PAPER_CYCLE_RESUMED` cuando vuelve a completar ciclos.
+  creciente (hasta 5 minutos). Telegram avisa, con el motivo (`reject_code`), al
+  empezar cada racha y cuando cambia el motivo, y con `PAPER_CYCLE_RESUMED`
+  cuando vuelve a completar ciclos. Tambien avisa al arrancar y al parar.
+- Si un simbolo deja de pasar la comprobacion de integridad mientras los demas
+  siguen, se excluye en cada ciclo y Telegram avisa una vez
+  (`QUOTE_INTEGRITY_REJECTED`) hasta que vuelva a cotizar con normalidad.
 - **Codigo 5:** las cotizaciones no pasaron la comprobacion de integridad (casi
   siempre `MT5_SERVER_TIME` o el reloj del PC). No se modifico nada: corrige y
   vuelve a lanzarlo sobre la misma base. El motivo por simbolo esta en el evento
@@ -164,7 +176,8 @@ instalado); el motivo queda en `data\logs`.
 - **Codigo 4:** el ciclo de papel quedo bloqueado (por ejemplo una cuenta real,
   un fallo de almacenamiento o un proceso matado a mitad de ciclo). El bloqueo
   es **permanente en esa base**: ni `resume-shadow` ni reiniciar lo quitan.
-  Consulta `halt_reason` con `paper-state-report` (seccion 6), conserva esa base
+  El motivo esta en `lifecycle_halt_reason` de `paper-state-report` (seccion 6)
+  y en `halt_reason` de `.\scripts\status.ps1`. Conserva esa base
   y `data\logs\forward-shadow` como evidencia y continua con otra base:
   `.\scripts\run_forward_shadow.ps1 -Config C:\ares-config\bot.ini -SqlitePath data\sqlite\forward-shadow-2.sqlite3 -LogDir data\logs\forward-shadow-2`.
   Usa esas mismas rutas en los comandos de seguimiento y parada.
@@ -175,10 +188,13 @@ instalado); el motivo queda en `data\logs`.
 Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File .\scripts\watchdog_forward_shadow.ps1 -Config C:\ares-config\bot.ini -Telegram'
 ```
 
-  El watchdog relanza el bot si se cae (codigo 1) o pierde MT5 (codigo 3), y se
-  detiene sin relanzar tras una parada pedida (0), argumentos o configuracion
-  invalidos (2), un bloqueo (4) o un fallo de integridad (5). Su registro esta en
-  `data\logs\watchdog`. Las variables de Telegram de la consola se heredan.
+  El watchdog relanza el bot con cualquier codigo distinto de 0, 2, 4 y 5 (por
+  ejemplo 1 si se cae); sin `-MaxCycles` el bot no sale al perder MT5, reintenta
+  solo. Se detiene sin relanzar tras una parada pedida (0), argumentos o
+  configuracion invalidos o un arranque imposible, como falta de `.venv` o del
+  archivo de `-Config` (2), un bloqueo (4) o un fallo de integridad (5). Su
+  registro esta en `data\logs\watchdog`. Las variables de Telegram de la consola
+  se heredan.
 
 ## 6. Seguimiento
 
@@ -190,20 +206,25 @@ Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File
 ```
 
 - `status`, `health` y `paper-state-report` no modifican la base
-  (`paper-state-report` escribe su informe en `data\reports\paper_state`).
+  (`paper-state-report` escribe su informe en `data\reports\paper_state`). Si
+  `paper-state-report` dice `PAPER_CYCLE_IN_PROGRESS` con el bot en marcha, es un
+  ciclo en curso: repitelo. `PAPER_LIFECYCLE_HALTED` es el bloqueo del codigo 4.
   `daily-summary` si escribe: guarda el resumen en la base y deja
   `data\reports\backtests\<fecha>-summary.json` y `.html`.
 - Si la ruta de `--sqlite` es incorrecta, estos comandos crean una base vacia y
   terminan con codigo 0: revisa la ruta.
 - `forward-acceptance` es la puerta del perfil `BALANCED_STABLE`; en esta
-  observacion generica siempre responde `PAUSE_FORWARD_SHADOW` ("Stable gate is
-  missing."). No indica un fallo: no la uses para decidir pararla.
+  observacion generica responde `PAUSE_FORWARD_SHADOW`, normalmente con "Stable
+  gate is missing.", que no indica un fallo. Si el motivo es otro (recuperacion
+  del estado de papel, drawdown diario o telemetria), revisalo con
+  `paper-state-report` antes de seguir.
 
 ## 7. Parar y reanudar
 
-- En la consola donde corre: `Ctrl+C` **una vez**. Termina el ciclo en curso y
-  se detiene (codigo 0). Un segundo `Ctrl+C` lo aborta a mitad de ciclo, y eso
-  puede bloquear la base (codigo 4).
+- En la consola donde corre: `Ctrl+C` **una vez**. Termina el ciclo en curso, se
+  detiene (`"exit_reason": "STOP_REQUESTED"`, codigo 0) y muestra su resultado.
+  Un segundo `Ctrl+C` lo aborta a mitad de ciclo, y eso puede bloquear la base
+  (codigo 4 al volver a lanzarlo).
 - Desde otra consola (detiene tambien el watchdog):
 
 ```powershell
@@ -212,9 +233,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop_forward_shado
 
   Pide la parada, espera a que termine el ciclo en curso (hasta 180 s) y
   confirma "stopped cleanly". Las posiciones de papel abiertas se conservan. Si
+  no encuentra nada en marcha sobre esa base lo dice y termina con codigo 1. Si
   no termina a tiempo, la peticion queda pendiente: vuelve a ejecutarlo mas
   tarde. `-Force` mata el proceso, y solo debe usarse como ultimo recurso.
-  Con otra base, anade `-SqlitePath ...`.
+  Con otra base, anade `-SqlitePath ...` (cualquier forma de escribir la misma
+  ruta sirve).
 - Para reanudar, lanza el mismo comando de la seccion 5. Solo si pausaste a mano
   con `--mode pause-shadow` hace falta antes
   `--mode resume-shadow --sqlite data\sqlite\forward-shadow.sqlite3 --reason "reanudacion revisada"`.
@@ -224,8 +247,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop_forward_shado
 El protocolo `docs/testing/next-evidence-protocol.md` necesita datos nuevos de
 tu broker demo, sin identificadores personales:
 
-1. Barras historicas en CSV (solo lectura). Usa la misma `--config`: las horas
-   se guardan en UTC segun `MT5_SERVER_TIME`.
+1. Barras historicas en CSV (solo lectura). Usa la misma `--config` (debe
+   existir; si no, codigo 2): las horas se guardan en UTC segun
+   `MT5_SERVER_TIME`.
 
 ```powershell
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode export-history --symbols EURUSD,GBPUSD,USDJPY --timeframes M5,M15,H1 --bars 50000 --output-dir data\historical --config C:\ares-config\bot.ini
@@ -270,7 +294,7 @@ Strategy Tester, sin cuenta. Detalle en `docs/testing/native-math-harness.md`.
 | --- | --- |
 | 0 | Completado (o forward-shadow parado a peticion); el JSON de salida tiene el detalle. |
 | 1 | Error no controlado; la traza indica la causa. |
-| 2 | Argumentos o configuracion invalidos (por ejemplo `DEMO_ONLY=False`), destino del snapshot ya existente o forward-shadow ya en marcha sobre esa base. |
+| 2 | Argumentos o configuracion invalidos (por ejemplo `DEMO_ONLY=False`, una clave repetida o una ruta de `--config` que no existe), destino del snapshot ya existente, forward-shadow ya en marcha sobre esa base o, en los scripts, falta de `.venv`. |
 | 3 | MT5 no disponible (paquete ausente, terminal cerrado o sin sesion) en `mt5-data`, `mt5-diagnose`, `export-history` y `build-instrument-registry`, o en `forward-shadow` con `-MaxCycles` sin ningun ciclo completado (sin `-MaxCycles` reintenta indefinidamente). |
 | 4 | forward-shadow: ciclo de papel bloqueado de forma permanente en esa base (seccion 5). |
 | 5 | forward-shadow: cotizaciones de MT5 sin integridad (`MT5_SERVER_TIME` o reloj del PC); nada se modifico. |
