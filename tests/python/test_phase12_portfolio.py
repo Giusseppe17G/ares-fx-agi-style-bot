@@ -37,12 +37,13 @@ def test_currency_exposure_buy_sell_and_usd_accumulation() -> None:
 
 
 def test_correlation_matrix_detects_high_correlation(tmp_path: Path) -> None:
-    base = pd.DataFrame({"time": range(6), "close": [1, 2, 3, 4, 5, 6]})
-    twin = pd.DataFrame({"time": range(6), "close": [2, 4, 6, 8, 10, 12]})
+    # Enough shared bars for the minimum aligned-return sample.
+    base = pd.DataFrame({"time": range(40), "close": [1 + index for index in range(40)]})
+    twin = pd.DataFrame({"time": range(40), "close": [2 + 2 * index for index in range(40)]})
     base.to_csv(tmp_path / "EURUSD_M5.csv", index=False)
     twin.to_csv(tmp_path / "GBPUSD_M5.csv", index=False)
 
-    report = compute_correlation_matrix(tmp_path, window=6)
+    report = compute_correlation_matrix(tmp_path, window=40)
 
     assert report["highly_correlated_pairs"]
     assert report["execution_attempted"] is False

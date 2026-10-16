@@ -1152,6 +1152,18 @@ y falsea drawdown y rachas. Tampoco se atribuye un calendario observado a ella.
   de mejores trades usa posiciones de la secuencia, no identidad de objetos.
   Las clasificaciones legacy de costes y concentracion quedan acotadas al
   diagnostico; no sustituyen el Strategy Promotion Gate.
+- Stress de costes multiplica por k el round trip completo de cada trade en sus
+  propias unidades: spread registrado mas un suelo aditivo de 10 puntos
+  (`STRESS_SPREAD_FLOOR_POINTS`), slippage en ambos lados y comision. Un spread
+  registrado de cero sigue estresado. El escenario `spread_multiplier` pasa a
+  `cost_multiplier`, y `cost_sensitivity` reporta `*_cost_x2` y
+  `break_even_cost_multiplier`; sin costes por trade validos es
+  `NEEDS_MORE_ROBUSTNESS_DATA` con fragilidad 100. Reportes previos subestiman
+  costes y deben reevaluarse antes de usarse como evidencia.
+- La matriz de correlacion alinea retornos por timestamp (inner join) y no por
+  posicion de fila. Con menos de 30 retornos alineados, sin timestamps o con
+  varianza nula la correlacion es null, el par figura en
+  `insufficient_overlap_pairs` y la clasificacion no es `OK`.
 - Reportes v2 conservan entradas normalizadas y hashes de datos/configuracion,
   RunManifest, commit, fuentes, runtime y seed. Configuracion identifica capital,
   umbral y supuestos de costes. Procedencia upstream permanece UNKNOWN salvo

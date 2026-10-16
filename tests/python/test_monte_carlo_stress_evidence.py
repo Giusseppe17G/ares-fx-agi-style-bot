@@ -194,9 +194,9 @@ def test_stress_cost_units_and_round_trip_are_not_double_counted():
     trade = replace(_trade(100), lot=0.2, spread_points=10, slippage_points=1,
         point=0.00001, tick_size=0.00005, tick_value=2, r_multiple=2)
     result = StressTester().spread_slippage_sensitivity([trade], spread_multipliers=(2,), extra_slippage_points=(3,))[0]
-    # Additional10 spreadpoints once +3 slip eachside =>16points*point/tick*value*lot=1.28.
-    assert result.metrics.net_profit == pytest.approx(98.72)
-    assert result.metrics.average_r == pytest.approx(98.72 / 50)
+    # Additional (10 spread + 10 floor) points once +3 slip eachside =>26points*point/tick*value*lot=2.08.
+    assert result.metrics.net_profit == pytest.approx(97.92)
+    assert result.metrics.average_r == pytest.approx(97.92 / 50)
 
 
 @pytest.mark.parametrize("invalid", [True, float("nan"), float("inf"), -1])

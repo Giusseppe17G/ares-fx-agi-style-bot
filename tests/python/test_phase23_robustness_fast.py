@@ -156,7 +156,10 @@ def _robust_trades(count: int) -> pd.DataFrame:
 
 def _fragile_cost_trades() -> pd.DataFrame:
     rows = [_trade_row(index, 0.06 if index % 2 == 0 else -0.03) for index in range(120)]
-    return pd.DataFrame(rows)
+    # Cost stress needs each trade's real costs: 1 lot, 1 USD per point, 1R = 100 USD.
+    costs = {"lot": 1.0, "point": 0.00001, "tick_size": 0.00001, "tick_value": 1.0,
+        "spread_points": 2.0, "slippage_points": 1.0, "commission": 7.0}
+    return pd.DataFrame([{**row, **costs} for row in rows])
 
 
 def _fragile_top_heavy_trades() -> pd.DataFrame:
