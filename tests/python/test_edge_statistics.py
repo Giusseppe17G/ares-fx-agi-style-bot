@@ -89,3 +89,23 @@ def test_spa_rejects_a_real_edge_but_not_noise_or_losers():
 def test_holm_controls_the_family():
     assert holm_adjusted([0.01, 0.04, 0.03, 0.2]) == pytest.approx([0.04, 0.09, 0.09, 0.2])
     assert holm_adjusted([]) == []
+
+
+def test_newey_west_t_stat_matches_iid_and_shrinks_under_autocorrelation():
+    from agi_style_forex_bot_mt5.research.edge_statistics import newey_west_t_stat
+
+    rng = np.random.default_rng(21)
+    iid = rng.normal(0.001, 0.01, 5000)
+    naive = iid.mean() / (iid.std(ddof=1) / np.sqrt(iid.size))
+    assert newey_west_t_stat(iid, lags=0) == pytest.approx(naive, rel=1e-3)
+    assert newey_west_t_stat(iid) == pytest.approx(naive, rel=0.1)
+    noise = rng.normal(0.0, 0.01, 5000)
+    persistent = np.empty_like(noise)
+    persistent[0] = noise[0]
+    for index in range(1, noise.size):
+        persistent[index] = 0.8 * persistent[index - 1] + noise[index]
+    persistent += 0.0005
+    plain = persistent.mean() / (persistent.std(ddof=1) / np.sqrt(persistent.size))
+    assert abs(newey_west_t_stat(persistent)) < abs(plain)
+    with pytest.raises(ValueError):
+        newey_west_t_stat(iid, lags=5000)

@@ -18,6 +18,9 @@ a name says annualised; annualise with ``annualised_sharpe``.
   68(5), 2000; Politis & Romano, JASA 89(428), 1994.
 - Holm step-down adjustment for multiple hypotheses: Holm, Scandinavian
   Journal of Statistics 6(2), 1979.
+- t-statistic of the mean with the Newey-West (Bartlett kernel) long-run
+  variance: Newey & West, Econometrica 55(3), 1987; automatic lag
+  floor(4 (n/100)^(2/9)).
 
 Nothing here builds, checks or sends an order.
 """
@@ -276,3 +279,22 @@ def holm_adjusted(p_values: Sequence[float]) -> list[float]:
         running = max(running, min(1.0, (values.size - rank) * values[index]))
         adjusted[index] = running
     return adjusted.tolist()
+
+
+def newey_west_t_stat(returns: Sequence[float] | np.ndarray, lags: int | None = None) -> float:
+    """t-statistic of the mean return robust to autocorrelation and heteroskedasticity."""
+
+    values = _clean(returns)
+    count = values.size
+    if lags is None:
+        lags = int(math.floor(4.0 * (count / 100.0) ** (2.0 / 9.0)))
+    if lags < 0 or lags >= count:
+        raise ValueError("lags must be in [0, observations)")
+    centred = values - values.mean()
+    variance = float(np.dot(centred, centred)) / count
+    for lag in range(1, lags + 1):
+        weight = 1.0 - lag / (lags + 1.0)
+        variance += 2.0 * weight * float(np.dot(centred[lag:], centred[:-lag])) / count
+    if variance <= 0.0:
+        raise ValueError("returns have no long-run variance")
+    return float(values.mean()) / math.sqrt(variance / count)
