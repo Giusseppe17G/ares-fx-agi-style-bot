@@ -199,11 +199,14 @@ def load_config(path: str | Path | None = None) -> BotConfig:
     # utf-8-sig: a BOM written by Windows editors must not hide the first key.
     raw = "[DEFAULT]\n" + config_path.read_text(encoding="utf-8-sig")
     try:
-        parser = ConfigParser()
+        parser = ConfigParser(delimiters=("=",))
         parser.read_string(raw)
         values = {key.upper(): _coerce(value) for key, value in parser["DEFAULT"].items()}
     except ConfigParserError as exc:
         raise ValueError(f"invalid configuration file {config_path}: {exc}") from exc
+    if parser.sections():
+        # Keys under a [section] would be silently ignored.
+        raise ValueError(f"invalid configuration file {config_path}: section headers are not allowed")
     allowed = str(values.get("ALLOWED_ACCOUNT_LOGINS", "")).strip()
     allowed_logins = tuple(
         int(item.strip()) for item in allowed.split(",") if item.strip().isdigit()

@@ -533,7 +533,7 @@ class ForwardShadowBot:
         self._integrity_notified = {symbol for symbol in self._integrity_notified if symbol not in quotes}
         for symbol in integrity:
             if symbol not in self._integrity_notified:
-                self._audit("QUOTE_INTEGRITY_REJECTED", Severity.WARNING, {"event_id": event_id,
+                self._audit("QUOTE_INTEGRITY_REJECTED", Severity.WARNING, {"event_id": event_id, "symbol": symbol,
                     **self.cycle_quote_rejections[symbol], "mt5_server_time": self.config.mt5_server_time,
                     "execution_attempted": False}, symbol=symbol, notify=True)
                 self._integrity_notified.add(symbol)

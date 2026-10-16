@@ -84,8 +84,10 @@ relaunched latched runs forever.
   than 0 (deliberate stop), 2, 4 and 5, after which it stops; a launch that fails
   before Python runs (missing `.venv` or `-Config`) exits 2 and also stops it. It
   refuses a second instance. Scripts match runs by the resolved SQLite path,
-  case-insensitively, and the run is given that resolved path; the stop script
-  says so when it finds nothing to stop (exit 1).
+  case-insensitively, and the run is given that resolved filesystem path; the
+  watchdog's PID file names the SQLite it supervises, so the stop script only
+  stops the watchdog of its base, and it says so when it finds nothing to stop
+  (exit 1). A missing `.venv` exits 2 in the run, status and stop scripts.
   `run_forward_shadow.ps1` refuses a second run on the same SQLite, forwards
   `-Config` and `-Telegram`, rejects unknown or positional arguments (`[CmdletBinding(PositionalBinding = $false)]`) and
   no longer lets a Python warning on stderr abort the wrapper in Windows
@@ -97,8 +99,9 @@ relaunched latched runs forever.
   startup preflight and exits 0. Configuration files and the broker symbol map
   are read as `utf-8-sig`, so a BOM no longer hides the first key or breaks the
   map. An explicit `--config` that does not exist, a repeated key, a line
-  without `=` or a bad `%` are rejected (exit 2) instead of running on defaults
-  or failing with a traceback. `paper-state-report` reports
+  without `=` (only `=` separates key and value), a `[section]` header, which
+  would hide the keys under it, or a bad `%` are rejected (exit 2) instead of
+  running on defaults or failing with a traceback. `paper-state-report` reports
   `PAPER_LIFECYCLE_HALTED` ahead of the pause the latch also sets, with its cause
   in `lifecycle_halt_reason`, and `PAPER_CYCLE_IN_PROGRESS` for an open cycle,
   which is normal while a run is live.

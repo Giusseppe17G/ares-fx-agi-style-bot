@@ -314,3 +314,27 @@ def test_second_ctrl_c_aborts(review_case, tmp_path, monkeypatch):
     finally:
         restore()
         database.close()
+
+
+def test_two_symbols_with_the_same_integrity_rejection_each_get_their_notice(review_case, tmp_path, monkeypatch):
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    bot, database, client, _ = forward_bot(review_case, tmp_path, monkeypatch,
+                                           symbols=("EURUSD", "GBPUSD", "USDJPY"), cycles=1)
+    bot.telegram_notifier, sent = _telegram(database)
+    original = client.symbol_info_tick
+
+    def crossed(symbol):
+        tick = original(symbol)
+        if symbol == "EURUSD":
+            return tick
+        return SimpleNamespace(bid=tick.ask, ask=tick.bid, time=tick.time, time_msc=tick.time_msc)
+
+    client.symbol_info_tick = crossed
+    try:
+        assert bot.run().cycles_completed == 1
+        rows = _events(database, "QUOTE_INTEGRITY_REJECTED")
+        assert sorted(row["symbol"] for row in rows) == ["GBPUSD", "USDJPY"]
+        outbox = database.fetch_all("telegram_outbox")
+        assert sum("QUOTE_INTEGRITY_REJECTED" in row["message_redacted"] for row in outbox) == 2
+    finally:
+        database.close()

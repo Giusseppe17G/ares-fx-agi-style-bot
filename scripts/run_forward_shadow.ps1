@@ -36,7 +36,7 @@ New-Item -ItemType Directory -Force -Path $sqliteParent | Out-Null
 
 # One run per SQLite: two writers on the same paper book are refused. Python
 # gets the resolved path, so any spelling of the same file is recognised.
-$sqliteFull = Join-Path (Resolve-Path -LiteralPath $sqliteParent).Path (Split-Path $SqlitePath -Leaf)
+$sqliteFull = Join-Path (Resolve-Path -LiteralPath $sqliteParent).ProviderPath (Split-Path $SqlitePath -Leaf)
 $existing = @(Get-CimInstance Win32_Process | Where-Object {
     $_.CommandLine -and $_.CommandLine -match 'agi_style_forex_bot_mt5\.cli' -and
     $_.CommandLine -match '--mode\s+forward-shadow' -and

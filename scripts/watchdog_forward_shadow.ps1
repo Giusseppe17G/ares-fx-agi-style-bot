@@ -36,7 +36,7 @@ function Write-WatchdogLog {
 $sqliteParent = Split-Path $SqlitePath -Parent
 if (-not $sqliteParent) { $sqliteParent = "." }
 New-Item -ItemType Directory -Force -Path $sqliteParent | Out-Null
-$sqliteFull = Join-Path (Resolve-Path -LiteralPath $sqliteParent).Path (Split-Path $SqlitePath -Leaf)
+$sqliteFull = Join-Path (Resolve-Path -LiteralPath $sqliteParent).ProviderPath (Split-Path $SqlitePath -Leaf)
 
 function Get-RunningForwardShadowProcess {
     Get-CimInstance Win32_Process |
@@ -58,7 +58,9 @@ if (Test-Path -LiteralPath $pidFile) {
     }
 }
 Remove-Item -LiteralPath $stopFile -ErrorAction SilentlyContinue
-Set-Content -LiteralPath $pidFile -Value $PID -Encoding ascii
+# Second line: the SQLite this watchdog supervises, so the stop script only
+# stops the watchdog of the base it was given.
+Set-Content -LiteralPath $pidFile -Value @("$PID", $sqliteFull) -Encoding utf8
 
 $runArgs = @{ Symbols = $Symbols; CycleSeconds = $CycleSeconds; SqlitePath = $SqlitePath; LogDir = $LogDir }
 if ($Config) { $runArgs.Config = $Config }

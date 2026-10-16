@@ -1092,8 +1092,8 @@ persiste y valora el libro. No obtiene cotizaciones faltantes por su cuenta.
   deja `correlation=None` (`CORRELATION_UNVERIFIED`). Nada se rellena por defecto.
 - Codigos de salida: 2 configuracion o argumentos invalidos (incluida una
   configuracion rechazada por `load_config`: valor invalido, clave repetida,
-  linea sin `=` o ruta explicita inexistente; y un destino de snapshot
-  existente);
+  linea sin `=`, cabecera `[seccion]` o ruta explicita inexistente; y un destino
+  de snapshot existente);
   `forward-shadow` devuelve 4 con lifecycle bloqueado, 5 tras una parada por
   integridad y 3 sin MT5 conectado ni ciclos completados (salvo `--max-cycles 0`,
   que es una comprobacion de arranque y devuelve 0); `mt5-data`, `mt5-diagnose`,

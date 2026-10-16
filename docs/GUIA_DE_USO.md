@@ -79,8 +79,8 @@ Sin archivo de configuracion se usan los valores seguros de
 `config/defaults.example.ini`. Para cambiar algo crea un archivo **fuera del
 repositorio** con solo las lineas que cambias; el resto conserva su valor por
 defecto. Escribe las claves exactamente como en `config/defaults.example.ini`:
-una clave mal escrita se ignora sin aviso, y una clave repetida o una linea sin
-`=` termina con codigo 2. Los limites de riesgo por operacion y abierto, los
+una clave mal escrita se ignora sin aviso, y una clave repetida, una linea sin
+`=` o una cabecera de seccion como `[bot]` termina con codigo 2. Los limites de riesgo por operacion y abierto, los
 drawdowns diario y flotante, las operaciones abiertas y la edad de ticks y
 senales solo pueden ser iguales o mas estrictos que los de por defecto (otro
 valor termina con codigo 2). `MAX_SPREAD_POINTS_DEFAULT` y
@@ -214,10 +214,12 @@ Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File
 - Si la ruta de `--sqlite` es incorrecta, estos comandos crean una base vacia y
   terminan con codigo 0: revisa la ruta.
 - `forward-acceptance` es la puerta del perfil `BALANCED_STABLE`; en esta
-  observacion generica responde `PAUSE_FORWARD_SHADOW`, normalmente con "Stable
-  gate is missing.", que no indica un fallo. Si el motivo es otro (recuperacion
-  del estado de papel, drawdown diario o telemetria), revisalo con
-  `paper-state-report` antes de seguir.
+  observacion generica responde normalmente `PAUSE_FORWARD_SHADOW` con "Stable
+  gate is missing.", que no indica un fallo. Si `reason` es otro (drawdown
+  diario o recuperacion del estado de papel), revisalo con `paper-state-report`
+  antes de seguir. `NEEDS_TELEMETRY_FIX` o `NEEDS_TELEMETRY_REVIEW` indican
+  marcas de tiempo invalidas: revisalas con `--mode telemetry-status` (mismas
+  `--sqlite` y `--log-dir`).
 
 ## 7. Parar y reanudar
 
@@ -233,7 +235,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop_forward_shado
 
   Pide la parada, espera a que termine el ciclo en curso (hasta 180 s) y
   confirma "stopped cleanly". Las posiciones de papel abiertas se conservan. Si
-  no encuentra nada en marcha sobre esa base lo dice y termina con codigo 1. Si
+  no encuentra ni el bot ni el watchdog de esa base lo dice y termina con codigo
+  1. Si
   no termina a tiempo, la peticion queda pendiente: vuelve a ejecutarlo mas
   tarde. `-Force` mata el proceso, y solo debe usarse como ultimo recurso.
   Con otra base, anade `-SqlitePath ...` (cualquier forma de escribir la misma
@@ -294,7 +297,7 @@ Strategy Tester, sin cuenta. Detalle en `docs/testing/native-math-harness.md`.
 | --- | --- |
 | 0 | Completado (o forward-shadow parado a peticion); el JSON de salida tiene el detalle. |
 | 1 | Error no controlado; la traza indica la causa. |
-| 2 | Argumentos o configuracion invalidos (por ejemplo `DEMO_ONLY=False`, una clave repetida o una ruta de `--config` que no existe), destino del snapshot ya existente, forward-shadow ya en marcha sobre esa base o, en los scripts, falta de `.venv`. |
+| 2 | Argumentos o configuracion invalidos (por ejemplo `DEMO_ONLY=False`, una clave repetida o una ruta de `--config` que no existe), destino del snapshot ya existente, forward-shadow ya en marcha sobre esa base o, en los scripts `run_forward_shadow.ps1` (y el watchdog), `status.ps1` y `stop_forward_shadow.ps1`, falta de `.venv`. |
 | 3 | MT5 no disponible (paquete ausente, terminal cerrado o sin sesion) en `mt5-data`, `mt5-diagnose`, `export-history` y `build-instrument-registry`, o en `forward-shadow` con `-MaxCycles` sin ningun ciclo completado (sin `-MaxCycles` reintenta indefinidamente). |
 | 4 | forward-shadow: ciclo de papel bloqueado de forma permanente en esa base (seccion 5). |
 | 5 | forward-shadow: cotizaciones de MT5 sin integridad (`MT5_SERVER_TIME` o reloj del PC); nada se modifico. |

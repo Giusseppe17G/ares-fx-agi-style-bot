@@ -77,7 +77,8 @@ import pytest
 
 
 @pytest.mark.parametrize("content", ("DEMO_ONLY=False\n", "MT5_SERVER_TIME=UTC\nMT5_SERVER_TIME=NY_CLOSE\n",
-                                     "MT5_SERVER_TIME\n", "PROFILE_CONFIG=50%\n", "MT5_SERVER_TIME=AUTO\n"))
+                                     "MT5_SERVER_TIME\n", "PROFILE_CONFIG=50%\n", "MT5_SERVER_TIME=AUTO\n",
+                                     "MT5_SERVER_TIME: NY_CLOSE\n", "[bot]\nMT5_SERVER_TIME=NY_CLOSE\n"))
 def test_invalid_config_exits_two_without_running_the_mode(tmp_path, capsys, content):
     config = tmp_path / "bot.ini"
     config.write_text(content, encoding="utf-8")
@@ -186,4 +187,8 @@ def test_operator_scripts_match_the_exit_code_contract():
     assert "$exitCode -in @(0, 2, 4, 5)" in watchdog and "forward-shadow-watchdog.stop" in watchdog
     # The stop is cooperative; a kill needs -Force after the timeout.
     assert "--mode stop-shadow" in stop and "if (-not $Force)" in stop
+    # The watchdog PID file names its SQLite; the stop script only stops that watchdog.
+    assert '@("$PID", $sqliteFull)' in watchdog and "$lines[1], $sqliteFull" in stop
+    for text in (run, watchdog, stop):
+        assert ".Path (Split-Path" not in text and "throw \"Virtual environment" not in text
     assert stop.index("if (-not $Force)") < stop.index("Stop-Process")

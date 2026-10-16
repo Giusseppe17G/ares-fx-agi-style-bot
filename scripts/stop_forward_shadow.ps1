@@ -18,12 +18,13 @@ Set-Location $repoRoot
 
 $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
-    throw "Virtual environment not found. Run scripts\windows_setup.ps1 first."
+    Write-Host "Virtual environment not found. Run scripts\windows_setup.ps1 first."
+    exit 2
 }
 if (-not (Test-Path -LiteralPath $SqlitePath -PathType Leaf)) {
     throw "SQLite not found: $SqlitePath. Nothing was stopped."
 }
-$sqliteFull = (Resolve-Path -LiteralPath $SqlitePath).Path
+$sqliteFull = (Resolve-Path -LiteralPath $SqlitePath).ProviderPath
 $runtimeDir = Join-Path $repoRoot "data\runtime"
 $watchdogPidFile = Join-Path $runtimeDir "forward-shadow-watchdog.pid"
 $watchdogStopFile = Join-Path $runtimeDir "forward-shadow-watchdog.stop"
@@ -39,8 +40,13 @@ function Get-ForwardShadowRun {
 
 function Get-Watchdog {
     if (-not (Test-Path -LiteralPath $watchdogPidFile)) { return $null }
-    $watchdogPid = Get-Content -LiteralPath $watchdogPidFile -ErrorAction SilentlyContinue | Select-Object -First 1
+    $lines = @(Get-Content -LiteralPath $watchdogPidFile -ErrorAction SilentlyContinue)
+    $watchdogPid = if ($lines.Count -gt 0) { $lines[0] } else { "" }
     if ($watchdogPid -notmatch '^\d+$') { return $null }
+    # Only the watchdog that supervises this SQLite.
+    if ($lines.Count -lt 2 -or -not [string]::Equals($lines[1], $sqliteFull, [StringComparison]::OrdinalIgnoreCase)) {
+        return $null
+    }
     $process = Get-Process -Id ([int]$watchdogPid) -ErrorAction SilentlyContinue
     if ($process -and $process.ProcessName -in @("powershell", "pwsh")) { return $process }
     return $null
