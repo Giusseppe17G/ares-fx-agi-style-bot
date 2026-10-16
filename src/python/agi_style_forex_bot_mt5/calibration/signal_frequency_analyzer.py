@@ -40,6 +40,7 @@ SPECIFIC_DATA_BLOCKERS = {
     "CSV_DUPLICATE_TIMESTAMPS",
     "CSV_UNSORTED_FIXED",
     "CSV_SPREAD_MISSING_ASSUMED_ZERO",
+    "SPREAD_DATA_MISSING",
     "TIMESTAMP_PARSE_ERROR",
     "TIMEFRAME_PATH_NOT_FOUND",
     "DATA_PARTIAL_BUT_USABLE_FOR_CALIBRATION",
@@ -304,7 +305,7 @@ def _canonical_blocker(
 
 def _csv_error_code(message: str) -> str:
     code = str(message or "").split(":", 1)[0].strip().upper()
-    if code.startswith("CSV_"):
+    if code.startswith("CSV_") or code == "SPREAD_DATA_MISSING":
         return code
     if "timestamp" in message.lower():
         return "CSV_TIMESTAMP_PARSE_ERROR"

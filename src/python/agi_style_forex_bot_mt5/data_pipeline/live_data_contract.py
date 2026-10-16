@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -43,11 +44,16 @@ def normalize_ohlcv_contract(
     timeframe: str,
     min_rows: int | None = None,
     server_time: str = "UTC",
+    measured_spread_points: float | None = None,
 ) -> LiveContractResult:
     """Normalize historical or live MT5 rates to one canonical schema.
 
     ``server_time`` is the declared MT5 trade-server clock of live rates; bar
     times are converted to UTC before any later check (MT5_SERVER_TIME).
+    An absent spread column is missing cost evidence, never zero cost
+    (PROJECT_SPEC 12.3): it fails closed with SPREAD_DATA_MISSING. Only a live
+    caller may supply ``measured_spread_points`` from its own snapshot; a
+    current measurement is never imputed onto historical bars.
     """
 
     columns_before: tuple[str, ...] = ()
@@ -89,8 +95,13 @@ def normalize_ohlcv_contract(
     frame["time"] = frame["timestamp_utc"].dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     contract_warnings: list[str] = []
     if "spread" not in frame.columns:
-        frame["spread"] = 0
-        contract_warnings.append("CSV_SPREAD_MISSING_ASSUMED_ZERO" if source == "historical" else "CSV_SPREAD_MISSING_ASSUMED_ZERO")
+        if source == "historical" or measured_spread_points is None:
+            return LiveContractResult(frame, _diag("SPREAD_DATA_MISSING", source, symbol, timeframe, columns_before=columns_before, columns_after=tuple(frame.columns), missing_columns=["spread"]))
+        measured = _measured_spread(measured_spread_points)
+        if measured is None:
+            return LiveContractResult(frame, _diag("SPREAD_DATA_INVALID", source, symbol, timeframe, columns_before=columns_before, columns_after=tuple(frame.columns), error="measured spread must be finite and non-negative"))
+        frame["spread"] = measured
+        contract_warnings.append("LIVE_SPREAD_FROM_MEASURED_SNAPSHOT")
     if "real_volume" not in frame.columns:
         frame["real_volume"] = 0
     numeric_columns = ["open", "high", "low", "close", "tick_volume", "spread", "real_volume"]
@@ -221,6 +232,14 @@ def _parse_timestamp(series: pd.Series) -> tuple[pd.Series, str]:
     if not pd.api.types.is_datetime64_any_dtype(parsed):
         return parsed, "LIVE_TIMESTAMP_NOT_DATETIME"
     return parsed, "OK"
+
+
+def _measured_spread(value: Any) -> float | None:
+    try:
+        spread = float(value)
+    except (TypeError, ValueError):
+        return None
+    return spread if math.isfinite(spread) and spread >= 0 else None
 
 
 def _coerce_numeric(frame: pd.DataFrame, columns: Iterable[str]) -> str:

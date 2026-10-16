@@ -43,14 +43,16 @@ def test_historical_csv_loader_normalizes_contract(tmp_path: Path) -> None:
 def test_historical_csv_loader_converts_ohlc_strings(tmp_path: Path) -> None:
     path = tmp_path / "EURUSD_M5.csv"
     pd.DataFrame(
-        [{"time": "2026-05-16T12:00:00Z", "open": "1.1", "high": "1.2", "low": "1.0", "close": "1.15", "tick_volume": "100"}]
+        [{"time": "2026-05-16T12:00:00Z", "open": "1.1", "high": "1.2", "low": "1.0", "close": "1.15", "tick_volume": "100", "spread": "8"}]
     ).to_csv(path, index=False)
 
     result = load_historical_csv_contract(path, symbol="EURUSD", timeframe="M5")
 
     assert result.diagnostics["status"] == "OK"
     assert result.frame["open"].dtype.kind in {"f", "i"}
-    assert "CSV_SPREAD_MISSING_ASSUMED_ZERO" in result.diagnostics["warnings"]
+    assert result.frame["spread"].tolist() == [8]
+    # An absent spread is SPREAD_DATA_MISSING, never zero cost: test_spread_fail_closed.py.
+    assert "CSV_SPREAD_MISSING_ASSUMED_ZERO" not in result.diagnostics["warnings"]
 
 
 def test_historical_csv_loader_detects_missing_ohlc(tmp_path: Path) -> None:
