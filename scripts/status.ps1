@@ -9,7 +9,8 @@ Set-Location $repoRoot
 
 $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
-    throw "Virtual environment not found. Run scripts\windows_setup.ps1 first."
+    Write-Host "Virtual environment not found. Run scripts\windows_setup.ps1 first."
+    exit 2
 }
 
 $env:PYTHONPATH = "src/python"

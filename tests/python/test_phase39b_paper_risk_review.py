@@ -335,7 +335,7 @@ def test_forward_shadow_micro_accepts_valid_clearance_without_live_run(tmp_path:
         def run(self):
             return SimpleNamespace(
                 mode="forward-shadow",
-                mt5_connected=False,
+                mt5_connected=True,
                 cycles_completed=0,
                 open_trades=0,
                 paper_trades_opened=0,

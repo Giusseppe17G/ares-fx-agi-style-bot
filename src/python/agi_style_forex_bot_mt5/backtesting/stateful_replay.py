@@ -144,7 +144,8 @@ def run_stateful_replay(
     with closing(TelemetryDatabase(output / "replay.sqlite3")) as database:
         bot = ForwardShadowBot(config=config, symbols=instrument_snapshot.registry.symbols(),
             audit_logger=JsonlAuditLogger(output / "events"), database=database,
-            clock=clock, ml_filter=model_filter, report_dir=str(output / "reports"))
+            clock=clock, ml_filter=model_filter, report_dir=str(output / "reports"),
+            skip_pre_mutation_failures=False)
         bot.run_id = manifest["run_manifest"]["run_id"]
         bot.manager.fill_model = replace(fill_model, clock=clock)
         for record, payload in zip(records, payloads):

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import signal
+import threading
 from dataclasses import asdict, dataclass, is_dataclass, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from hashlib import sha256
-from time import sleep
+from time import perf_counter, sleep
 from typing import Any, Callable, Iterable, Mapping
 from uuid import uuid4
 
@@ -34,11 +36,24 @@ from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabas
 from agi_style_forex_bot_mt5.telegram_command_center import TelegramCommandCenter
 
 from .lifecycle import (PaperAccountObservation, PaperCandidate, PaperCycleInput, PaperCycleRejected,
-    PaperEvidence, PaperCycleAuditError, process_paper_cycle, halt_paper_cycle, validate_evidence, validate_account)
+    PaperEvidence, PaperCycleAuditError, process_paper_cycle, halt_paper_cycle, skip_paper_cycle,
+    skippable_before_mutation, validate_evidence, validate_account)
 from .paper_fill_model import PaperFillModel
 from .paper_pnl_engine import extract_paper_risk_multiplier
 from .paper_position_manager import PaperPositionManager
 from .paper_report import write_forward_shadow_report
+
+
+MAX_SKIP_BACKOFF_SECONDS = 300
+# Floor for the skip backoff of an unbounded run, even with --cycle-seconds 0.
+MIN_SKIP_BACKOFF_SECONDS = 5
+# Pre-mutation quote integrity failure: the run stops without latching (exit 5).
+MARKET_DATA_INTEGRITY_FAILED = "MARKET_DATA_INTEGRITY_FAILED"
+# Operator stop between cycles: Ctrl+C or --mode stop-shadow (paper_state.py).
+STOP_REQUESTED = "STOP_REQUESTED"
+STOP_REQUEST_KEY = "forward_shadow_stop_requested"
+# Skips that may mean the terminal went away: initialize() again next attempt.
+RECONNECT_AFTER_SKIP = frozenset({"MT5_CONNECT_FAILED", "MT5_CONNECTION_UNVERIFIED", "ACCOUNT_INFO_UNAVAILABLE"})
 
 
 @dataclass(frozen=True)
@@ -66,6 +81,8 @@ class ForwardShadowSummary:
     audit_complete: bool = True
     lifecycle_halted: bool = False
     paper_state_available: bool = True
+    cycles_skipped: int = 0
+    skip_reason: str = ""
 
 
 class ForwardShadowBot:
@@ -88,6 +105,7 @@ class ForwardShadowBot:
         clock: Clock | None = None,
         decision_evidence_provider: Callable[..., Mapping[str, Any]] | None = None,
         ml_filter: Any | None = None,
+        skip_pre_mutation_failures: bool = True,
     ) -> None:
         self.config = config or BotConfig()
         self.config.validate_safety()
@@ -108,6 +126,15 @@ class ForwardShadowBot:
         self.paper_cycle_results = []
         self.paper_lifecycle_halted = False
         self.audit_failed = False
+        # Live runs skip closed markets and terminal outages without latching
+        # (lifecycle.SKIPPABLE_BEFORE_MUTATION); explicit replay passes False.
+        self.skip_pre_mutation_failures = skip_pre_mutation_failures is True
+        self.skip_notified_code: str | None = None
+        self.cycle_quote_rejections: dict[str, dict[str, Any]] = {}
+        self._integrity_notified: set[str] = set()
+        self._interrupt_requested = False
+        # Wall clock, not the injected clock: stop requests carry wall time.
+        self._started_wall = datetime.now(timezone.utc)
         self.manager = PaperPositionManager(database=database, fill_model=PaperFillModel(max_spread_points=self.config.max_spread_points_default, clock=self.clock, max_tick_age_seconds=self.config.max_market_snapshot_age_seconds), profile_config=self.config.profile_config or None)
         self.heartbeat = HeartbeatWriter(database)
         self.alerts = AlertRuleEngine(database)
@@ -126,33 +153,93 @@ class ForwardShadowBot:
 
     def run(self) -> ForwardShadowSummary:
         opened = closed = cycles = alerts_emitted = commands_processed = 0
+        attempts = skipped = consecutive_skips = 0
+        skip_reason = stop_reason = ""
         heartbeat_written = connected = False
         event_id = "startup"
+        restore_sigint = self._install_sigint_handler()
         try:
             self._audit("FORWARD_SHADOW_STARTED", Severity.INFO, {"execution_attempted": False}, notify=True)
+            self._clear_stale_stop_request()
             recovery = self.recovery_manager.recover()
             if recovery.get("status") != "OK":
                 raise PaperCycleRejected("RECOVERY_FAILED", "startup recovery failed")
-            if not self._connect():
-                raise PaperCycleRejected("MT5_CONNECT_FAILED", "read-only connection failed")
             if self.config.signal_profile == "BALANCED_STABLE_MICRO":
                 multiplier = extract_paper_risk_multiplier(self.config.profile_config or None)
                 if multiplier is None:
                     raise PaperCycleRejected("PAPER_PNL_SCALING_CONFIG_MISSING", "micro sizing multiplier is unavailable")
                 self._audit("PAPER_PNL_SCALING_ACTIVE", Severity.INFO, {"paper_risk_multiplier": multiplier,
                     "pnl_formula_version": "paper_pnl_approved_lot_v1", "execution_attempted": False}, notify=True)
-            while self.max_cycles is None or cycles < self.max_cycles:
-                event_id = f"cycle-{cycles+1}"
+            while self.max_cycles is None or attempts < self.max_cycles:
+                # Stop requests are honoured only between cycles, never inside one.
+                stop_reason = self._stop_request()
+                if stop_reason:
+                    break
+                attempts += 1
+                event_id = f"cycle-{attempts}"
                 commands_processed += self.command_center.poll_and_process() if self.telegram_notifier is not None else 0
-                observation = self._observe_account()
-                connected = observation.connected is True
-                validate_account(observation, self.clock.now_utc(), self.config)
-                cycle = self._acquire_paper_cycle(observation, event_id=event_id)
-                result = self.process_paper_cycle(cycle)
+                result = None
+                # (Re)connect inside the loop: a terminal that is closed at
+                # startup or restarted later is retried with the same backoff.
+                if self.connector is None and not self._connect():
+                    self.connector = None
+                    connected = False
+                    failure = PaperCycleRejected("MT5_CONNECT_FAILED", getattr(self, "_connect_error", "") or "read-only connection failed")
+                    if not skippable_before_mutation(self, failure):
+                        raise failure
+                    result = skip_paper_cycle(self, event_id, failure)
+                    self.paper_cycle_results.append(result)
+                if result is None:
+                    observation = self._observe_account()
+                    connected = observation.connected is True
+                    try:
+                        validate_account(observation, self.clock.now_utc(), self.config)
+                        cycle = self._acquire_paper_cycle(observation, event_id=event_id)
+                    except PaperCycleRejected as exc:
+                        if exc.code == MARKET_DATA_INTEGRITY_FAILED:
+                            # Nothing was mutated: stop the run (exit 5) without
+                            # latching, so a corrected configuration can restart.
+                            self._audit("FORWARD_SHADOW_INTEGRITY_STOP", Severity.CRITICAL, {"event_id": event_id,
+                                "reject_code": exc.code, "reason": exc.reason,
+                                "quote_rejections": dict(self.cycle_quote_rejections),
+                                "mt5_server_time": self.config.mt5_server_time, "execution_attempted": False}, notify=True)
+                            stop_reason = MARKET_DATA_INTEGRITY_FAILED
+                            break
+                        if not skippable_before_mutation(self, exc):
+                            raise
+                        result = skip_paper_cycle(self, event_id, exc)
+                        self.paper_cycle_results.append(result)
+                    else:
+                        result = self.process_paper_cycle(cycle)
                 opened += result.opened
                 closed += result.closed
                 if result.halted:
                     break
+                if result.valuation is None:
+                    # Skipped before any paper mutation: keep the heartbeat
+                    # alive, report why, and back off before retrying.
+                    skipped += 1
+                    consecutive_skips += 1
+                    skip_reason = str(result.rejections[-1].get("reject_code", ""))
+                    if skip_reason in RECONNECT_AFTER_SKIP:
+                        self.connector = None
+                    self.heartbeat.write({"mode": "forward-shadow", "mt5_connected": connected,
+                        "symbols_seen": len(self.symbols), "symbols_rejected": 0,
+                        "open_paper_trades": len(self.manager.load_open_trades()), "closed_paper_trades_today": closed,
+                        "last_error": skip_reason, "shadow_paused": result.paused,
+                        "signal_profile_used": self.config.signal_profile, "stable_gate_confirmed": self.stable_gate_confirmed,
+                        "stable_gate_decision": self.stable_gate_decision, "execution_attempted": False})
+                    heartbeat_written = True
+                    if self.max_cycles is None:
+                        base = max(self.cycle_seconds, MIN_SKIP_BACKOFF_SECONDS)
+                        self._wait(min(base * 2 ** min(consecutive_skips - 1, 4), MAX_SKIP_BACKOFF_SECONDS))
+                    continue
+                if consecutive_skips:
+                    self._audit("PAPER_CYCLE_RESUMED", Severity.INFO, {"event_id": event_id,
+                        "skipped_cycles": consecutive_skips, "last_skip_reason": skip_reason,
+                        "execution_attempted": False}, notify=True)
+                    self.skip_notified_code = None
+                consecutive_skips = 0
                 cycles += 1
                 heartbeat = self.heartbeat.write({"mode": "forward-shadow", "mt5_connected": connected,
                     "symbols_seen": len(self.symbols), "symbols_rejected": len(result.rejections),
@@ -176,13 +263,18 @@ class ForwardShadowBot:
                     "alerts_emitted": alerts_emitted, "telegram_commands_processed": commands_processed,
                     "shadow_paused": result.paused, "execution_attempted": False})
                 if self.max_cycles is None and self.cycle_seconds:
-                    sleep(self.cycle_seconds)
+                    self._wait(self.cycle_seconds)
+            if stop_reason == STOP_REQUESTED:
+                self._consume_stop_request()
             if not self.paper_lifecycle_halted:
                 write_forward_shadow_report(self.manager.load_all_trades(), self.report_dir)
-                self._audit("FORWARD_SHADOW_STOPPED", Severity.INFO, {"cycles": cycles, "execution_attempted": False}, notify=True)
+                self._audit("FORWARD_SHADOW_STOPPED", Severity.INFO, {"cycles": cycles, "stop_reason": stop_reason,
+                    "execution_attempted": False}, notify=True)
         except Exception as exc:
             result = halt_paper_cycle(self, event_id, exc)
             self.paper_cycle_results.append(result)
+        finally:
+            restore_sigint()
         try:
             count = len(self.manager.load_open_trades())
         except Exception:
@@ -194,8 +286,77 @@ class ForwardShadowBot:
             if reason in {"RECOVERY_FAILED", "MT5_CONNECT_FAILED", "ACCOUNT_INFO_UNAVAILABLE", "ACCOUNT_INFO_INVALID",
                           "ACCOUNT_REAL_DETECTED_READ_ONLY", "MT5_CONNECTION_UNVERIFIED"}:
                 initial_failure = "CONFIG_ERROR"
+        if stop_reason == MARKET_DATA_INTEGRITY_FAILED and not self.paper_lifecycle_halted:
+            initial_failure = MARKET_DATA_INTEGRITY_FAILED
+        elif stop_reason == STOP_REQUESTED and not self.paper_lifecycle_halted:
+            initial_failure = STOP_REQUESTED
+        if not initial_failure and skip_reason and not self.paper_lifecycle_halted and consecutive_skips:
+            initial_failure = "PAPER_CYCLE_SKIPPED"
         return self._summary(connected, cycles, count, opened, closed,
-            heartbeat_written, alerts_emitted, commands_processed, exit_reason=initial_failure)
+            heartbeat_written, alerts_emitted, commands_processed, exit_reason=initial_failure,
+            cycles_skipped=skipped, skip_reason=skip_reason)
+
+    def _install_sigint_handler(self) -> Callable[[], None]:
+        """First Ctrl+C finishes the current cycle and stops; a second one aborts."""
+        if threading.current_thread() is not threading.main_thread():
+            return lambda: None
+        previous = signal.getsignal(signal.SIGINT)
+
+        def handler(signum, frame):
+            if self._interrupt_requested:
+                raise KeyboardInterrupt
+            self._interrupt_requested = True
+            print("forward-shadow: stopping after the current cycle (Ctrl+C again aborts it).", flush=True)
+
+        try:
+            signal.signal(signal.SIGINT, handler)
+        except ValueError:
+            return lambda: None
+        return lambda: signal.signal(signal.SIGINT, previous)
+
+    def _stop_request(self) -> str:
+        """STOP_REQUESTED after Ctrl+C or ``--mode stop-shadow`` on this SQLite."""
+        if self._interrupt_requested:
+            return STOP_REQUESTED
+        try:
+            requested = self.database.get_operational_state().get(STOP_REQUEST_KEY)
+        except Exception:
+            return ""  # a storage failure surfaces, and latches, in the cycle itself
+        if not requested or self._stale_stop_request(requested):
+            return ""
+        return STOP_REQUESTED
+
+    def _stale_stop_request(self, requested: Any) -> bool:
+        """A request older than this process was meant for an earlier run."""
+        try:
+            requested_at = datetime.fromisoformat(str(requested))
+        except ValueError:
+            return False  # unreadable: honour it, stopping is the safe side
+        if requested_at.utcoffset() is None:
+            return False
+        return requested_at < self._started_wall
+
+    def _clear_stale_stop_request(self) -> None:
+        requested = self.database.get_operational_state().get(STOP_REQUEST_KEY)
+        if requested and self._stale_stop_request(requested):
+            self.database.update_operational_state({STOP_REQUEST_KEY: ""})
+            self._audit("FORWARD_SHADOW_STALE_STOP_CLEARED", Severity.INFO,
+                {"requested_at_utc": str(requested), "execution_attempted": False})
+
+    def _consume_stop_request(self) -> None:
+        try:
+            if self.database.get_operational_state().get(STOP_REQUEST_KEY):
+                self.database.update_operational_state({STOP_REQUEST_KEY: ""})
+        except Exception:
+            self.audit_failed = True
+
+    def _wait(self, seconds: float) -> None:
+        """Sleep between cycles in one-second slices so a stop request is prompt."""
+        remaining = float(seconds)
+        while remaining > 0 and not self._stop_request():
+            step = min(1.0, remaining)
+            sleep(step)
+            remaining -= step
 
     def process_paper_cycle(self, cycle: PaperCycleInput):
         """Public economic lifecycle also used by explicit quote replay."""
@@ -222,6 +383,8 @@ class ForwardShadowBot:
         telegram_commands_processed: int,
         exit_reason: str = "",
         halt_reason: str = "",
+        cycles_skipped: int = 0,
+        skip_reason: str = "",
     ) -> ForwardShadowSummary:
         try:
             state = self.database.get_operational_state()
@@ -258,10 +421,17 @@ class ForwardShadowBot:
             next_recommended_command=_next_recommended_command(computed_halt or computed_exit),
             audit_complete=not self.audit_failed, lifecycle_halted=self.paper_lifecycle_halted,
             paper_state_available=open_trades is not None,
+            cycles_skipped=cycles_skipped, skip_reason=skip_reason,
         )
 
     def _connect(self) -> bool:
-        self.connector = MT5Connector(config=self.config, mt5_client=self.mt5_client)
+        self._connect_error = ""
+        try:
+            self.connector = MT5Connector(config=self.config, mt5_client=self.mt5_client)
+        except RuntimeError as exc:
+            # MetaTrader5 package missing: nothing was read or written yet.
+            self._connect_error = str(exc)
+            return False
         initialize = getattr(self.connector.mt5, "initialize", None)
         return (not callable(initialize)) or initialize() is True
 
@@ -304,13 +474,22 @@ class ForwardShadowBot:
             database=_RequiredAuditSink(self, self.database), telegram_notifier=self.telegram_notifier,
             mt5_client=self.connector.mt5, run_id=self.run_id)
         helper.connector = self.connector
-        quotes, candidates = {}, []
+        quotes, candidates, tick_ms = {}, [], {}
+        self.cycle_quote_rejections = {}
+        # Measured evidence is rebuilt from this cycle's reads only.
+        begin_evidence = getattr(self.decision_evidence_provider, "begin_cycle", None)
+        observe_evidence = getattr(self.decision_evidence_provider, "observe_symbol", None)
+        if callable(begin_evidence):
+            begin_evidence(account_trade_allowed=getattr(observation.account, "trade_allowed", None))
         # Collect every mark before position management. No partial book update
         # or secondary quote lookup is permitted by the economic processor.
-        for trade in self.manager.load_open_trades():
+        open_trades = self.manager.load_open_trades()
+        for trade in open_trades:
+            started = perf_counter()
             quote = self._snapshot_for(trade.broker_symbol, trade.symbol)
             if quote is not None:
                 quotes[trade.symbol] = quote
+                tick_ms[trade.symbol] = _elapsed_ms(started)
         for symbol in self.symbols:
             check, resolution = self.connector.resolve_symbol(symbol)
             if not check.accepted or resolution is None:
@@ -318,16 +497,22 @@ class ForwardShadowBot:
                 continue
             snapshot = quotes.get(symbol)
             if snapshot is None:
+                started = perf_counter()
                 snapshot = self._snapshot_for(resolution.broker_symbol, resolution.canonical_symbol)
+                tick_ms[symbol] = _elapsed_ms(started)
             if snapshot is None:
                 continue
             snapshot = replace(snapshot, timeframe="M5")
             quotes[symbol] = snapshot
+            started = perf_counter()
             bars_by_tf = helper._read_timeframes(resolution.canonical_symbol, resolution.broker_symbol, snapshot)
+            rates_ms = _elapsed_ms(started)
             if self.audit_failed:
                 raise PaperCycleAuditError("market-data audit was not durably confirmed")
             if bars_by_tf is None:
                 continue
+            if callable(observe_evidence):
+                observe_evidence(symbol, bars_by_tf, tick_latency_ms=tick_ms[symbol], rates_latency_ms=rates_ms)
             try:
                 features = helper._features_from_bars(bars_by_tf["M5"], snapshot)
             except Exception as exc:
@@ -335,6 +520,23 @@ class ForwardShadowBot:
                     self._feature_build_error_payload(symbol, exc, bars_by_tf.get("M5")), symbol=symbol)
                 continue
             candidates.append(PaperCandidate(symbol, "M5", resolution.broker_symbol, bars_by_tf["M5"], features))
+        # Missing quotes are skipped as a closed market or outage only when no
+        # integrity failure explains them (future/invalid tick, invalid prices).
+        integrity = sorted(symbol for symbol, item in self.cycle_quote_rejections.items()
+                           if item.get("integrity_failure") and symbol not in quotes)
+        unquoted_positions = {trade.symbol for trade in open_trades} - set(quotes)
+        if integrity and (not quotes or unquoted_positions & set(integrity)):
+            raise PaperCycleRejected(MARKET_DATA_INTEGRITY_FAILED,
+                f"MT5 quotes failed integrity checks for {', '.join(integrity)}; check MT5_SERVER_TIME and the PC clock")
+        # The cycle goes on without those symbols; tell the operator once per
+        # streak and symbol, and again after the symbol has quoted normally.
+        self._integrity_notified = {symbol for symbol in self._integrity_notified if symbol not in quotes}
+        for symbol in integrity:
+            if symbol not in self._integrity_notified:
+                self._audit("QUOTE_INTEGRITY_REJECTED", Severity.WARNING, {"event_id": event_id, "symbol": symbol,
+                    **self.cycle_quote_rejections[symbol], "mt5_server_time": self.config.mt5_server_time,
+                    "execution_attempted": False}, symbol=symbol, notify=True)
+                self._integrity_notified.add(symbol)
         return PaperCycleInput(event_id, observation.observed_at_utc, observation, quotes, tuple(candidates), {})
 
     def _paper_signal_already_traded(self, decision_id: str, symbol: str) -> bool:
@@ -679,6 +881,10 @@ class ForwardShadowBot:
         if not check.accepted:
             event_type = classify_rejection_event_type(reject_code=check.code, reject_reason=check.reason, payload=check.payload)
             self._audit(event_type, Severity.WARNING, check.payload, symbol=canonical_symbol)
+            self.cycle_quote_rejections[canonical_symbol] = {"reject_code": check.code, "reason": check.reason,
+                "tick_time_status": check.payload.get("tick_time_status"),
+                "tick_age_seconds": check.payload.get("tick_age_seconds"),
+                "integrity_failure": check.payload.get("integrity_failure") is True}
             return None
         if check.payload.get("timestamp_normalized"):
             event_type = "STABLE_TICK_TIME_NORMALIZED" if self.config.signal_profile in {"BALANCED_STABLE", "BALANCED_STABLE_MICRO"} else "TICK_TIME_NORMALIZED"
@@ -781,6 +987,10 @@ def _safe_json(payload: str) -> dict[str, Any]:
         return json.loads(payload)
     except Exception:
         return {}
+
+
+def _elapsed_ms(started: float) -> int:
+    return int(round((perf_counter() - started) * 1000))
 
 
 def _next_recommended_command(reason: str) -> str:

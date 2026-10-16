@@ -47,3 +47,11 @@ missing or old ticks only. A `FUTURE_TOO_FAR` or `INVALID_TIMESTAMP` tick keeps
 `MARKET_CLOSED_OR_NO_TICKS`. Rejection is unchanged on every path; only the
 code and label were wrong on weekends. Guarded by weekday and weekend pinned
 tests in `test_phase28_mt5_time_normalization.py` and `test_phase55_rejection_labeling_repair.py`.
+
+Addendum 2026-10-10 (later): the MT5 Python package returns times on the
+broker's server clock, which this ADR treated as UTC. The demo broker observed
+in May 2026 ran at UTC+3, so every tick was rejected as future.
+`2026-10-10-declared-mt5-server-time.md` adds the operator declaration
+`MT5_SERVER_TIME` (default `UTC`, unchanged here). The declared conversion is
+applied before this ADR's checks; inferred offsets remain diagnostic only and
+no future tick is accepted.

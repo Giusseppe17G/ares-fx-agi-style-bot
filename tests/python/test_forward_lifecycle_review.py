@@ -10,6 +10,7 @@ from agi_style_forex_bot_mt5.core.price_grid import is_price_on_tick_grid
 from agi_style_forex_bot_mt5.backtesting.stateful_replay import ClosedBarInput, ReplayEvidence, StatefulReplayEvent
 from agi_style_forex_bot_mt5.mt5_data_bot import MT5DataOnlyBot
 from agi_style_forex_bot_mt5.paper_trading import ForwardShadowBot
+from agi_style_forex_bot_mt5.paper_trading.live_decision_evidence import LiveDecisionEvidence
 from agi_style_forex_bot_mt5.telemetry import JsonlAuditLogger, TelemetryDatabase
 
 from test_stateful_replay import replay_case
@@ -170,9 +171,12 @@ def test_run_revalidates_connection_and_account_before_next_cycle(review_case, t
     try:
         summary = bot.run()
         assert database.count_rows("paper_trades") == 1
-        assert summary.halt_reason
         if change == "disconnected":
+            # Revalidated before the cycle: skipped without touching the book.
             assert summary.mt5_connected is False
+            assert summary.skip_reason == "MT5_CONNECTION_UNVERIFIED" and not summary.lifecycle_halted
+        else:
+            assert summary.halt_reason == "ACCOUNT_REAL_DETECTED_READ_ONLY" and summary.lifecycle_halted
     finally:
         database.close()
 
@@ -238,7 +242,8 @@ def test_incomplete_position_marks_cannot_partially_mutate_book(review_case, tmp
         summary = restarted.run()
         assert len(restarted.manager.load_open_trades()) == 2
         assert all(trade.status == "OPEN" for trade in restarted.manager.load_all_trades())
-        assert summary.halt_reason
+        # Nothing was mutated, so the live run skips and retries instead of latching.
+        assert summary.skip_reason == "OPEN_POSITION_QUOTE_MISSING" and not summary.lifecycle_halted
     finally:
         database.close()
 
@@ -263,5 +268,90 @@ def test_actual_run_managed_stop_remains_on_broker_tick_grid(review_case, tmp_pa
         updated = next(item for item in restarted.manager.load_all_trades() if item.paper_trade_id == trade.paper_trade_id)
         assert updated.sl_price != trade.sl_price
         assert is_price_on_tick_grid(updated.sl_price, quote.tick_size), updated.sl_price
+    finally:
+        database.close()
+
+
+def _measured(bot, client, clock, monkeypatch):
+    bars = client.event.decisions[0].bars
+    monkeypatch.setattr(MT5DataOnlyBot, "_read_timeframes", lambda self, *_args: {"M5": bars, "M15": bars, "H1": bars})
+    bot.decision_evidence_provider = LiveDecisionEvidence(max_spread_points=bot.config.max_spread_points_default, clock=clock)
+
+
+def test_measured_live_evidence_opens_paper_trades_without_injected_scores(review_case, tmp_path, monkeypatch):
+    bot, database, client, clock = forward_bot(review_case, tmp_path, monkeypatch, symbols=("EURUSD", "GBPUSD"))
+    _measured(bot, client, clock, monkeypatch)
+    try:
+        summary = bot.run()
+        # Identical bars measure correlation 1.0, so the second symbol is
+        # rejected (by the ranker) instead of opening correlated risk.
+        assert summary.paper_trades_opened == 1 and database.count_rows("paper_trades") == 1
+        rejected = [row for row in database.fetch_all("events") if row["event_type"] == "PAPER_CANDIDATE_REJECTED"]
+        assert len(rejected) == 1 and '"reject_code":"REJECT_CORRELATED"' in rejected[0]["payload_json"]
+        assert not any("BROKER_EVIDENCE_MISSING" in row["payload_json"] for row in rejected)
+    finally:
+        database.close()
+
+
+def test_skip_that_cannot_be_audited_latches(review_case, tmp_path, monkeypatch):
+    bot, database, client, _ = forward_bot(review_case, tmp_path, monkeypatch)
+    client.connected = False
+    original = JsonlAuditLogger.append_event
+
+    def fail_skip(logger, event):
+        if event.event_type == "PAPER_CYCLE_SKIPPED":
+            raise OSError("injected skip audit failure")
+        return original(logger, event)
+
+    monkeypatch.setattr(JsonlAuditLogger, "append_event", fail_skip)
+    try:
+        summary = bot.run()
+        assert summary.lifecycle_halted and not summary.audit_complete
+        assert database.get_operational_state()["paper_lifecycle_halted"] is True
+        assert database.count_rows("paper_trades") == 0
+    finally:
+        database.close()
+
+
+def test_skip_never_clears_an_existing_latch(review_case, tmp_path, monkeypatch):
+    bot, database, client, _ = forward_bot(review_case, tmp_path, monkeypatch)
+    database.update_operational_state({"paper_lifecycle_halted": True, "halt_reason": "STATEFUL_EVENT_ERROR"})
+    client.connected = False
+    try:
+        summary = bot.run()
+        assert summary.lifecycle_halted and summary.halt_reason == "PAPER_LIFECYCLE_HALTED"
+        assert summary.cycles_skipped == 0
+    finally:
+        database.close()
+
+
+def test_terminal_closed_at_startup_is_retried_in_the_loop(review_case, tmp_path, monkeypatch):
+    bot, database, client, _ = forward_bot(review_case, tmp_path, monkeypatch, cycles=2)
+    calls = []
+
+    def initialize():
+        calls.append(True)
+        return len(calls) > 1
+
+    client.initialize = initialize
+    try:
+        summary = bot.run()
+        # Attempt 1 skipped (no terminal), attempt 2 reconnected and completed.
+        assert calls == [True, True]
+        assert summary.cycles_skipped == 1 and summary.cycles_completed == 1
+        assert not summary.lifecycle_halted and summary.paper_trades_opened == 1
+    finally:
+        database.close()
+
+
+def test_terminal_that_stays_closed_is_retried_every_attempt(review_case, tmp_path, monkeypatch):
+    bot, database, client, _ = forward_bot(review_case, tmp_path, monkeypatch, cycles=3)
+    calls = []
+    client.initialize = lambda: calls.append(True) or False
+    try:
+        summary = bot.run()
+        assert len(calls) == 3 and summary.cycles_skipped == 3 and summary.cycles_completed == 0
+        assert summary.skip_reason == "MT5_CONNECT_FAILED" and not summary.lifecycle_halted
+        assert database.count_rows("paper_trades") == 0
     finally:
         database.close()

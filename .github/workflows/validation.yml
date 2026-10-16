@@ -22,9 +22,8 @@ jobs:
           # Reference runtime of the frozen native indicator fixtures.
           python-version: "3.14.4"
       - name: Install pinned dependencies
-        run: |
-          python -m pip install --disable-pip-version-check \
-            "numpy==2.4.4" "pandas==3.0.2" "requests==2.34.2" "pytest==9.1.1"
+        # constraints.txt is the single list of validated versions (also used by windows_setup.ps1).
+        run: python -m pip install --disable-pip-version-check -r constraints.txt
       - name: Documentation lint
         run: python -B scripts/check_docs.py
       - name: Generated native fixtures are current

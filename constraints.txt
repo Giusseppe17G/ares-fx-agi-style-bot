@@ -1,0 +1,7 @@
+# Versions validated by CI (.github/workflows/validation.yml) and used for the
+# frozen native fixtures. Install with: python -m pip install -c constraints.txt ...
+# MetaTrader5 (Windows only) is not pinned here; it is not part of CI.
+numpy==2.4.4
+pandas==3.0.2
+requests==2.34.2
+pytest==9.1.1

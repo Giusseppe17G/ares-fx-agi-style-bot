@@ -191,7 +191,7 @@ def test_forward_shadow_micro_accepts_clearance_and_daily_ledger(tmp_path: Path,
         def run(self):
             return SimpleNamespace(
                 mode="forward-shadow",
-                mt5_connected=False,
+                mt5_connected=True,
                 cycles_completed=0,
                 open_trades=0,
                 paper_trades_opened=0,

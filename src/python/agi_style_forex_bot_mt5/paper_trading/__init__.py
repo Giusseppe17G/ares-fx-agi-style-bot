@@ -8,7 +8,7 @@ from .paper_fill_model import PaperFillModel
 from .paper_performance import group_metrics, paper_metrics
 from .paper_position_manager import PaperPositionManager
 from .paper_report import write_forward_shadow_report
-from .paper_state import build_paper_open_trades_report, build_paper_state_report, close_all_paper_trades, pause_shadow, resume_shadow
+from .paper_state import build_paper_open_trades_report, build_paper_state_report, close_all_paper_trades, pause_shadow, request_stop_shadow, resume_shadow
 from .paper_state_recovery import close_invalid_open_paper_trade, close_stale_open_paper_trade, run_invalid_open_paper_trade_audit, run_paper_state_recovery_audit, run_paper_state_recovery_plan
 from .paper_trade import PaperTrade
 from .stable_shadow_report import build_stable_health, write_stable_shadow_daily_report

@@ -667,56 +667,67 @@ class TelemetryDatabase:
         return json.loads(row["payload_json"])
 
     def set_shadow_paused(self, paused: bool, *, reason: str, paused_by: str) -> dict[str, Any]:
-        state = self.get_operational_state()
-        now = utc_now_iso()
-        state.update(
-            {
-                "shadow_paused": bool(paused),
-                "paused_reason": reason if paused else "",
-                "paused_by": paused_by if paused else state.get("paused_by", ""),
-                "execution_attempted": False,
-            }
-        )
-        if paused:
-            state["paused_at_utc"] = now
-        else:
-            state["resumed_at_utc"] = now
-        self._conn.execute(
-            """
-            INSERT INTO operational_state (state_key, payload_json, updated_at_utc)
-            VALUES ('runtime', ?, ?)
-            ON CONFLICT(state_key) DO UPDATE SET
-                payload_json = excluded.payload_json,
-                updated_at_utc = excluded.updated_at_utc
-            """,
-            (compact_json(redact_secrets(state)), now),
-        )
-        self._conn.commit()
-        return state
+        def mutate(state: dict[str, Any], now: str) -> dict[str, Any]:
+            state.update(
+                {
+                    "shadow_paused": bool(paused),
+                    "paused_reason": reason if paused else "",
+                    "paused_by": paused_by if paused else state.get("paused_by", ""),
+                    "execution_attempted": False,
+                }
+            )
+            if paused:
+                state["paused_at_utc"] = now
+            else:
+                state["resumed_at_utc"] = now
+            return state
+
+        return self._write_operational_state(mutate, redact=True)
 
     def get_shadow_paused(self) -> bool:
         return bool(self.get_operational_state().get("shadow_paused", False))
 
     def update_operational_state(self, updates: Mapping[str, Any]) -> dict[str, Any]:
-        state = self.get_operational_state()
         raw_updates = dict(updates)
-        state.update(redact_secrets(raw_updates))
-        for key, value in raw_updates.items():
-            if key.endswith("_utc"):
-                state[key] = value
-        state["execution_attempted"] = False
-        now = utc_now_iso()
-        self._conn.execute(
-            """
-            INSERT INTO operational_state (state_key, payload_json, updated_at_utc)
-            VALUES ('runtime', ?, ?)
-            ON CONFLICT(state_key) DO UPDATE SET
-                payload_json = excluded.payload_json,
-                updated_at_utc = excluded.updated_at_utc
-            """,
-            (compact_json(state), now),
-        )
-        self._conn.commit()
+
+        def mutate(state: dict[str, Any], _now: str) -> dict[str, Any]:
+            state.update(redact_secrets(raw_updates))
+            for key, value in raw_updates.items():
+                if key.endswith("_utc"):
+                    state[key] = value
+            state["execution_attempted"] = False
+            return state
+
+        return self._write_operational_state(mutate, redact=False)
+
+    def _write_operational_state(self, mutate: Any, *, redact: bool) -> dict[str, Any]:
+        """Read, change and write the runtime state row as one transaction.
+
+        Other processes (stop-shadow, pause-shadow, resume-shadow) write this row
+        while a run is live. BEGIN IMMEDIATE takes the write lock before the
+        read, so neither side can overwrite the other's update.
+        """
+        if self._conn.in_transaction:
+            self._conn.commit()
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            now = utc_now_iso()
+            state = mutate(self.get_operational_state(), now)
+            payload = redact_secrets(state) if redact else state
+            self._conn.execute(
+                """
+                INSERT INTO operational_state (state_key, payload_json, updated_at_utc)
+                VALUES ('runtime', ?, ?)
+                ON CONFLICT(state_key) DO UPDATE SET
+                    payload_json = excluded.payload_json,
+                    updated_at_utc = excluded.updated_at_utc
+                """,
+                (compact_json(payload), now),
+            )
+            self._conn.commit()
+        except BaseException:
+            self._conn.rollback()
+            raise
         return state
 
     def insert_telegram_command(self, payload: Mapping[str, Any]) -> bool:

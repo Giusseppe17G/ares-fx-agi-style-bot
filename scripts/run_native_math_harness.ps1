@@ -4,7 +4,9 @@
 param(
     [string]$InstallDirectory = 'C:\Program Files\MetaTrader 5',
     [string]$StageDirectory = (Join-Path ([IO.Path]::GetTempPath()) ('agi-native-math-' + [guid]::NewGuid().ToString('N'))),
-    [ValidateRange(5,60)][int]$TimeoutSeconds = 45
+    [ValidateRange(5,60)][int]$TimeoutSeconds = 45,
+    # The log parser is stdlib-only and verified on CPython 3.11-3.14; 'py -3' picks the newest 3.x.
+    [ValidatePattern('^3(\.(1[1-9]|[2-9][0-9]))?$')][string]$PythonVersion = '3'
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -159,7 +161,8 @@ $parserExit = $null
 $evidence = $null
 try {
     # -I ignores PYTHON* variables and user site; -S also drops site-packages (stdlib only).
-    & py -3.14 -I -S -B $parser --stage $stage --output $logEvidencePath
+    $manifest.parser_python = (& py ('-' + $PythonVersion) -I -S -B -c 'import sys; print(sys.version.split()[0])') -join ''
+    & py ('-' + $PythonVersion) -I -S -B $parser --stage $stage --output $logEvidencePath
     $parserExit = $LASTEXITCODE
     if (Test-Path -LiteralPath $logEvidencePath) {
         $manifest.log_evidence_sha256 = Get-Sha256 $logEvidencePath

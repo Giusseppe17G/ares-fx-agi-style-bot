@@ -138,6 +138,17 @@ def test_readiness_score_classifications() -> None:
     assert status in {"WATCHLIST", "NOT_READY"}
 
 
+def test_readiness_score_keeps_zero_levels_valid_and_unknown_spread_unsafe() -> None:
+    complete = {"symbol_visible": True, "trade_allowed": True, "spread_points": 10, "tick_age_seconds": 1,
+        "rates_available_m5": True, "rates_available_m15": True, "rates_available_h1": True,
+        "stops_level_points": 0, "freeze_level_points": 0, "volume_min": 0.01, "volume_step": 0.01}
+    assert score_symbol_readiness(complete, max_spread_points=25) == (100.0, "EXECUTION_READY_SHADOW_ONLY", ())
+    score, _status, reasons = score_symbol_readiness({**complete, "spread_points": None}, max_spread_points=25)
+    assert score == 50.0 and "spread above configured max" in reasons
+    score, _status, reasons = score_symbol_readiness({**complete, "stops_level_points": None}, max_spread_points=25)
+    assert score == 85.0 and "stops/freeze levels unavailable" in reasons
+
+
 def test_reports_and_cli_modes(monkeypatch, tmp_path: Path, capsys) -> None:
     sqlite_path = tmp_path / "bq.sqlite3"
 

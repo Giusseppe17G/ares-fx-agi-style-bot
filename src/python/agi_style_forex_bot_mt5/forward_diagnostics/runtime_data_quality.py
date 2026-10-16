@@ -7,6 +7,7 @@ from typing import Any, Iterable
 
 from agi_style_forex_bot_mt5.config import BotConfig
 from agi_style_forex_bot_mt5.execution import MT5Connector
+from agi_style_forex_bot_mt5.utils.mt5_server_time import server_wall_to_utc, utc_to_server_wall
 
 
 TIMEFRAMES: tuple[str, ...] = ("M5", "M15", "H1")
@@ -45,7 +46,7 @@ def probe_runtime_data_quality(
             requested = max(1, int(bars), _bars_for(config, timeframe))
             raw = connector.mt5.copy_rates_from_pos(broker_symbol, mt5_timeframe, 0, requested)
             if raw is None or len(raw) == 0:
-                raw = _copy_rates_range_fallback(connector, broker_symbol, mt5_timeframe, max(1, int(bars)))
+                raw = _copy_rates_range_fallback(connector, broker_symbol, mt5_timeframe, max(1, int(bars)), config)
             count = 0 if raw is None else len(raw)
             rates[timeframe] = raw
             counts[timeframe] = count
@@ -53,7 +54,7 @@ def probe_runtime_data_quality(
                 blockers.append(f"LIVE_{timeframe}_EMPTY")
                 last_candle[timeframe] = None
             else:
-                last_candle[timeframe] = _last_candle_timestamp(raw)
+                last_candle[timeframe] = _last_candle_timestamp(raw, config.mt5_server_time)
                 if count < _diagnostic_min(timeframe):
                     blockers.append("LIVE_INSUFFICIENT_BARS")
         if not check.accepted:
@@ -93,11 +94,13 @@ def probe_runtime_data_quality(
     return rows, rates_by_symbol
 
 
-def _copy_rates_range_fallback(connector: MT5Connector, broker_symbol: str, mt5_timeframe: Any, bars: int) -> Any:
+def _copy_rates_range_fallback(connector: MT5Connector, broker_symbol: str, mt5_timeframe: Any, bars: int,
+                               config: BotConfig) -> Any:
     copy_rates_range = getattr(connector.mt5, "copy_rates_range", None)
     if not callable(copy_rates_range):
         return None
-    now = datetime.now(timezone.utc)
+    # MT5 range queries use the declared trade-server clock (MT5_SERVER_TIME).
+    now = utc_to_server_wall(datetime.now(timezone.utc), config.mt5_server_time)
     return copy_rates_range(broker_symbol, mt5_timeframe, now, now)
 
 
@@ -109,13 +112,14 @@ def _diagnostic_min(timeframe: str) -> int:
     return 100 if timeframe == "H1" else 200
 
 
-def _last_candle_timestamp(raw: Any) -> str | None:
+def _last_candle_timestamp(raw: Any, server_time: str = "UTC") -> str | None:
     try:
         item = raw[-1]
         value = item["time"] if isinstance(item, dict) else getattr(item, "time", None)
         if value is None:
             return None
-        return datetime.fromtimestamp(float(value), timezone.utc).isoformat()
+        converted = server_wall_to_utc(datetime.fromtimestamp(float(value), timezone.utc), server_time)
+        return converted.isoformat() if converted is not None else None
     except Exception:
         return None
 

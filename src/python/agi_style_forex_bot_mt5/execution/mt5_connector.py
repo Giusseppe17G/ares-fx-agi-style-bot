@@ -119,6 +119,9 @@ class TickFreshness:
     normalization_reason: str = ""
     reject_code: str | None = None
     reject_reason: str | None = None
+    mt5_server_time: str = "UTC"
+    server_time_offset_seconds: float | None = None
+    suggested_broker_time_offset_seconds: int | None = None
 
     def to_payload(self) -> dict[str, Any]:
         """Return JSON-safe tick diagnostics for audit events."""
@@ -141,8 +144,24 @@ class TickFreshness:
             "tick_age_seconds_normalized": self.tick_age_seconds_normalized,
             "tick_time_status": self.tick_time_status,
             "normalization_reason": self.normalization_reason,
+            "mt5_server_time": self.mt5_server_time,
+            "server_time_offset_seconds": self.server_time_offset_seconds,
+            "suggested_broker_time_offset_seconds": self.suggested_broker_time_offset_seconds,
             "now_utc": self.now_utc.isoformat(),
         }
+
+
+def _not_populated(*values: Any) -> bool:
+    """MT5 reports 0 for a quote or symbol property it has not received yet
+    (just after symbol_select or a terminal reconnect): transient, not integrity."""
+
+    for value in values:
+        try:
+            if value is not None and float(value) == 0.0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
 
 
 def is_market_probably_closed(now_utc: datetime, symbol: str) -> bool:
@@ -456,6 +475,7 @@ class MT5Connector:
                     symbol=canonical,
                     canonical_symbol=canonical,
                     broker_symbol=symbol,
+                    integrity_failure=not _not_populated(raw_bid, raw_ask, raw_point),
                 ),
                 None,
             )
@@ -481,6 +501,7 @@ class MT5Connector:
                     "MARKET_DATA_INVALID",
                     freshness.reject_reason or "tick timestamp is unavailable or invalid",
                     **base_payload,
+                    integrity_failure=not _not_populated(getattr(tick, "time", None), getattr(tick, "time_msc", None)),
                 ),
                 None,
             )
@@ -493,6 +514,12 @@ class MT5Connector:
                 "FUTURE_TOO_FAR",
             }
             reject_code = "MARKET_CLOSED_OR_NO_TICKS" if market_closed else "MARKET_DATA_INVALID"
+            # Integrity, not a transient outage: an invalid timestamp, or a tick
+            # further ahead of the clock than the freshness window (clock skew).
+            integrity_failure = (
+                freshness.tick_time_status == "INVALID_TIMESTAMP"
+                and not _not_populated(getattr(tick, "time", None), getattr(tick, "time_msc", None))
+            ) or (freshness.tick_time_status == "FUTURE_TOO_FAR" and tick_age < -self.config.max_tick_age_seconds)
             reject_reason = freshness.reject_reason or (
                 "market appears closed or symbol has no fresh ticks" if market_closed else "tick timestamp is stale or in the future"
             )
@@ -501,6 +528,7 @@ class MT5Connector:
                     reject_code,
                     reject_reason,
                     **base_payload,
+                    integrity_failure=integrity_failure,
                 ),
                 None,
             )
@@ -540,6 +568,8 @@ class MT5Connector:
                     symbol=canonical,
                     canonical_symbol=canonical,
                     broker_symbol=symbol,
+                    integrity_failure=not _not_populated(snapshot.bid, snapshot.ask, snapshot.point, snapshot.tick_value,
+                        snapshot.tick_size, snapshot.volume_min, snapshot.volume_max, snapshot.volume_step),
                 ),
                 None,
             )
@@ -588,6 +618,9 @@ class MT5Connector:
             normalization_reason=str(diagnostic.get("normalization_reason") or ""),
             reject_code=diagnostic.get("reject_code"),
             reject_reason=diagnostic.get("reject_reason"),
+            mt5_server_time=str(diagnostic.get("mt5_server_time") or "UTC"),
+            server_time_offset_seconds=diagnostic.get("server_time_offset_seconds"),
+            suggested_broker_time_offset_seconds=diagnostic.get("suggested_broker_time_offset_seconds"),
         )
 
     def environment_diagnostics(self) -> dict[str, Any]:

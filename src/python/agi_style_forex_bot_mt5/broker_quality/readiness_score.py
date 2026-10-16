@@ -14,7 +14,9 @@ def score_symbol_readiness(payload: Mapping[str, Any], *, max_spread_points: flo
     if not payload.get("trade_allowed", False):
         score -= 20
         reasons.append("trading not allowed by symbol/account metadata")
-    spread = float(payload.get("spread_points") or 0.0)
+    # A missing spread is unknown, never zero; 0 stops/freeze levels are valid.
+    raw_spread = payload.get("spread_points")
+    spread = float("inf") if raw_spread is None else float(raw_spread)
     if spread > max_spread_points:
         score -= 50
         reasons.append("spread above configured max")
@@ -28,7 +30,8 @@ def score_symbol_readiness(payload: Mapping[str, Any], *, max_spread_points: flo
     if not payload.get("rates_available_m5") or not payload.get("rates_available_m15") or not payload.get("rates_available_h1"):
         score -= 20
         reasons.append("rates unavailable")
-    if int(payload.get("stops_level_points") or -1) < 0 or int(payload.get("freeze_level_points") or -1) < 0:
+    stops, freeze = payload.get("stops_level_points"), payload.get("freeze_level_points")
+    if stops is None or freeze is None or int(stops) < 0 or int(freeze) < 0:
         score -= 15
         reasons.append("stops/freeze levels unavailable")
     if float(payload.get("volume_min") or 0.0) <= 0 or float(payload.get("volume_step") or 0.0) <= 0:

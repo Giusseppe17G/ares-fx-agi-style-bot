@@ -1,7 +1,9 @@
-"""Validate raw MT5 Python UTC tick times; inferred offsets are hints only.
+"""Validate MT5 Python tick times; inferred offsets are hints only.
 
-The documented Python API returns UTC timestamps. Closeness to an hour offset
-does not establish provenance or freshness, so it never authorizes conversion.
+Raw epochs are read on the operator-declared trade-server clock
+(``MT5_SERVER_TIME``, default UTC; see ``utils/mt5_server_time.py``) and
+converted to UTC before any freshness check. Closeness to an hour offset does
+not establish provenance or freshness, so it never authorizes conversion.
 """
 
 from __future__ import annotations
@@ -13,6 +15,8 @@ import socket
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+
+from ..utils.mt5_server_time import parse_server_time, server_wall_to_utc
 
 
 DEFAULT_KNOWN_OFFSETS_SECONDS: tuple[int, ...] = (-10800, -7200, -3600, 0, 3600, 7200, 10800)
@@ -43,8 +47,13 @@ def normalize_tick_time(
         for value in getattr(config, "known_broker_time_offsets_seconds", DEFAULT_KNOWN_OFFSETS_SECONDS)
     )
 
-    time_utc = _unix_timestamp(raw_tick_time, divisor=1.0)
-    time_msc_utc = _unix_timestamp(raw_tick_time_msc, divisor=1000.0)
+    server_time = parse_server_time(getattr(config, "mt5_server_time", "UTC") or "UTC")
+    wall_time = _unix_timestamp(raw_tick_time, divisor=1.0)
+    wall_time_msc = _unix_timestamp(raw_tick_time_msc, divisor=1000.0)
+    # Declared server clock -> UTC; a DST gap/overlap leaves None (invalid).
+    time_utc = server_wall_to_utc(wall_time, server_time) if wall_time is not None else None
+    time_msc_utc = server_wall_to_utc(wall_time_msc, server_time) if wall_time_msc is not None else None
+    selected_wall = wall_time_msc if time_msc_utc is not None else wall_time
     selected_raw = time_msc_utc or time_utc
     selected_source = "time_msc" if time_msc_utc is not None else ("time" if time_utc is not None else "none")
 
@@ -112,6 +121,10 @@ def normalize_tick_time(
         "tick_age_seconds_from_time": age_from_time,
         "tick_age_seconds_from_time_msc": age_from_time_msc,
         "tick_time_status": status,
+        "mt5_server_time": server_time,
+        "server_time_offset_seconds": (
+            (selected_wall - selected_raw).total_seconds() if selected_raw is not None and selected_wall is not None else None
+        ),
         "normalization_reason": reason,
         "reject_code": reject_code,
         "reject_reason": reject_reason,

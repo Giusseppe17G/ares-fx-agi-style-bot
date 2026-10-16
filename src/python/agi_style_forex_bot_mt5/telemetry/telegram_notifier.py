@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -22,8 +23,11 @@ IMPORTANT_EVENT_TYPES = {
     "BOT_STARTED",
     "BOT_STOPPED",
     "CRITICAL_ERROR",
+    "FORWARD_SHADOW_STARTED",
+    "FORWARD_SHADOW_STOPPED",
     "ORDER_SENT",
     "ORDER_FILLED",
+    "PAPER_CYCLE_RESUMED",
     "POSITION_CLOSED",
     "RISK_REJECTED",
     "SHADOW_ORDER_CREATED",
@@ -214,4 +218,21 @@ class TelegramNotifier:
             parts.append(f"symbol={symbol}")
         if message:
             parts.append(str(message))
+        parts.extend(_reason_parts(record.get("payload_json")))
         return redact_text(" | ".join(parts))[:3900]
+
+
+# Payload fields that tell the operator why a lifecycle event happened.
+REASON_FIELDS = ("reject_code", "reason", "stop_reason", "skipped_cycles", "last_skip_reason")
+
+
+def _reason_parts(payload_json: Any) -> list[str]:
+    try:
+        payload = json.loads(payload_json) if isinstance(payload_json, str) else {}
+    except ValueError:
+        return []
+    if not isinstance(payload, Mapping):
+        return []
+    return [f"{field}={payload[field]}" for field in REASON_FIELDS
+            if isinstance(payload.get(field), (str, int)) and not isinstance(payload.get(field), bool)
+            and str(payload.get(field)) != ""]

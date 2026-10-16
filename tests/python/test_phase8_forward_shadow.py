@@ -293,3 +293,36 @@ def test_forward_shadow_cli_accepts_mode(monkeypatch, tmp_path: Path, capsys) ->
     code = cli.main(["--mode", "forward-shadow", "--sqlite", str(tmp_path / "f.sqlite3"), "--max-cycles", "1"])
     assert code == 0
     assert '"execution_attempted": false' in capsys.readouterr().out
+
+
+def test_forward_shadow_cli_supplies_measured_decision_evidence(monkeypatch, tmp_path: Path, capsys) -> None:
+    from agi_style_forex_bot_mt5.paper_trading.live_decision_evidence import LiveDecisionEvidence
+
+    captured = {}
+
+    class RecordingBot:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+        def run(self):
+            return SimpleNamespace(mode="forward-shadow", mt5_connected=False, cycles_completed=0, open_trades=0,
+                paper_trades_opened=0, paper_trades_closed=0, execution_attempted=False)
+
+    monkeypatch.setattr(cli, "ForwardShadowBot", RecordingBot)
+    code = cli.main(["--mode", "forward-shadow", "--sqlite", str(tmp_path / "f.sqlite3"), "--max-cycles", "1"])
+    assert isinstance(captured["decision_evidence_provider"], LiveDecisionEvidence)
+    # No terminal and no completed cycle: a watchdog sees a non-zero exit.
+    assert code == cli.EXIT_MT5_UNAVAILABLE
+
+
+def test_forward_shadow_cli_exit_code_reports_a_latched_lifecycle(monkeypatch, tmp_path: Path) -> None:
+    class HaltedBot:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def run(self):
+            return SimpleNamespace(mode="forward-shadow", mt5_connected=True, cycles_completed=0, open_trades=0,
+                paper_trades_opened=0, paper_trades_closed=0, execution_attempted=False, lifecycle_halted=True)
+
+    monkeypatch.setattr(cli, "ForwardShadowBot", HaltedBot)
+    assert cli.main(["--mode", "forward-shadow", "--sqlite", str(tmp_path / "f.sqlite3"), "--max-cycles", "1"]) == cli.EXIT_LIFECYCLE_HALTED

@@ -14,7 +14,7 @@ from .instrument_registry_builder import build_instrument_registry_snapshot
 def capture_instrument_snapshot(*, client: Any, symbol_map_path: Path, output_path: Path, clock: Clock | None = None) -> dict[str, Any]:
     if output_path.exists():
         raise FileExistsError("instrument snapshot destination already exists")
-    symbols = json.loads(symbol_map_path.read_text(encoding="utf-8"))
+    symbols = json.loads(symbol_map_path.read_text(encoding="utf-8-sig"))
     if not isinstance(symbols, dict) or not symbols:
         raise ValueError("broker symbol map must be a nonempty JSON object")
     if not output_path.parent.is_dir():

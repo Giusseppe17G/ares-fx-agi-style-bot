@@ -4,6 +4,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Relative paths below (venv, constraints, data folders) are resolved from the repository root.
+Set-Location (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
 function Write-Step {
     param([string]$Message)
@@ -46,8 +48,8 @@ if ($LASTEXITCODE -ne 0) {
     throw "Failed to upgrade pip"
 }
 
-Write-Step "Installing project dependencies with dev and MT5 extras"
-& $venvPython -m pip install -e ".[dev,mt5]"
+Write-Step "Installing project dependencies with dev and MT5 extras (CI-validated versions)"
+& $venvPython -m pip install -c constraints.txt -e ".[dev,mt5]"
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to install project dependencies"
 }

@@ -64,8 +64,13 @@ staging, bytes y SHA256 de cada archivo leido, nunca rutas absolutas del host.
 
 ## Ejecucion
 
+Requisitos: PowerShell 7 (`pwsh`), una instalacion de MetaTrader 5 con
+`MetaEditor64.exe`, `terminal64.exe` y `metatester64.exe` (por defecto en
+`C:\Program Files\MetaTrader 5`, o `-InstallDirectory`) y Python 3.11+ con el
+lanzador `py` (`-PythonVersion` elige la version; por defecto `3`).
+
 ```powershell
-py -3.14 -B -m pytest tests/python/test_native_math_harness.py
+py -3 -B -m pytest tests/python/test_native_math_harness.py
 # Requiere PowerShell 7 (pwsh); Windows PowerShell 5.1 se detiene antes de crear staging.
 # Solo con autorizacion separada para iniciar el terminal en Windows:
 pwsh -NoProfile -File .\scripts\run_native_math_harness.ps1

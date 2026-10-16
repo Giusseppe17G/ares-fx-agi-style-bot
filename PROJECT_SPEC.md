@@ -1032,6 +1032,73 @@ persiste y valora el libro. No obtiene cotizaciones faltantes por su cuenta.
   bloquea hasta reconciliacion; la integridad fisica de SQLite no demuestra
   integridad semantica del libro. Los fills ya persistidos siguen visibles aunque
   se revoquen las aprobaciones del ciclo incompleto.
+- Solo en forward en vivo (`skip_pre_mutation_failures=True`; el replay lo
+  desactiva), los fallos operativos anteriores a escribir la intencion de ciclo
+  no dejan latch: `lifecycle.SKIPPABLE_BEFORE_MUTATION` (MT5 no conectado o
+  paquete ausente, cuenta ilegible u observacion caducada, adquisicion lenta,
+  sin cotizaciones o con una posicion abierta sin cotizacion). Un timestamp
+  futuro bajo esos codigos es fallo de integridad y bloquea. Se auditan como
+  `PAPER_CYCLE_SKIPPED`, no mutan nada y el run reintenta con backoff (desde
+  max(cycle_seconds, 5 s) hasta 300 s), reconectando MT5 dentro del bucle. El
+  primer salto de una racha y cada cambio de motivo se notifican por Telegram, y
+  `PAPER_CYCLE_RESUMED` al volver a completar un ciclo. Un latch previo, un
+  ciclo incompleto o un fallo al auditar el salto siguen bloqueando. Cuenta
+  real (aunque el terminal figure desconectado), identidad/moneda invalida o
+  cambiante, eventos invertidos o duplicados, almacenamiento y auditoria
+  siempre bloquean. En replay un evento sin cotizaciones es un defecto de
+  entrada y sigue bloqueando.
+- Integridad de cotizaciones en vivo: el conector marca `integrity_failure`
+  cuando rechaza un tick con timestamp invalido, un tick mas adelantado que la
+  ventana de frescura (`max_tick_age_seconds`; un adelanto menor es desfase de
+  reloj y solo descarta ese simbolo) o precios/metadata invalidos. Si esos
+  rechazos dejan el ciclo sin cotizaciones o una posicion abierta sin la suya,
+  el run se detiene antes de mutar (`FORWARD_SHADOW_INTEGRITY_STOP`, CRITICAL,
+  Telegram) con `exit_reason=MARKET_DATA_INTEGRITY_FAILED` y codigo 5, sin
+  latch: la causa suele ser configuracion (`MT5_SERVER_TIME`) o el reloj del
+  PC, y el reinicio vuelve a validar todo. Un valor a cero (cotizacion o
+  propiedad que MT5 aun no ha recibido, tras `symbol_select` o una reconexion)
+  es transitorio, no integridad. Un simbolo que falla integridad mientras el
+  ciclo sigue con otros se excluye y se notifica una vez por racha
+  (`QUOTE_INTEGRITY_REJECTED`, WARNING).
+- Reloj del servidor MT5: `MT5_SERVER_TIME` (`UTC` por defecto, `NY_CLOSE` =
+  UTC+2 invierno / UTC+3 con horario de verano de EE. UU., `EET` = lo mismo con
+  fechas europeas, o `UTC+HH:MM`) es
+  una declaracion del operador, nunca una inferencia. Ticks, barras, consultas
+  por rango y exportacion historica se convierten a UTC en la lectura
+  (`utils/mt5_server_time.py`); una hora en el hueco o solape de DST se
+  rechaza. `mt5-diagnose` muestra `server_time_hint` cuando los ticks estan
+  horas enteras desplazados respecto a la declaracion
+  (`docs/decisions/2026-10-10-declared-mt5-server-time.md`).
+- Parada: `--mode stop-shadow` (o Ctrl+C) pide parar entre ciclos; el run
+  termina el ciclo en curso, consume la peticion y sale con 0
+  (`exit_reason=STOP_REQUESTED`); un segundo Ctrl+C aborta. Una peticion anterior
+  al arranque del proceso se descarta al arrancar. `resume-shadow` borra una
+  peticion pendiente. `paper-state-report` informa `PAPER_LIFECYCLE_HALTED`
+  (permanente en esa SQLite, causa en `lifecycle_halt_reason`) antes que la
+  pausa, y `PAPER_CYCLE_IN_PROGRESS` para un ciclo abierto, que con un run vivo
+  es normal. Las lecturas-modificacion-escritura del estado operativo se hacen
+  en una transaccion `BEGIN IMMEDIATE`, porque `stop-shadow`, `pause-shadow` y
+  `resume-shadow` escriben la misma fila desde otro proceso.
+- Telegram: `FORWARD_SHADOW_STARTED`, `FORWARD_SHADOW_STOPPED` y
+  `PAPER_CYCLE_RESUMED` son eventos importantes aunque sean INFO, y el mensaje
+  incluye `reject_code`, `reason`, `stop_reason` y los contadores de racha cuando
+  el evento los trae.
+- La CLI `forward-shadow` pasa `LiveDecisionEvidence` (`live_decision_evidence_v1`):
+  puntuacion de `score_symbol_readiness` con cotizacion, metadata, permiso de
+  cuenta, latencias y timeframes leidos en el mismo ciclo, y la correlacion de
+  mayor magnitud entre retornos log de cierres M5 cerrados (300 barras, minimo
+  100) con cada simbolo expuesto. Un simbolo no observado en el ciclo no recibe
+  evidencia (`BROKER_EVIDENCE_MISSING`) y una exposicion sin correlacion medible
+  deja `correlation=None` (`CORRELATION_UNVERIFIED`). Nada se rellena por defecto.
+- Codigos de salida: 2 configuracion o argumentos invalidos (incluida una
+  configuracion rechazada por `load_config`: valor invalido, clave repetida,
+  linea sin `=`, cabecera `[seccion]` o ruta explicita inexistente; y un destino
+  de snapshot existente);
+  `forward-shadow` devuelve 4 con lifecycle bloqueado, 5 tras una parada por
+  integridad y 3 sin MT5 conectado ni ciclos completados (salvo `--max-cycles 0`,
+  que es una comprobacion de arranque y devuelve 0); `mt5-data`, `mt5-diagnose`,
+  `export-history` y `build-instrument-registry` devuelven 3 sin MT5 (paquete
+  ausente o terminal no conectado). El JSON de stdout conserva los detalles.
 - Los rechazos normales de estrategia no impiden evaluar el siguiente candidato
   con exposicion actualizada. Se conservan gates de recuperacion, microforward,
   estabilidad, riesgo y limites paper. Solo una pausa propia por drawdown diario

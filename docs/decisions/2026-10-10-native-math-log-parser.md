@@ -18,7 +18,7 @@ wrapper ADR also left Python guards to the root agent.
 ## Decision
 
 `check_native_math_logs.py` uses only the standard library and is run as
-`py -3.14 -I -S -B ... --stage <staging> --output <new json>`.
+`py -<PythonVersion> -I -S -B ... --stage <staging> --output <new json>` (default `-3`; the stdlib-only parser gives identical evidence on CPython 3.11-3.14, and the manifest records the interpreter version).
 
 - Sources: every `.log` file inside the staging except the wrapper compile log
   `MQL5/Experts/NativeMathHarness/NativeMathHarness.log`. Files are grouped by

@@ -331,7 +331,7 @@ def test_export_history_cli_accepts_mode_and_no_order_send(monkeypatch, tmp_path
         def run(self):
             return SimpleNamespace(
                 mode="export-history",
-                mt5_connected=False,
+                mt5_connected=True,
                 symbols_requested=1,
                 files_created=0,
                 rows_exported=0,
