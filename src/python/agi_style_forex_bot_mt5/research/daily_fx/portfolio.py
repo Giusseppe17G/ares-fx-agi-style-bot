@@ -27,7 +27,9 @@ Signals (all in [-1, 1] per currency, long = long the currency vs USD):
   without a rate ends the simulation there instead of carrying a stale rate);
 - ``blend``: equal-weight mean of ``tsmom`` and ``tscarry``;
 - ``xsmom``: cross-sectional momentum, diagnostic only;
-- ``random``: random signs per rebalance (control).
+- ``random``: random signs (control). Each sign flips at a rebalance with
+  probability ``random_flip_probability`` (0.5: independent draws), so the
+  control can match the turnover of the signal it is compared with.
 
 ``shift_days`` circularly shifts the signal in time (a turnover-matched
 control: same persistence and cross-section, no alignment with returns).
@@ -35,8 +37,10 @@ control: same persistence and cross-section, no alignment with returns).
 Positions are scaled by inverse ex-ante volatility and the book to
 ``target_annual_vol`` before the invariants cut them down. Returns are net of
 one-way trading costs, a financing mark-up on gross exposure and, when
-``rates`` are given, the interest differential accrued daily. Nothing here
-builds, checks or sends an order.
+``rates`` are given, the interest differential; both accrue by calendar days
+elapsed (a Monday carries the weekend). Because positions drift, every live
+position is resized at each rebalance and its entry, stop and take-profit are
+re-anchored there. Nothing here builds, checks or sends an order.
 """
 
 from __future__ import annotations
@@ -65,6 +69,7 @@ class PortfolioConfig:
     flip: bool = False
     seed: int = 0
     shift_days: int = 0
+    random_flip_probability: float = 0.5
 
     def validate(self) -> None:
         if self.signal not in SIGNALS:
@@ -76,6 +81,8 @@ class PortfolioConfig:
                              "are required")
         if not 0 < self.target_annual_vol <= 0.5 or not 0 < self.max_gross_leverage <= 10:
             raise ValueError("target_annual_vol must be in (0, 0.5] and max_gross_leverage in (0, 10]")
+        if not 0 < self.random_flip_probability <= 0.5:
+            raise ValueError("random_flip_probability must be in (0, 0.5]")
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
@@ -187,12 +194,44 @@ def _signal(log_prices: pd.DataFrame, config: PortfolioConfig, carry: pd.DataFra
     elif config.signal == "xsmom":
         signal = xsmom_signal(log_prices, config.lookbacks[0], config.xs_top)
     else:
-        rng = np.random.default_rng(config.seed)
-        signal = pd.DataFrame(rng.choice([-1.0, 1.0], size=log_prices.shape), index=log_prices.index,
-                              columns=log_prices.columns).where(log_prices.shift(max(config.lookbacks)).notna())
+        signal = _random_signs(log_prices, config)
     if config.shift_days:
         signal = _shifted(signal, config.shift_days)
     return -signal if config.flip else signal
+
+
+def _random_signs(log_prices: pd.DataFrame, config: PortfolioConfig) -> pd.DataFrame:
+    # A daily sign chain whose flip probability over one rebalance period is
+    # random_flip_probability: (1 - (1 - 2q)^R) / 2 = p.
+    rng = np.random.default_rng(config.seed)
+    p = config.random_flip_probability
+    daily_flip = 0.5 if p >= 0.5 else (1.0 - (1.0 - 2.0 * p) ** (1.0 / config.rebalance_days)) / 2.0
+    start = rng.choice([-1.0, 1.0], size=(1, log_prices.shape[1]))
+    flips = np.where(rng.random(log_prices.shape) < daily_flip, -1.0, 1.0)
+    flips[0] = 1.0
+    signs = start * np.cumprod(flips, axis=0)
+    return pd.DataFrame(signs, index=log_prices.index, columns=log_prices.columns).where(
+        log_prices.shift(max(config.lookbacks)).notna())
+
+
+def signal_flip_rate(prices: pd.DataFrame, config: PortfolioConfig, rates: pd.DataFrame | None = None) -> float:
+    """Share of currency signs that change from one rebalance to the next, in [0.01, 0.5].
+
+    Used to give a random-sign control the persistence (turnover) of the signal it is
+    compared with.
+    """
+
+    config.validate()
+    carry = rate_differentials(rates, prices.index, tuple(prices.columns)) if rates is not None else None
+    signs = np.sign(_signal(np.log(prices), config, carry))
+    complete = signs.notna().all(axis=1).to_numpy()
+    if not complete.any():
+        raise ValueError("price history is too short for the signal")
+    sampled = signs.to_numpy()[complete][::config.rebalance_days]
+    if len(sampled) < 2:
+        raise ValueError("price history is too short to measure the signal's persistence")
+    changes = float(np.mean(sampled[1:] != sampled[:-1]))
+    return float(min(0.5, max(0.01, changes)))
 
 
 def _shifted(signal: pd.DataFrame, shift_days: int) -> pd.DataFrame:
@@ -274,9 +313,12 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
     price = prices.to_numpy(dtype=float)
     targets = target.to_numpy(dtype=float)
     vols = ex_ante_vol.to_numpy(dtype=float)
-    accrual = (carry.to_numpy(dtype=float) / TRADING_DAYS) if carry is not None else np.zeros_like(price)
+    # Carry and the financing mark-up accrue by calendar days since the previous row.
+    stamps = pd.DatetimeIndex(prices.index)
+    elapsed = np.r_[0.0, np.diff(((stamps - stamps[0]) / pd.Timedelta(days=1)).to_numpy(dtype=float))] / 365.0
+    accrual = carry.to_numpy(dtype=float) * elapsed[:, None] if carry is not None else np.zeros_like(price)
     one_way = costs.for_currencies(currencies)
-    financing = costs.financing_bps_per_year / 10_000.0 / TRADING_DAYS
+    financing = costs.financing_bps_per_year / 10_000.0
     days, count = price.shape
     weights = np.zeros(count)
     entry = np.full(count, np.nan)
@@ -291,7 +333,7 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
         moved = price[t] / price[t - 1] - 1.0
         contrib[t] = weights * (moved + np.nan_to_num(accrual[t]))
         gross = float(np.sum(contrib[t]))
-        day_cost = float(np.sum(np.abs(weights))) * financing
+        day_cost = float(np.sum(np.abs(weights))) * financing * elapsed[t]
         weights = weights * (1.0 + moved) / (1.0 + gross) if (1.0 + gross) > 0 else np.zeros(count)
         with np.errstate(invalid="ignore"):
             floating = float(np.sum(np.where(weights != 0, np.sign(weights) * (price[t] / entry - 1.0)
@@ -357,7 +399,7 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
 
 
 def performance(daily_returns: pd.Series) -> dict[str, float]:
-    """Annualised summary of daily log returns."""
+    """Annualised summary of daily log returns (rows per year observed from the dates)."""
 
     values = daily_returns.to_numpy(dtype=float)
     if values.size < 2:
@@ -365,15 +407,18 @@ def performance(daily_returns: pd.Series) -> dict[str, float]:
     mean, std = float(np.mean(values)), float(np.std(values, ddof=1))
     equity = np.cumsum(values)
     drawdown = float(np.max(np.maximum.accumulate(np.r_[0.0, equity])[1:] - equity))
-    annual = mean * TRADING_DAYS
+    span_years = (daily_returns.index[-1] - daily_returns.index[0]).days / 365.25
+    per_year = (values.size - 1) / span_years if span_years > 0 else float(TRADING_DAYS)
+    annual = mean * per_year
     yearly = daily_returns.groupby(daily_returns.index.year).sum()
     max_dd = 1.0 - float(np.exp(-drawdown))
     return {
         "days": int(values.size),
-        "years": values.size / TRADING_DAYS,
+        "years": span_years,
+        "periods_per_year": per_year,
         "annual_return": annual,
-        "annual_vol": std * np.sqrt(TRADING_DAYS),
-        "sharpe": annual / (std * np.sqrt(TRADING_DAYS)) if std > 0 else 0.0,
+        "annual_vol": std * np.sqrt(per_year),
+        "sharpe": annual / (std * np.sqrt(per_year)) if std > 0 else 0.0,
         "max_drawdown": max_dd,
         "calmar": annual / max_dd if max_dd > 0 else float("inf"),
         "positive_years_share": float((yearly > 0).mean()) if len(yearly) else 0.0,

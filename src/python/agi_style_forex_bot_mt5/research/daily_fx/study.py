@@ -17,9 +17,13 @@ a rate differential keeps its exposure when shifted, so for it the shift
 measures nothing and is only reported.
 
 Only hypotheses whose primary configuration passes every development gate are
-scored on the holdout, and the holdout of a plan is scored once: the ledger
-refuses a second run. Verdicts are research labels (PASSED_RESEARCH,
-WATCHLIST, REJECTED); none of them authorises execution.
+scored on the holdout, and the holdout of a plan is scored once. The ledger,
+not the development JSON, decides which hypotheses proceed (the JSON must
+match the digest the ledger recorded), and it refuses any run whose windows
+overlap a holdout already scored, or a holdout whose window another plan's
+development already used, on the same price data. Verdicts are research
+labels (PASSED_RESEARCH, WATCHLIST, REJECTED); none of them authorises
+execution.
 Nothing here builds, checks or sends an order.
 """
 
@@ -29,6 +33,7 @@ from dataclasses import dataclass, field, replace
 from hashlib import sha256
 import json
 from pathlib import Path
+import platform
 from typing import Any, Mapping, Sequence
 
 import numpy as np
@@ -38,13 +43,13 @@ from ..edge_statistics import (deflated_sharpe_ratio, holm_adjusted, moments, ne
     probabilistic_sharpe_ratio, probability_of_backtest_overfitting, sharpe_ratio, superior_predictive_ability)
 from ..trial_registry import TrialLedger
 from .data import PricePanel
-from .portfolio import BacktestResult, CostModel, PortfolioConfig, RiskLimits, backtest, performance
+from .portfolio import BacktestResult, CostModel, PortfolioConfig, RiskLimits, backtest, performance, signal_flip_rate
 
 STUDY_VERSION = "daily_fx_study_v2"
 RATE_SIGNALS = {"tscarry", "blend"}
 # Files whose code decides every number of a study; their sha256 is part of the plan.
-ENGINE_FILES = ("daily_fx/data.py", "daily_fx/portfolio.py", "daily_fx/study.py", "edge_statistics.py",
-                "trial_registry.py")
+ENGINE_FILES = ("daily_fx/data.py", "daily_fx/portfolio.py", "daily_fx/study.py", "daily_fx/plans.py",
+                "daily_fx/runner.py", "edge_statistics.py", "trial_registry.py")
 STRESS_WINDOWS = {
     "2008-10_crisis": ("2008-10-01", "2008-10-31"),
     "2009-03_to_2010-06_recovery": ("2009-03-01", "2010-06-30"),
@@ -53,6 +58,19 @@ STRESS_WINDOWS = {
     "2022_usd_rally": ("2022-01-01", "2022-12-31"),
     "2024-08_yen_unwind": ("2024-07-15", "2024-08-31"),
 }
+
+
+def environment() -> dict[str, str]:
+    """Interpreter and numerical library versions a plan's numbers depend on."""
+
+    return {"python": platform.python_version(), "numpy": np.__version__, "pandas": pd.__version__}
+
+
+def digest(payload: Mapping[str, Any]) -> str:
+    """sha256 of a JSON payload in canonical form (stable across a write and read)."""
+
+    canonical = json.loads(json.dumps(payload, sort_keys=True, default=float))
+    return sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def engine_sha256() -> str:
@@ -139,6 +157,7 @@ class StudyPlan:
     spa_bootstraps: int = 2000
     acceptance: Acceptance = field(default_factory=Acceptance)
     engine: str = field(default_factory=engine_sha256)
+    runtime: Mapping[str, str] = field(default_factory=environment)
     notes: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -151,6 +170,7 @@ class StudyPlan:
                 "cost_stress_factor": self.cost_stress_factor, "random_replicas": self.random_replicas,
                 "pbo_blocks": self.pbo_blocks, "spa_bootstraps": self.spa_bootstraps,
                 "acceptance": self.acceptance.to_dict(), "engine_sha256": self.engine,
+                "environment": dict(sorted(self.runtime.items())),
                 "stress_windows": {key: list(value) for key, value in STRESS_WINDOWS.items()},
                 "notes": list(self.notes)}
 
@@ -176,6 +196,8 @@ class StudyPlan:
                 raise ValueError(f"{hypothesis.hypothesis_id} needs rates bound to the plan")
             if any(config.signal in RATE_SIGNALS for config in hypothesis.configs()) and not hypothesis.carry_accrual:
                 raise ValueError("a carry signal must earn the carry it bets on (carry_accrual)")
+            if not hypothesis.timing_claim and any(config.signal != "tscarry" for config in hypothesis.configs()):
+                raise ValueError("only static carry hypotheses may skip the time-shifted control")
 
     def check_inputs(self, panel: PricePanel, rates_sha256: str | None) -> None:
         """Fail closed when the data or the engine differ from what the plan froze."""
@@ -189,6 +211,23 @@ class StudyPlan:
             raise ValueError("the rate data differ from the data bound to the plan")
         if self.engine != engine_sha256():
             raise ValueError("the engine code changed since the plan was frozen")
+        if dict(self.runtime) != environment():
+            raise ValueError("the Python, numpy or pandas version differs from the frozen plan")
+
+
+def _overlaps(first: Sequence[str], second: Sequence[str]) -> bool:
+    return pd.Timestamp(first[0]) <= pd.Timestamp(second[1]) and pd.Timestamp(second[0]) <= pd.Timestamp(first[1])
+
+
+def _refuse_seen_data(plan: StudyPlan, ledger: TrialLedger, windows: Sequence[Sequence[str]]) -> None:
+    """Refuse windows that overlap a holdout already scored on the same prices, by any plan."""
+
+    for record in ledger.records():
+        payload = record["payload"]
+        if record["kind"] != "holdout" or payload.get("price_sha256") != plan.data.price_sha256:
+            continue
+        if any(_overlaps(window, payload["holdout_window"]) for window in windows):
+            raise ValueError(f"these dates overlap a holdout already scored by plan {record['plan_hash'][:12]}")
 
 
 def _window(series: pd.Series, period: tuple[str, str]) -> pd.Series:
@@ -248,13 +287,13 @@ def _development_inputs(plan: StudyPlan, panel: PricePanel,
 
 
 def _shift_offsets(length: int, config: PortfolioConfig, replicas: int, seed: int) -> list[int]:
-    # Shifts that keep every shifted signal at least a look-back plus a holding
-    # period away from the returns it is scored on, in both directions.
+    # Distinct shifts that keep every shifted signal at least a look-back plus a
+    # holding period away from the returns it is scored on, in both directions.
     margin = max(config.lookbacks) + config.rebalance_days + config.execution_lag_days
-    if length <= 2 * margin + 1:
+    if length - 2 * margin < replicas:
         raise ValueError("development history too short for time-shifted controls")
     rng = np.random.default_rng(seed)
-    return [int(value) for value in rng.integers(margin, length - margin, size=replicas)]
+    return sorted(int(value) for value in rng.choice(np.arange(margin, length - margin), size=replicas, replace=False))
 
 
 def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | None, rates_sha256: str | None,
@@ -265,6 +304,7 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
     plan_hash = plan.plan_hash()
     if ledger.has("development_summary", plan_hash):
         raise ValueError("the development of this plan was already run; its trials are in the ledger")
+    _refuse_seen_data(plan, ledger, [plan.development, plan.holdout])
     prices, dev_rates = _development_inputs(plan, panel, rates)
     if any(item.needs_rates for item in plan.hypotheses) and dev_rates is None:
         raise ValueError("the plan needs rates")
@@ -286,7 +326,8 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
                 "first_day": str(returns.index.min().date()), "last_day": str(returns.index.max().date()),
                 "metrics": stats})
     matrix = pd.DataFrame(trial_returns).dropna()
-    trial_sharpes = [_sharpe_or_zero(matrix[column]) for column in matrix.columns]
+    # Each trial's Sharpe on its own window, like the primary it deflates.
+    trial_sharpes = [_sharpe_or_zero(values) for values in trial_returns.values()]
     pbo = probability_of_backtest_overfitting(matrix.to_numpy(), blocks=plan.pbo_blocks)
     spa = superior_predictive_ability(matrix.to_numpy(), bootstraps=plan.spa_bootstraps)
     results, p_values = [], []
@@ -304,7 +345,10 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
             simulated = _simulate(prices, dev_rates, hypothesis, config, costs, limits)
             return _sharpe_or_zero(_window(simulated.net_returns, plan.development))
 
-        random_sharpes = np.array([control_sharpe(replace(hypothesis.primary, signal="random", seed=seed))
+        # Random signs as persistent as the primary signal (same turnover).
+        flip_rate = signal_flip_rate(prices, hypothesis.primary, dev_rates if hypothesis.needs_rates else None)
+        random_sharpes = np.array([control_sharpe(replace(hypothesis.primary, signal="random", seed=seed,
+                                                          random_flip_probability=flip_rate))
                                    for seed in range(plan.random_replicas)])
         valid_rows = int(result.positions.shape[0])
         shifts = _shift_offsets(valid_rows, hypothesis.primary, plan.random_replicas, seed=1000 + number)
@@ -333,7 +377,7 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
             "psr_vs_zero": psr_zero,
             "deflated_sharpe": dsr.to_dict(),
             "random_control": {"replicas": plan.random_replicas, "median_sharpe": float(np.median(random_sharpes)),
-                               "quota": random_quota},
+                               "quota": random_quota, "flip_probability": flip_rate},
             "shift_control": {"replicas": plan.random_replicas, "median_sharpe": float(np.median(shift_sharpes)),
                               "quota": shift_quota, "gated": hypothesis.timing_claim},
             "flipped_sharpe": _stats(flipped)["sharpe"],
@@ -344,7 +388,7 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
     acceptance = plan.acceptance
     for result, holm_p in zip(results, adjusted):
         result["holm_adjusted_p"] = holm_p
-        checks = {
+        checks = {key: bool(value) for key, value in {
             "development_sharpe": result["primary"]["sharpe"] >= acceptance.min_development_sharpe,
             "hac_t_stat": result["primary"]["hac_t_stat"] >= acceptance.min_development_hac_t,
             "holm_adjusted_p": holm_p <= acceptance.max_holm_p_value,
@@ -357,7 +401,7 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
             "survives_stressed_costs": result["cost_stress"]["sharpe"] > acceptance.min_stressed_sharpe,
             "development_drawdown": result["primary"]["max_drawdown"] < acceptance.max_development_drawdown,
             "no_dominant_currency": result["currency_share"] <= acceptance.max_currency_share,
-        }
+        }.items()}
         result["checks"] = checks
         result["proceed_to_holdout"] = all(checks.values())
     summary = {"study_version": STUDY_VERSION, "phase": "development", "plan_hash": plan_hash,
@@ -369,7 +413,9 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
                "execution_authorized": False}
     ledger.append("development_summary", plan_hash, {
         "trials": len(trial_sharpes), "pbo": pbo.pbo, "spa_p_value": spa.p_value,
-        "proceed_to_holdout": {item["hypothesis_id"]: item["proceed_to_holdout"] for item in results}})
+        "price_sha256": plan.data.price_sha256, "development_window": list(plan.development),
+        "proceed_to_holdout": {item["hypothesis_id"]: item["proceed_to_holdout"] for item in results},
+        "summary_sha256": digest(summary)})
     return summary
 
 
@@ -383,17 +429,31 @@ def run_holdout(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | None, 
         raise ValueError("the holdout of this plan was already scored; it is scored exactly once")
     if development.get("plan_hash") != plan_hash or development.get("phase") != "development":
         raise ValueError("development results do not belong to this plan")
-    if not ledger.has("development_summary", plan_hash):
-        raise ValueError("the ledger has no development run of this plan")
+    summaries = [record for record in ledger.records()
+                 if record["kind"] == "development_summary" and record["plan_hash"] == plan_hash]
+    if len(summaries) != 1:
+        raise ValueError("the ledger has no single development run of this plan")
+    recorded = summaries[0]["payload"]
+    if digest(development) != recorded["summary_sha256"]:
+        raise ValueError("the development results differ from what the ledger recorded")
+    ids = [item.hypothesis_id for item in plan.hypotheses]
+    if sorted(recorded["proceed_to_holdout"]) != sorted(ids):
+        raise ValueError("the ledgered development does not cover exactly this plan's hypotheses")
+    _refuse_seen_data(plan, ledger, [plan.holdout])
+    for record in ledger.records():
+        payload = record["payload"]
+        if (record["kind"] == "development_summary" and record["plan_hash"] != plan_hash
+                and payload.get("price_sha256") == plan.data.price_sha256
+                and _overlaps(payload["development_window"], plan.holdout)):
+            raise ValueError(f"plan {record['plan_hash'][:12]} already developed on these holdout dates")
     target = Path(output)
     if target.exists():
         raise FileExistsError("refusing to overwrite an existing holdout result")
     acceptance = plan.acceptance
-    pbo_ok = float(development["pbo"]["pbo"]) <= acceptance.max_promotion_pbo
+    pbo_ok = float(recorded["pbo"]) <= acceptance.max_promotion_pbo
     results = []
-    for item in development["hypotheses"]:
-        hypothesis = next(entry for entry in plan.hypotheses if entry.hypothesis_id == item["hypothesis_id"])
-        if not item["proceed_to_holdout"]:
+    for hypothesis in plan.hypotheses:
+        if not recorded["proceed_to_holdout"][hypothesis.hypothesis_id]:
             results.append({"hypothesis_id": hypothesis.hypothesis_id, "evaluated": False,
                             "verdict": "REJECTED", "reason": "failed development gates"})
             continue
@@ -405,11 +465,11 @@ def run_holdout(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | None, 
         stats = _stats(returns)
         skew, kurtosis = moments(returns.to_numpy())
         psr = probabilistic_sharpe_ratio(_sharpe_or_zero(returns), 0.0, len(returns), skew, kurtosis)
-        survives = {"holdout_sharpe": stats["sharpe"] > acceptance.min_holdout_sharpe,
-                    "holdout_drawdown": stats["max_drawdown"] < acceptance.max_holdout_drawdown,
-                    "holdout_stressed_costs": _stats(stressed)["sharpe"] > acceptance.min_holdout_stressed_sharpe}
-        promotes = {"holdout_hac_t_stat": stats["hac_t_stat"] >= acceptance.min_holdout_hac_t,
-                    "development_pbo_promotion_grade": pbo_ok}
+        survives = {"holdout_sharpe": bool(stats["sharpe"] > acceptance.min_holdout_sharpe),
+                    "holdout_drawdown": bool(stats["max_drawdown"] < acceptance.max_holdout_drawdown),
+                    "holdout_stressed_costs": bool(_stats(stressed)["sharpe"] > acceptance.min_holdout_stressed_sharpe)}
+        promotes = {"holdout_hac_t_stat": bool(stats["hac_t_stat"] >= acceptance.min_holdout_hac_t),
+                    "development_pbo_promotion_grade": bool(pbo_ok)}
         verdict = ("REJECTED" if not all(survives.values())
                    else "PASSED_RESEARCH" if all(promotes.values()) else "WATCHLIST")
         results.append({"hypothesis_id": hypothesis.hypothesis_id, "evaluated": True, "holdout": stats,
@@ -422,7 +482,8 @@ def run_holdout(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | None, 
                "data": {"source": panel.source, "sha256": panel.source_sha256, "rates_sha256": rates_sha256},
                "hypotheses": results, "execution_authorized": False}
     # Record first, with the full result: a crash after this line can never lead to a second scoring.
-    ledger.append("holdout", plan_hash, summary)
+    ledger.append("holdout", plan_hash, {**summary, "price_sha256": plan.data.price_sha256,
+                                         "holdout_window": list(plan.holdout)})
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("x", encoding="utf-8", newline="\n") as handle:
         json.dump(summary, handle, indent=2, sort_keys=True, default=float)
@@ -431,7 +492,8 @@ def run_holdout(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | None, 
 
 
 def hypotheses_from_grid(hypothesis_id: str, description: str, primary: PortfolioConfig,
-                         grid: Mapping[str, Sequence[Any]], carry_accrual: bool = False) -> Hypothesis:
+                         grid: Mapping[str, Sequence[Any]], carry_accrual: bool = False,
+                         timing_claim: bool = True) -> Hypothesis:
     """Primary configuration plus every single-parameter variation in ``grid``."""
 
     variants = []
@@ -440,4 +502,4 @@ def hypotheses_from_grid(hypothesis_id: str, description: str, primary: Portfoli
             value = tuple(int(item) for item in value) if key == "lookbacks" else value
             if getattr(primary, key) != value:
                 variants.append(replace(primary, **{key: value}))
-    return Hypothesis(hypothesis_id, description, primary, tuple(variants), carry_accrual)
+    return Hypothesis(hypothesis_id, description, primary, tuple(variants), carry_accrual, timing_claim)

@@ -39,8 +39,8 @@ re-scored by choosing another output path.
    - an incomplete target trades flat; a month without a rate ends the
      simulation instead of carrying a stale rate;
    - costs: one-way bps per currency on turnover (stop exits included), a
-     swap mark-up on gross exposure, and the rate differential accrued daily
-     when the hypothesis earns carry.
+     swap mark-up on gross exposure, and the rate differential when the
+     hypothesis earns carry; both accrue by calendar days elapsed.
 2. **Data (`daily_fx/data.py`).** Every FRED H.10 series in
    github.com/datasets/exchange-rates is currency per USD and is inverted.
    A run of five identical published values is rejected as a stale feed.
@@ -52,16 +52,20 @@ re-scored by choosing another output path.
    up to its end. Development gates (all must hold): Sharpe >= 0.3,
    Newey-West t >= 2.0, Holm-adjusted p <= 0.05 across hypotheses, deflated
    Sharpe >= 0.95 over every trial, PBO <= 0.30, Hansen SPA_c p <= 0.05,
-   beating 95% of random-sign and (for timing hypotheses) time-shifted
-   signals, positive Sharpe at doubled costs, drawdown < 12% and no currency
+   beating 95% of random-sign books as persistent as the hypothesis' signal
+   and (for timing hypotheses) of its own signal shifted in time, positive Sharpe at doubled costs, drawdown < 12% and no currency
    above half of the gross profit. Holdout verdicts: `REJECTED` unless the
    holdout Sharpe and the Sharpe at doubled costs are positive and the
    drawdown stays below 12%; `PASSED_RESEARCH` also needs a holdout
    Newey-West t >= 2.0 and a development PBO <= 0.10; otherwise `WATCHLIST`.
 4. **Trial ledger (`research/trial_registry.py`).** An append-only JSONL file
-   chained by sha256 records every trial, the controls, the development
-   summary and the holdout result. A second development or holdout run of the
-   same plan is refused, whatever output path is chosen.
+   chained by sha256, shared by every plan and committed after each phase,
+   records every trial, the controls, the development summary (with a digest
+   of the development result) and the holdout result. The holdout follows
+   the ledger, not the development file. A second development or holdout of
+   a plan is refused, and so is any plan whose dates overlap a holdout
+   already scored on the same prices, or a holdout whose dates another plan
+   developed on. The plan also binds the Python, numpy and pandas versions.
 5. **Plan v1 (`daily_fx/plans.py`)** is frozen with
    `python -m agi_style_forex_bot_mt5.research.daily_fx.runner freeze` and
    pre-registered in `docs/research/daily-fx-slow-premia-predeclared-v1.md`

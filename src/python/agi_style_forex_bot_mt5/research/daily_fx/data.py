@@ -48,6 +48,14 @@ FRED_COUNTRIES: Mapping[str, str] = {
     "United Kingdom": "GBP",
 }
 
+# Market levels (USD per unit) on 2020-01-02, rounded: a loaded panel that
+# contains this day must agree within 5%, which catches an inverted series.
+ORIENTATION_ANCHOR_DAY = "2020-01-02"
+ORIENTATION_ANCHORS: Mapping[str, float] = {
+    "EUR": 1.12, "JPY": 0.0092, "GBP": 1.31, "CHF": 1.03, "CAD": 0.77, "AUD": 0.70, "NZD": 0.67,
+    "SEK": 0.107, "NOK": 0.114, "DKK": 0.150,
+}
+
 # OECD location codes of the short-term rate of each currency.
 OECD_RATE_LOCATIONS: Mapping[str, str] = {
     "USA": "USD", "EA19": "EUR", "JPN": "JPY", "GBR": "GBP", "CHE": "CHF", "CAN": "CAD",
@@ -125,6 +133,12 @@ def _finalise(wide: pd.DataFrame, currencies: Iterable[str]) -> pd.DataFrame:
         raise ValueError(f"price gaps longer than {MAX_FORWARD_FILL_DAYS} days in: {', '.join(gaps)}")
     if (frame <= 0).any().any():
         raise ValueError("prices must be positive")
+    anchor = pd.Timestamp(ORIENTATION_ANCHOR_DAY, tz=frame.index.tz)
+    if anchor in frame.index:
+        for code in selected:
+            expected = ORIENTATION_ANCHORS.get(code)
+            if expected is not None and abs(float(frame.at[anchor, code]) / expected - 1.0) > 0.05:
+                raise ValueError(f"{code} is not in USD per unit on {ORIENTATION_ANCHOR_DAY} (inverted series?)")
     return frame
 
 

@@ -52,6 +52,7 @@ def test_plan_hash_binds_parameters_data_and_engine():
     assert plan.plan_hash() != _plan(acceptance=Acceptance()).plan_hash()
     assert plan.plan_hash() != _plan(data=DataBinding("synthetic", "b" * 64)).plan_hash()
     assert plan.plan_hash() != _plan(engine="c" * 64).plan_hash()
+    assert plan.plan_hash() != _plan(runtime={"python": "0", "numpy": "0", "pandas": "0"}).plan_hash()
     assert plan.engine == engine_sha256() and len(plan.hypotheses[0].variants) == 3
 
 
@@ -66,6 +67,8 @@ def test_plan_validation_rejects_overlaps_controls_and_unbound_rates():
     with pytest.raises(ValueError):
         _plan(hypotheses=(Hypothesis("H2", "carry", PortfolioConfig(signal="tscarry")),),
               data=DataBinding("synthetic", DIGEST, "d" * 64)).validate()
+    with pytest.raises(ValueError, match="time-shifted"):
+        _plan(hypotheses=(Hypothesis("H1", "trend", PortfolioConfig(), timing_claim=False),)).validate()
 
 
 def test_runs_refuse_other_data_or_changed_engine(tmp_path):
@@ -75,6 +78,8 @@ def test_runs_refuse_other_data_or_changed_engine(tmp_path):
         run_development(_plan(), PricePanel(panel.prices, "synthetic", "f" * 64), None, None, ledger)
     with pytest.raises(ValueError, match="engine"):
         run_development(_plan(engine="c" * 64), panel, None, None, ledger)
+    with pytest.raises(ValueError, match="version"):
+        run_development(_plan(runtime={"python": "0", "numpy": "0", "pandas": "0"}), panel, None, None, ledger)
     assert not ledger.path.exists()
 
 
@@ -173,6 +178,52 @@ def test_runner_freezes_once_and_refuses_a_plan_that_no_longer_matches(tmp_path,
     assert frozen["plan_hash"] == slow_premia_v1(DIGEST, "e" * 64).plan_hash()
     assert runner.main(["freeze", *base]) == 2  # never overwritten
     built["rates"] = "f" * 64  # the data changed after freezing
-    assert runner.main(["development", *base, "--ledger", str(tmp_path / "l.jsonl"),
-                        "--output", str(tmp_path / "dev.json")]) == 2
-    assert not (tmp_path / "dev.json").exists() and not (tmp_path / "l.jsonl").exists()
+    assert runner.main(["development", *base, "--ledger", str(tmp_path / "l.jsonl")]) == 2
+    assert not (tmp_path / "development.json").exists() and not (tmp_path / "l.jsonl").exists()
+
+
+def test_holdout_follows_the_ledger_not_an_edited_development_file(tmp_path):
+    plan = _plan(acceptance=Acceptance())
+    panel = _panel(0.0, seed=2)
+    ledger = TrialLedger(tmp_path / "ledger.jsonl")
+    development = run_development(plan, panel, None, None, ledger)
+    assert development["hypotheses"][0]["proceed_to_holdout"] is False
+    forged = json.loads(json.dumps(development, default=float))
+    forged["hypotheses"][0]["proceed_to_holdout"] = True
+    forged["pbo"]["pbo"] = 0.0
+    with pytest.raises(ValueError, match="differ from what the ledger recorded"):
+        run_holdout(plan, panel, None, None, forged, ledger, tmp_path / "holdout.json")
+    dropped = json.loads(json.dumps(development, default=float))
+    dropped["hypotheses"] = []
+    with pytest.raises(ValueError, match="ledger"):
+        run_holdout(plan, panel, None, None, dropped, ledger, tmp_path / "holdout.json")
+    # The genuine file round-tripped through JSON is accepted.
+    stored = json.loads(json.dumps(development, default=float))
+    holdout = run_holdout(plan, panel, None, None, stored, ledger, tmp_path / "holdout.json")
+    assert [item["verdict"] for item in holdout["hypotheses"]] == ["REJECTED"]
+
+
+def test_another_plan_cannot_reuse_a_scored_holdout_or_developed_dates(tmp_path):
+    panel = _panel(0.0012, seed=1)
+    ledger = TrialLedger(tmp_path / "ledger.jsonl")
+    plan = _plan()
+    run_holdout(plan, panel, None, None, run_development(plan, panel, None, None, ledger), ledger, tmp_path / "a.json")
+    tweaked = _plan(cost_stress_factor=2.0000001)
+    with pytest.raises(ValueError, match="overlap a holdout already scored"):
+        run_development(tweaked, panel, None, None, ledger)
+    # A plan whose development covers another plan's holdout dates blocks that holdout.
+    other = TrialLedger(tmp_path / "other.jsonl")
+    late = _plan(development=("2001-01-01", "2012-12-31"), holdout=("2013-01-01", "2016-12-31"))
+    run_development(late, panel, None, None, other)
+    early = _plan(name="early")
+    early_dev = run_development(early, panel, None, None, other)
+    with pytest.raises(ValueError, match="already developed on these holdout dates"):
+        run_holdout(early, panel, None, None, early_dev, other, tmp_path / "b.json")
+
+
+def test_trial_sharpes_use_each_trial_window(tmp_path):
+    plan = _plan()
+    development = run_development(plan, _panel(0.0012, seed=1), None, None, TrialLedger(tmp_path / "l.jsonl"))
+    assert development["hypotheses"][0]["deflated_sharpe"]["trials"] == 4
+    checks = development["hypotheses"][0]["checks"]
+    assert all(type(value) is bool for value in checks.values())

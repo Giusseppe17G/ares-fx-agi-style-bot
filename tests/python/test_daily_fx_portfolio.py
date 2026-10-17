@@ -5,7 +5,7 @@ import pytest
 
 from agi_style_forex_bot_mt5.research.daily_fx.data import load_fred_daily, load_mt5_daily, load_oecd_rates
 from agi_style_forex_bot_mt5.research.daily_fx.portfolio import (UNCONSTRAINED, CostModel, PortfolioConfig, RiskLimits,
-    backtest, performance, rate_differentials, target_weights, tsmom_signal, xsmom_signal)
+    backtest, performance, rate_differentials, signal_flip_rate, target_weights, tsmom_signal, xsmom_signal)
 
 CURRENCIES = ("EUR", "JPY", "GBP", "CHF", "AUD")
 ZERO = CostModel({code: 0.0 for code in CURRENCIES})
@@ -104,7 +104,10 @@ def test_costs_are_charged_on_turnover_and_financing_on_exposure():
     costs = CostModel({code: 1.0 for code in CURRENCIES}, financing_bps_per_year=100.0)
     result = backtest(prices, PortfolioConfig(), costs, UNCONSTRAINED)
     held = result.positions.shift(1).fillna(0.0).abs().sum(axis=1)
-    expected = result.turnover * 1e-4 + held * 0.01 / 252
+    # The mark-up accrues by calendar days: a Monday pays for the weekend.
+    days = pd.Series(prices.index.to_series().diff().dt.days.to_numpy(), index=prices.index).loc[result.costs.index]
+    assert set(days.unique()) == {1, 3}
+    expected = result.turnover * 1e-4 + held * 0.01 * days / 365
     np.testing.assert_allclose(result.costs.to_numpy(), expected.to_numpy(), rtol=1e-12, atol=1e-15)
     np.testing.assert_allclose((np.expm1(result.gross_returns) - np.expm1(result.net_returns)).to_numpy(),
                                result.costs.to_numpy(), atol=1e-15)
@@ -139,6 +142,20 @@ def test_carry_accrues_the_previous_month_rate_differential_and_stops_with_the_r
     assert accrued.contributions["EUR"].sum() > 0
     with pytest.raises(ValueError):
         backtest(prices, PortfolioConfig(signal="blend"), ZERO)
+
+
+def test_random_control_matches_the_persistence_of_a_signal():
+    prices = _prices(days=3000, drift=[0.0003, -0.0003, 0.0002, -0.0002, 0.0001], seed=14)
+    rate = signal_flip_rate(prices, PortfolioConfig(lookbacks=(252,)))
+    assert 0.01 <= rate < 0.3
+    for probability in (rate, 0.5):
+        config = PortfolioConfig(signal="random", seed=3, random_flip_probability=probability)
+        signs = np.sign(target_weights(prices, config)[0].dropna())
+        sampled = signs.to_numpy()[::config.rebalance_days]
+        observed = float(np.mean(sampled[1:] != sampled[:-1]))
+        assert observed == pytest.approx(probability, abs=0.06)
+    with pytest.raises(ValueError):
+        PortfolioConfig(random_flip_probability=0.0).validate()
 
 
 def test_time_shift_keeps_the_signal_but_moves_it():
@@ -178,7 +195,7 @@ def test_rejects_invalid_configurations_and_short_history():
 
 def test_fred_loader_inverts_every_series_to_usd_per_unit(tmp_path):
     rows = ["Date,Country,Exchange rate"]
-    values = (("2020-01-02", 0.90, 100.0), ("2020-01-03", 0.80, ""), ("2020-01-06", 0.75, 125.0))
+    values = (("2020-01-02", 0.90, 108.0), ("2020-01-03", 0.80, ""), ("2020-01-06", 0.75, 125.0))
     for day, eur, jpy in values:
         rows += [f"{day},Euro,{eur}", f"{day},Japan,{jpy}", f"{day},Brazil,5.0"]
     path = tmp_path / "daily.csv"
@@ -188,9 +205,20 @@ def test_fred_loader_inverts_every_series_to_usd_per_unit(tmp_path):
     # Every H.10 series is currency per USD: the Euro reads 0.90 when EURUSD is 1.111.
     assert panel.prices["EUR"].tolist() == pytest.approx([1 / 0.90, 1 / 0.80, 1 / 0.75])
     # The missing day carries the last price.
-    assert panel.prices["JPY"].tolist() == pytest.approx([0.01, 0.01, 0.008])
+    assert panel.prices["JPY"].tolist() == pytest.approx([1 / 108, 1 / 108, 0.008])
     with pytest.raises(ValueError):
         load_fred_daily(path, ("EUR", "XAU"))
+
+
+def test_fred_loader_rejects_a_series_in_the_wrong_orientation(tmp_path):
+    rows = ["Date,Country,Exchange rate"]
+    # USD per AUD (0.70) instead of the H.10 convention (AUD per USD, 1.43): after inversion it reads 1.43.
+    for day, aud in (("2019-12-31", 0.701), ("2020-01-02", 0.698), ("2020-01-03", 0.695)):
+        rows.append(f"{day},Australia,{aud}")
+    path = tmp_path / "daily.csv"
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="inverted"):
+        load_fred_daily(path, ("AUD",))
 
 
 def test_fred_loader_rejects_a_stale_feed(tmp_path):

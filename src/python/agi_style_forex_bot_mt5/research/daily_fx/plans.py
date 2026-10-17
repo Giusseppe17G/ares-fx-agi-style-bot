@@ -74,8 +74,12 @@ def slow_premia_v1(price_sha256: str, rates_sha256: str) -> StudyPlan:
             "Prices: FRED H.10 noon New York rates, github.com/datasets/exchange-rates commit c023dd8b8f87, "
             "data/daily.csv; every series is currency per USD and is inverted.",
             "Rates: OECD monthly 3-month interbank rates (nautilus_trader commit 5b1b5b8c5ad9, "
-            "test_data/short-term-interest.csv); they end in 2020-06, JPY starts 2002-04, so H2 and H3 "
-            "can only be scored to 2020-06-30 and their development starts in 2002-05.",
+            "test_data/short-term-interest.csv). A month's average is used only during the next month. "
+            "JPY starts in 2002-04 and JPY and SEK end in 2020-05 (the others in 2020-06), so H2 and H3 "
+            "start in 2002-05 and can only be scored to 2020-06-30.",
+            "H1 is spot only: it is not credited the rate differential its positions earn or pay.",
+            "Under the plan defaults the take-profit and the loss halts rarely or never engage: entries, "
+            "stops and take-profits re-anchor at every rebalance because positions are resized there.",
             "Risk invariants of the bot: 0.5% risk to the stop per position, 5% open risk, 3% net USD risk, "
             "10 positions, 3% daily and 5% floating loss halts; catastrophe stop at 2.5 monthly sigmas and "
             "take-profit at 3x the stop distance, checked on daily closes.",
