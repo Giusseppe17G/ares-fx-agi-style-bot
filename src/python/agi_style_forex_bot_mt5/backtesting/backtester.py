@@ -628,6 +628,8 @@ def load_historical_csv(
             raise ValueError("historical CSV is empty")
         if status in {"CSV_MISSING_OHLC", "CSV_NUMERIC_CONVERSION_ERROR"}:
             raise ValueError(f"historical CSV missing columns or invalid numeric values: {status}")
+        if status == "SPREAD_DATA_MISSING":
+            raise ValueError("SPREAD_DATA_MISSING: historical CSV has no spread column; zero cost is not imputed")
         raise ValueError(status)
     duplicate_count = int(loaded.diagnostics.get("duplicates", 0) or 0)
     normalized = loaded.frame.rename(columns={"tick_volume": "volume", "spread": "spread_points"}).copy()

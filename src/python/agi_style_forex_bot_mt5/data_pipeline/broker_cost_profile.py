@@ -8,7 +8,7 @@ from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
-from .history_quality import load_history_csv, parse_history_filename
+from .history_quality import _is_spread_data_missing, load_history_csv, parse_history_filename
 
 
 def build_broker_cost_profile(
@@ -26,6 +26,7 @@ def build_broker_cost_profile(
     profile: dict[str, Any] = {
         "mode": "build-cost-profile",
         "symbols": {},
+        "blocked_symbols": {},
         "slippage": {"future_realized_slippage_points": None},
         "reports_created": [str(output / "broker_cost_profile.json")],
         "classification": "WATCHLIST",
@@ -38,8 +39,14 @@ def build_broker_cost_profile(
         symbol, timeframe = parsed
         if selected and symbol not in selected:
             continue
-        frame = load_history_csv(csv_path, symbol=symbol, timeframe=timeframe)
-        if "spread" not in frame.columns:
+        try:
+            frame = load_history_csv(csv_path, symbol=symbol, timeframe=timeframe)
+        except ValueError as exc:
+            if not _is_spread_data_missing(exc):
+                raise
+            # PROJECT_SPEC 12.3: no spread column is missing cost, never zero
+            # cost. Block this symbol with its reason and keep the others.
+            profile["blocked_symbols"][symbol] = {"reason": "SPREAD_DATA_MISSING", "file_path": str(csv_path)}
             continue
         spread = frame["spread"].astype(float)
         frame["session"] = frame["time"].apply(_session)
@@ -59,7 +66,7 @@ def build_broker_cost_profile(
             },
             "realized_slippage_points": None,
         }
-    if profile["symbols"]:
+    if profile["symbols"] and not profile["blocked_symbols"]:
         profile["classification"] = "OK"
     (output / "broker_cost_profile.json").write_text(json.dumps(profile, indent=2, sort_keys=True), encoding="utf-8")
     return profile

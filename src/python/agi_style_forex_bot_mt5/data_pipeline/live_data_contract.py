@@ -48,6 +48,9 @@ def normalize_ohlcv_contract(
 
     ``server_time`` is the declared MT5 trade-server clock of live rates; bar
     times are converted to UTC before any later check (MT5_SERVER_TIME).
+    An absent spread column is missing cost evidence, never zero cost
+    (PROJECT_SPEC 12.3): it fails closed with SPREAD_DATA_MISSING for every
+    source. An explicit spread of zero is a valid observation.
     """
 
     columns_before: tuple[str, ...] = ()
@@ -87,10 +90,8 @@ def normalize_ohlcv_contract(
         return LiveContractResult(frame, _diag("LIVE_SERVER_TIME_INVALID", source, symbol, timeframe, columns_before=columns_before, columns_after=tuple(frame.columns), error=str(exc)))
     frame["timestamp_utc"] = timestamp
     frame["time"] = frame["timestamp_utc"].dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    contract_warnings: list[str] = []
     if "spread" not in frame.columns:
-        frame["spread"] = 0
-        contract_warnings.append("CSV_SPREAD_MISSING_ASSUMED_ZERO" if source == "historical" else "CSV_SPREAD_MISSING_ASSUMED_ZERO")
+        return LiveContractResult(frame, _diag("SPREAD_DATA_MISSING", source, symbol, timeframe, columns_before=columns_before, columns_after=tuple(frame.columns), missing_columns=["spread"]))
     if "real_volume" not in frame.columns:
         frame["real_volume"] = 0
     numeric_columns = ["open", "high", "low", "close", "tick_volume", "spread", "real_volume"]
@@ -105,7 +106,6 @@ def normalize_ohlcv_contract(
     required_rows = int(min_rows if min_rows is not None else DIAGNOSTIC_MIN_BARS.get(timeframe.upper(), 200))
     status = "OK"
     blockers: list[str] = []
-    blockers.extend(contract_warnings)
     if duplicates:
         blockers.append("LIVE_DUPLICATE_TIMESTAMPS")
     if len(frame) < required_rows:
@@ -113,7 +113,7 @@ def normalize_ohlcv_contract(
         blockers.append(status)
     for column in REQUIRED_LIVE_CONTRACT_COLUMNS:
         if column not in frame.columns:
-            frame[column] = 0 if column in {"spread", "real_volume"} else ""
+            frame[column] = 0 if column == "real_volume" else ""
     if source == "historical":
         frame = frame.drop(columns=["volume", "spread_points"], errors="ignore")
         ordered = list(REQUIRED_LIVE_CONTRACT_COLUMNS)

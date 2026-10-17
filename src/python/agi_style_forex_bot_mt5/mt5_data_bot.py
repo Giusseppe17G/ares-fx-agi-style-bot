@@ -496,8 +496,6 @@ class MT5DataOnlyBot:
                         f"{', '.join(contract.diagnostics.get('blockers', ())) or 'live OHLCV contract failed'}"
                     )
                 frame = contract.frame
-                if "spread_points" not in frame.columns:
-                    frame["spread_points"] = snapshot.spread_points
                 if len(frame) < 220:
                     raise ValueError(f"{timeframe} has insufficient bars: {len(frame)}")
                 frames[timeframe] = frame
