@@ -184,13 +184,17 @@ def run_paper_risk_post_fix_gate(
 
 def _status(formulas: list[Mapping[str, Any]], micro: Mapping[str, Any], drawdown: Mapping[str, Any], scaling: Mapping[str, Any]) -> tuple[str, str]:
     drawdown_flags = set(drawdown.get("trigger_flags", []))
-    if "DRAWDOWN_HISTORY_LEAK" in drawdown_flags:
-        return "DRAWDOWN_HISTORY_LEAK", "DRAWDOWN_HISTORY_LEAK"
-    if scaling.get("multiplier_application_ready") and scaling.get("legacy_unscaled_trade_count", 0):
-        return "PAPER_PNL_SCALING_PARTIAL_LEGACY_EVENTS", "LEGACY_UNSCALED_PNL"
-    if scaling.get("multiplier_application_ready"):
-        return "PAPER_PNL_SCALING_FIXED", "PAPER_RISK_MULTIPLIER_APPLIED"
     flags = ";".join(str(row.get("audit_flags", "")) for row in formulas)
+    # A trade with no usable tick value had no money unit, so its multiplier
+    # checks never ran. None of the statuses that lead to a new clearance may
+    # rest on that evidence: they are only reachable when every trade was valued.
+    if "TICK_VALUE_UNAVAILABLE" not in flags:
+        if "DRAWDOWN_HISTORY_LEAK" in drawdown_flags:
+            return "DRAWDOWN_HISTORY_LEAK", "DRAWDOWN_HISTORY_LEAK"
+        if scaling.get("multiplier_application_ready") and scaling.get("legacy_unscaled_trade_count", 0):
+            return "PAPER_PNL_SCALING_PARTIAL_LEGACY_EVENTS", "LEGACY_UNSCALED_PNL"
+        if scaling.get("multiplier_application_ready"):
+            return "PAPER_PNL_SCALING_FIXED", "PAPER_RISK_MULTIPLIER_APPLIED"
     if "MICRO_MULTIPLIER_NOT_APPLIED" in flags or micro.get("micro_risk_application_status") == "MICRO_MULTIPLIER_NOT_APPLIED":
         return "MICRO_RISK_NOT_APPLIED", "MICRO_MULTIPLIER_NOT_APPLIED"
     if any(flag in flags for flag in ("PNL_SIGN_ERROR", "PNL_SCALE_TOO_LARGE", "POINT_PIP_MISMATCH", "RISK_MULTIPLIER_NOT_APPLIED")):

@@ -936,18 +936,15 @@ def run_backtest_for_symbols(
     )
     profile = _signal_profile_settings(cfg.signal_profile, cfg.profile_config)
     resolved_symbols = [item.strip().upper() for item in symbols if item.strip()]
-    # History is read first: an assumed USD-base spec is priced from its own data.
-    loaded: list[tuple[str, Path, pd.DataFrame, DataQualityReport]] = []
-    for symbol in resolved_symbols:
-        path = _find_history_csv(Path(data_dir), symbol, timeframe)
-        candles, quality = load_historical_csv(path, symbol=symbol, timeframe=timeframe)
-        loaded.append((symbol, path, candles, quality))
+    # With assumptions allowed, `symbols` would only feed the placeholder
+    # fallback. The loop builds each placeholder from its own symbol's first
+    # close instead, so each history is read only when its turn comes and is
+    # released after it. Strict runs still name every symbol when they refuse.
     registry, instrument_metadata_source = resolve_registry(
         registry=instruments,
         data_dir=data_dir,
-        symbols=resolved_symbols,
+        symbols=() if allow_assumed_instruments else resolved_symbols,
         allow_assumptions=allow_assumed_instruments,
-        reference_prices={symbol: _first_close(candles) for symbol, _, candles, _ in loaded},
     )
     all_trades: list[pd.DataFrame] = []
     all_equity: list[pd.DataFrame] = []
@@ -958,9 +955,11 @@ def run_backtest_for_symbols(
     signals_generated = 0
     dataset_paths: list[Path] = []
     dataset_end = pd.Timestamp("1970-01-01T00:00:00Z")
-    assumed_symbols: list[str] = []
-    for symbol, path, candles, quality in loaded:
+    assumed_specs: list[InstrumentSpec] = []
+    for symbol in resolved_symbols:
+        path = _find_history_csv(Path(data_dir), symbol, timeframe)
         dataset_paths.append(path)
+        candles, quality = load_historical_csv(path, symbol=symbol, timeframe=timeframe)
         dataset_end = max(dataset_end, pd.Timestamp(candles["timestamp"].max()) + pd.Timedelta(seconds=_timeframe_seconds(timeframe)))
         qualities.append(quality)
         data_valid_symbols.append(symbol)
@@ -971,7 +970,7 @@ def run_backtest_for_symbols(
         else:
             spec = assumed_instrument_for_bars(symbol, candles)
         if is_assumed(spec):
-            assumed_symbols.append(symbol)
+            assumed_specs.append(spec)
         outcome = run_strategy_backtest(candles, symbol=symbol, settings=run_settings, config=cfg, timeframe=timeframe, instrument=spec)
         signals_generated += len(outcome.trades) + len(outcome.rejected_candidates)
         all_rejections.extend(dict(item) | {"symbol": symbol} for item in outcome.rejected_candidates)
@@ -983,6 +982,10 @@ def run_backtest_for_symbols(
         equity["symbol"] = symbol
         all_equity.append(equity)
         promotions[symbol] = classify_strategy_promotion(outcome.metrics, trades)
+    if instrument_metadata_source == ASSUMED_SOURCE:
+        # The manifest hashes the placeholders this run actually priced with; a
+        # repeated symbol still fails closed here, before any report is written.
+        registry = InstrumentRegistry.from_specs(assumed_specs)
 
     trades_frame = pd.concat(all_trades, ignore_index=True) if all_trades else _empty_trades_frame()
     equity_curve = _aggregate_equity_curves(all_equity, run_settings.initial_balance)
@@ -1005,7 +1008,7 @@ def run_backtest_for_symbols(
         "full_risk_pipeline_applied": False,
         "operationally_eligible": False,
         "instrument_metadata_source": instrument_metadata_source,
-        "instrument_metadata_assumed": instrument_metadata_source == ASSUMED_SOURCE or bool(assumed_symbols),
+        "instrument_metadata_assumed": instrument_metadata_source == ASSUMED_SOURCE or bool(assumed_specs),
         "signal_profile_used": profile["name"],
         "thresholds_used": dict(profile),
         "profile_hash": profile["profile_hash"],
