@@ -199,6 +199,11 @@ Reading, without changing any verdict:
 - The take-profit never triggered and no rebalance was blocked by a loss
   halt, as stated before the run; stops triggered 15, 29 and 53 times.
 
+Reproduction check (2026-10-17): the development was re-run from a copy of
+the frozen plan into a fresh ledger with the same data and environment; its
+result digest equals the one the shared ledger recorded
+(`aac13d4236565b656ae7d048d2827271abde8e7d74b191243908760dccab8cd5`).
+
 ### Holdout: not run
 
 No hypothesis passed development, so per the plan none is scored on the
