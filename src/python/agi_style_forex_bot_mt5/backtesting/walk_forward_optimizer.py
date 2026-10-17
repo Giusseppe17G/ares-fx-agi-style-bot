@@ -29,6 +29,7 @@ from .backtester import (
     BacktestMetrics,
     BacktestSettings,
     CostModel,
+    assumed_instrument_for_bars,
     build_equity_curve,
     calculate_metrics,
     generate_strategy_candidates,
@@ -36,7 +37,6 @@ from .backtester import (
 )
 from ..data_pipeline import resolve_historical_data
 from ..config import BotConfig
-from ..core.instruments import assumed_fx_spec
 
 
 BacktestCallback = Callable[[pd.DataFrame, Mapping[str, Any]], BacktestOutcome]
@@ -522,7 +522,8 @@ def _run_param_backtest(frame: pd.DataFrame, symbol: str, params: Mapping[str, A
         trailing_distance_points=float(params.get("trailing_distance_points", 80)),
         max_bars_in_trade=int(params.get("max_bars_in_trade", 96)),
     )
-    instrument = assumed_fx_spec(symbol)
+    # The window's first (warmup) close prices a USD-base tick value; crosses fail closed.
+    instrument = assumed_instrument_for_bars(symbol, frame)
     settings = replace(settings, cost_model=settings.cost_model.with_instrument(instrument))
     candidates = generate_strategy_candidates(
         frame, symbol=symbol, timeframe="M5", config=BotConfig(),

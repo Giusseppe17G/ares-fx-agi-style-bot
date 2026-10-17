@@ -21,7 +21,7 @@ from ...contracts import MarketSnapshot, SignalAction
 from ...strategy import evaluate_ensemble
 from ..clock import Clock, FrozenClock, resolve_clock
 from ..execution import SharedFillModel
-from ..instruments import InstrumentSpec, spec_from_mapping
+from ..instruments import InstrumentSpec, derive_tick_value, spec_from_mapping
 from ..safety import SafetyEnvelope
 
 
@@ -119,7 +119,10 @@ def build_fixture(*, symbol: str = "EURUSD", bars: int = 120, clock: Clock | Non
             "digits": 5,
             "point": 0.00001,
             "tick_size": 0.00001,
-            "tick_value": 1.0,
+            # 1.0 for the default EURUSD; priced at the fixture's start for a USD
+            # base, and a cross fails closed instead of inheriting EURUSD's value.
+            "tick_value": derive_tick_value(currency_base=symbol[:3], currency_quote=symbol[3:6],
+                                            tick_size=0.00001, contract_size=100000.0, price=1.10000),
             "contract_size": 100000.0,
             "min_volume": 0.01,
             "max_volume": 100.0,

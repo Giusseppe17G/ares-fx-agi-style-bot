@@ -863,6 +863,12 @@ no autoriza ejecucion demo ni real y no sustituye el Strategy Promotion Gate.
   autentico ni validez historica. Tick value/moneda/condiciones historicas siguen
   requiriendo evidencia. CLI `build-instrument-registry` requiere mapa JSON y
   destino nuevo, solo initialize/symbol_info/shutdown; nunca account u ordenes.
+- Sin `trade_tick_value` del broker, el tick value USD solo se deriva del precio
+  (`derive_tick_value`): `tick_size*contract_size` con cotizada USD, dividido por
+  el precio del par con base USD (USDJPY); cruces o precio ausente fallan con
+  `InstrumentError`. `assumed_fx_spec` acepta `reference_price` (backtests: primer
+  cierre); no existe tick value supuesto de 1.0. Compatibilidad: llamadas sin
+  precio para USDJPY/USDCHF/USDCAD o con cruces ahora fallan cerradas.
 - `RunManifest` version1.1 agrega hashes de fuentes Python/MQL/scripts y metadata
   o snapshot de instrumentos a la identidad. IDs cambian respecto1.0; campos
   anteriores permanecen. Backtest batch incluye config efectiva, settings y

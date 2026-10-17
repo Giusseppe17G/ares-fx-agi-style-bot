@@ -156,6 +156,7 @@ import pandas as pd
 sys.path.insert(0, "src/python")
 from agi_style_forex_bot_mt5.backtesting import backtester as bt
 from agi_style_forex_bot_mt5.config import BotConfig
+from agi_style_forex_bot_mt5.core.instruments import assumed_fx_point
 from agi_style_forex_bot_mt5.data.strategy_features import prepare_strategy_features, strategy_features_at
 from agi_style_forex_bot_mt5.strategy.strategy_ensemble import evaluate, EnsembleConfig
 
@@ -163,7 +164,7 @@ cfg = BotConfig()
 profile = bt._signal_profile_settings(cfg.signal_profile, cfg.profile_config)
 for symbol in ("EURUSD", "GBPUSD", "USDJPY"):
     bars, _ = bt.load_historical_csv(Path(os.environ["HISTORICAL_DIR"]) / (symbol + "_M5.csv"), symbol=symbol, timeframe="M5")
-    point = bt.assumed_fx_spec(symbol).point
+    point = assumed_fx_point(symbol)  # price grid only; USDJPY's tick value needs a price
     frame = prepare_strategy_features(bars.rename(columns={"timestamp": "timestamp_utc"}), point=point)
     actions, failures = Counter(), Counter()
     passes = 0

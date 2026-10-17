@@ -100,15 +100,18 @@ de precision, volumen, restricciones y monedas usados aqui.
 ## Pruebas
 
 ```powershell
-py -3.14 -B -m pytest tests/python/test_instrument_registry_builder.py tests/python/test_phase82_backtest_live_parity.py
+py -3.14 -B -m pytest tests/python/test_instrument_registry_builder.py tests/python/test_phase82_backtest_live_parity.py tests/python/test_derived_tick_value.py
 ```
 
 Casos automatizados: captura con mapping y objeto, cliente limitado a lectura,
 ausencia de campos requeridos, tipos/limites invalidos, aliases ambiguos,
 campos sensibles descartados, errores redactados, reproducibilidad, roundtrip,
 integridad alterada, esquema parcial, JSON duplicado, inmutabilidad y escritura
-exclusiva/fallida sin archivo parcial. Las fixtures de pytest aislan todas las
-escrituras en temporales; no se escriben datos productivos ni se ejecuta MT5.
+exclusiva/fallida sin archivo parcial. Sin `trade_tick_value`, el tick value se
+deriva del precio (cotizada USD o base USD como USDJPY) y los cruces fallan
+cerrados; ningun spec supuesto vale 1 USD por tick salvo cuando el calculo lo da.
+Las fixtures de pytest aislan todas las escrituras en temporales; no se escriben
+datos productivos ni se ejecuta MT5.
 
 Pendiente externo: capturar metadata real mediante un cliente ya conectado y
 autorizado, vincularla al dataset correcto y verificar las conversiones de riesgo

@@ -48,6 +48,21 @@ def test_conversion_preserves_effective_values_and_unknown_provenance(tmp_path):
     assert before == {path.name: path.read_bytes() for path in source.iterdir()}
 
 
+def test_usdjpy_tick_value_is_priced_not_assumed_one_dollar(tmp_path):
+    source = _inputs(tmp_path)
+    path = source / "USDJPY_M5.csv"
+    frame = pd.read_csv(path)
+    frame[["open", "high", "low", "close"]] = [[150.0, 150.1, 149.9, 150.0]] * len(frame)
+    frame.to_csv(path, index=False)
+    payload = json.loads(converter.prepare(source, tmp_path / "converted").read_text())
+    usdjpy = payload["datasets"]["USDJPY"]
+    # One 0.001 JPY tick on 100,000 USD at the first close of 150.
+    assert usdjpy["instrument"]["tick_value"] == pytest.approx(100.0 / 150.0)
+    assert usdjpy["cost_model"]["tick_value"] == usdjpy["instrument"]["tick_value"]
+    assert payload["datasets"]["EURUSD"]["instrument"]["tick_value"] == 1.0
+    assert not any("1 USD per tick" in item for item in usdjpy["cost_provenance"]["assumptions"])
+
+
 @pytest.mark.parametrize("case", ["time_disagreement", "duplicate", "unsorted", "naive"])
 def test_invalid_history_is_not_repaired_or_partially_exported(tmp_path, case):
     source = _inputs(tmp_path)

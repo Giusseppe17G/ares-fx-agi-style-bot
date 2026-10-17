@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from ..core.instruments import assumed_fx_spec
+from ..core.instruments import assumed_fx_point
+from ..core.operational_state.errors import InstrumentError
 from ..data.strategy_features import prepare_strategy_features
 
 from pathlib import Path
@@ -12,7 +13,7 @@ from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
-from ..backtesting.backtester import _features_from_row, _snapshot_from_row, load_historical_csv
+from ..backtesting.backtester import _features_from_row, _snapshot_from_row, assumed_instrument_for_bars, load_historical_csv
 from ..config import BotConfig
 from ..contracts import SignalAction
 from ..data import add_indicators, add_regime_labels
@@ -71,9 +72,15 @@ def analyze_signal_frequency(
             continue
         try:
             candles, _quality = load_historical_csv(m5.path, symbol=symbol, timeframe="M5")
-            enriched = _enrich(candles, point=assumed_fx_spec(symbol).point)
+            enriched = _enrich(candles, point=assumed_fx_point(symbol))
         except Exception as exc:
             records.append(_record(symbol=symbol, action="NONE", blocking_reason=_csv_error_code(str(exc)), required_data_missing=True, resolutions=resolutions))
+            continue
+        try:
+            # Snapshots never carry an invented tick value; a cross has none to derive.
+            instrument = assumed_instrument_for_bars(symbol, candles)
+        except InstrumentError as exc:
+            records.append(_record(symbol=symbol, action="NONE", blocking_reason=f"INSTRUMENT_METADATA_UNAVAILABLE: {exc}", required_data_missing=True, resolutions=resolutions))
             continue
         partial_timeframes = tuple(
             timeframe
@@ -86,7 +93,7 @@ def analyze_signal_frequency(
         for idx in indexes[:max_rows_per_symbol]:
             row = enriched.iloc[idx]
             try:
-                snapshot = _snapshot_from_row(row, symbol=symbol, timeframe="M5", point=assumed_fx_spec(symbol).point, config=cfg)
+                snapshot = _snapshot_from_row(row, symbol=symbol, timeframe="M5", point=instrument.point, config=cfg, instrument=instrument)
                 snapshot = replace(snapshot, timestamp_utc=(pd.Timestamp(snapshot.timestamp_utc) + pd.Timedelta(minutes=5)).to_pydatetime())
                 features = _features_from_row(enriched, idx, snapshot, cfg)
                 signal = evaluate_ensemble(snapshot, features, mode="shadow")

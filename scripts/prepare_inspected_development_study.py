@@ -48,7 +48,8 @@ def prepare(source_dir: Path, output_dir: Path):
         times = normalized["timestamp_utc"]
         gaps = times.diff().dt.total_seconds().dropna()
         zero_count = int((normalized["spread_points"] == 0).sum())
-        spec = assumed_fx_spec(symbol)
+        # USD-base pairs (USDJPY) price their tick value at the first close.
+        spec = assumed_fx_spec(symbol, reference_price=float(normalized["close"].iloc[0]))
         costs = CostModel(slippage_points=1, commission_per_lot_round_turn=7).with_instrument(spec)
         item = {
             "path": f"{symbol}_M5.csv", "provider": "EXISTING_MT5_EXPORT_ORIGIN_NOT_AUTHENTICATED",
@@ -58,7 +59,7 @@ def prepare(source_dir: Path, output_dir: Path):
                 "commission_currency": "USD", "swap_mode": "NOT_MODELED", "assumptions": [
                     "Bar spreads preserved including zero; no broker cost verification",
                     "One point fixed adverse slippage; 7 USD commission per lot round turn",
-                    "Fixed illustrative tick value 1 USD per tick per lot; no dynamic FX conversion",
+                    "Fixed illustrative USD tick value: tick_size * contract_size, divided by the first close for USD-base pairs; no dynamic FX conversion",
                     "OHLC interpreted as midpoint; observed bid/ask and exit spread unavailable",
                 ]},
             "quality_report": {"status": "INSPECTED_DEVELOPMENT_UNVERIFIED_ORIGIN",

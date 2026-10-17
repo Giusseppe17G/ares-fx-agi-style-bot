@@ -40,9 +40,11 @@ mismos bytes para parsear y calcular hash de origen; verifica que time y
 timestamp_utc coincidan, preserva todas las filas/precios/spreads y comprueba
 roundtrip de la salida canonica. No repara ceros ni huecos. Crea un directorio
 nuevo y JSON con los supuestos ilustrativos fijados en el protocolo, incluidos
-moneda USD, tick value supuesto, lote 0.1 y costes. Nunca evalua resultados ni
-etiqueta esa historia como holdout. Sus seis pruebas verifican preservacion,
-fallos temporales y ausencia de sobrescritura.
+moneda USD, tick value supuesto, lote 0.1 y costes. El tick value se deriva del
+precio (`tick_size * contract_size`, dividido por el primer cierre en pares con
+base USD como USDJPY), nunca 1 USD fijo. Nunca evalua resultados ni etiqueta
+esa historia como holdout. Sus siete pruebas verifican preservacion, fallos
+temporales, ausencia de sobrescritura y el tick value de USDJPY.
 
 ## Ejecución
 
