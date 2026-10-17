@@ -64,7 +64,7 @@ re-scored by choosing another output path.
    of the development result) and the holdout result. The holdout follows
    the ledger, not the development file. A second development or holdout of
    a plan is refused, and so is any plan whose dates overlap a holdout
-   already scored on the same prices, or a holdout whose dates another plan
+   already scored (on any price file), or a holdout whose dates another plan
    developed on. The plan also binds the Python, numpy and pandas versions.
 5. **Plan v1 (`daily_fx/plans.py`)** is frozen with
    `python -m agi_style_forex_bot_mt5.research.daily_fx.runner freeze` and

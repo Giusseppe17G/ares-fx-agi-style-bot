@@ -230,7 +230,8 @@ def signal_flip_rate(prices: pd.DataFrame, config: PortfolioConfig, rates: pd.Da
     sampled = signs.to_numpy()[complete][::config.rebalance_days]
     if len(sampled) < 2:
         raise ValueError("price history is too short to measure the signal's persistence")
-    changes = float(np.mean(sampled[1:] != sampled[:-1]))
+    # A move between +-1 and 0 is half a flip, so blended signals are not overcounted.
+    changes = float(np.mean(np.abs(sampled[1:] - sampled[:-1]))) / 2.0
     return float(min(0.5, max(0.01, changes)))
 
 

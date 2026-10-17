@@ -131,12 +131,15 @@ best case for a real but small premium.
 - The holdout reads which hypotheses proceed, and the PBO, from the ledger;
   the development file must match the digest the ledger recorded.
 - The ledger refuses a second development or holdout of this plan, any plan
-  whose dates overlap a holdout already scored on the same prices, and a
+  whose dates overlap a holdout already scored (on any price file), and a
   holdout whose dates another plan already used for development.
 - The runner writes development.json and holdout.json next to the plan file
   and refuses to run the holdout when holdout.json exists.
 - The plan binds the Python, numpy and pandas versions; a run on other
   versions is refused.
+- Known limit: the hash chain uses no secret, so a fresh or rewritten ledger
+  file would bypass these checks; the committed git history of the shared
+  ledger is the real protection.
 
 ## Kill rule
 

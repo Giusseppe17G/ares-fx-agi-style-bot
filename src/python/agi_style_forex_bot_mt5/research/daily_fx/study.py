@@ -21,7 +21,7 @@ scored on the holdout, and the holdout of a plan is scored once. The ledger,
 not the development JSON, decides which hypotheses proceed (the JSON must
 match the digest the ledger recorded), and it refuses any run whose windows
 overlap a holdout already scored, or a holdout whose window another plan's
-development already used, on the same price data. Verdicts are research
+development already used, whatever price file was used (the dates were seen). Verdicts are research
 labels (PASSED_RESEARCH, WATCHLIST, REJECTED); none of them authorises
 execution.
 Nothing here builds, checks or sends an order.
@@ -48,8 +48,10 @@ from .portfolio import BacktestResult, CostModel, PortfolioConfig, RiskLimits, b
 STUDY_VERSION = "daily_fx_study_v2"
 RATE_SIGNALS = {"tscarry", "blend"}
 # Files whose code decides every number of a study; their sha256 is part of the plan.
-ENGINE_FILES = ("daily_fx/data.py", "daily_fx/portfolio.py", "daily_fx/study.py", "daily_fx/plans.py",
-                "daily_fx/runner.py", "edge_statistics.py", "trial_registry.py")
+# Plan definitions are bound by the frozen plan JSON itself, so adding a plan does
+# not invalidate the frozen ones.
+ENGINE_FILES = ("daily_fx/data.py", "daily_fx/portfolio.py", "daily_fx/study.py", "edge_statistics.py",
+                "trial_registry.py")
 STRESS_WINDOWS = {
     "2008-10_crisis": ("2008-10-01", "2008-10-31"),
     "2009-03_to_2010-06_recovery": ("2009-03-01", "2010-06-30"),
@@ -220,11 +222,11 @@ def _overlaps(first: Sequence[str], second: Sequence[str]) -> bool:
 
 
 def _refuse_seen_data(plan: StudyPlan, ledger: TrialLedger, windows: Sequence[Sequence[str]]) -> None:
-    """Refuse windows that overlap a holdout already scored on the same prices, by any plan."""
+    """Refuse windows that overlap a holdout already scored by any plan, on any price file."""
 
     for record in ledger.records():
         payload = record["payload"]
-        if record["kind"] != "holdout" or payload.get("price_sha256") != plan.data.price_sha256:
+        if record["kind"] != "holdout":
             continue
         if any(_overlaps(window, payload["holdout_window"]) for window in windows):
             raise ValueError(f"these dates overlap a holdout already scored by plan {record['plan_hash'][:12]}")
@@ -415,7 +417,7 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
         "trials": len(trial_sharpes), "pbo": pbo.pbo, "spa_p_value": spa.p_value,
         "price_sha256": plan.data.price_sha256, "development_window": list(plan.development),
         "proceed_to_holdout": {item["hypothesis_id"]: item["proceed_to_holdout"] for item in results},
-        "summary_sha256": digest(summary)})
+        "summary_sha256": digest(summary), "summary": summary})
     return summary
 
 
@@ -443,7 +445,6 @@ def run_holdout(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | None, 
     for record in ledger.records():
         payload = record["payload"]
         if (record["kind"] == "development_summary" and record["plan_hash"] != plan_hash
-                and payload.get("price_sha256") == plan.data.price_sha256
                 and _overlaps(payload["development_window"], plan.holdout)):
             raise ValueError(f"plan {record['plan_hash'][:12]} already developed on these holdout dates")
     target = Path(output)
