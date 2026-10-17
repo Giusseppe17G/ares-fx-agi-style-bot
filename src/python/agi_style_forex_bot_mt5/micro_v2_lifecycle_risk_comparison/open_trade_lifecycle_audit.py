@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
+from agi_style_forex_bot_mt5.core.operational_state.errors import InstrumentError
 from agi_style_forex_bot_mt5.paper_trading.paper_pnl_engine import calculate_scaled_paper_pnl
 from agi_style_forex_bot_mt5.utils.safe_datetime import safe_parse_datetime
 
@@ -36,7 +37,12 @@ def audit_open_trade_lifecycle(
         reward_distance = abs(tp - entry) if entry is not None and tp is not None else None
         age_minutes = _age_minutes(trade.get("opened_at_utc") or trade.get("entry_time_utc"), now)
         calc_trade = {**trade, "current_price": current_price} if current_price is not None else dict(trade)
-        pnl = calculate_scaled_paper_pnl(calc_trade, profile_config=profile_config) if current_price is not None else {}
+        tick_value_unavailable = False
+        try:
+            pnl = calculate_scaled_paper_pnl(calc_trade, profile_config=profile_config) if current_price is not None else {}
+        except InstrumentError:
+            # No broker tick value and none derivable (e.g. a cross): no estimate, flagged.
+            pnl, tick_value_unavailable = {}, True
         row = {
             "trade_id": _trade_id(trade),
             "symbol": symbol,
@@ -69,10 +75,14 @@ def audit_open_trade_lifecycle(
             "exposure_inconsistent": False,
             "pnl_formula_version": pnl.get("pnl_formula_version", ""),
             "pnl_scaling_status": pnl.get("pnl_scaling_status", ""),
+            "pnl_tick_value_unavailable": False,
             "execution_attempted": False,
             "order_send_called": False,
             "order_check_called": False,
         }
+        # Flagged only where a reported PnL field is empty for want of a tick value.
+        row["pnl_tick_value_unavailable"] = tick_value_unavailable and any(
+            row[key] is None for key in ("raw_paper_pnl", "scaled_paper_pnl", "latent_paper_pnl"))
         rows.append(row)
     invalid_risk = sum(1 for row in rows if row["invalid_risk_distance"])
     invalid_sl_tp = sum(1 for row in rows if row["invalid_sl_tp"])

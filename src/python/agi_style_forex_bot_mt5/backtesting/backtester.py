@@ -33,7 +33,7 @@ from ..core.clock import FrozenClock
 from ..core.run_manifest import RunManifest
 from ..core.instruments.snapshot import instrument_metadata_hash
 from ..core.operational_state.errors import ExecutionSimulationError
-from ..core.instruments import ASSUMED_SOURCE, InstrumentRegistry, InstrumentSpec, assumed_fx_spec, resolve_registry
+from ..core.instruments import ASSUMED_SOURCE, InstrumentRegistry, InstrumentSpec, assumed_fx_spec, is_assumed, resolve_registry
 from ..strategy import evaluate_ensemble
 from ..strategy.strategy_ensemble import EnsembleConfig, STRATEGY_VERSION
 
@@ -683,11 +683,11 @@ def run_strategy_backtest(
         trailing_distance_points=80,
         max_bars_in_trade=96,
     )
-    spec = instrument or assumed_fx_spec(symbol)
+    bars = _normalize_candles(candles)
+    spec = instrument or assumed_instrument_for_bars(symbol, bars)
     # One instrument source drives both candidate geometry and the cost model, so a
     # backtest can no longer size trades against different metadata than it prices them with.
     run_settings = replace(run_settings, cost_model=run_settings.cost_model.with_instrument(spec))
-    bars = _normalize_candles(candles)
     candidates = generate_strategy_candidates(
         bars,
         symbol=symbol,
@@ -697,6 +697,23 @@ def run_strategy_backtest(
         instrument=spec,
     )
     return Backtester(run_settings).run(bars, candidates)
+
+
+def assumed_instrument_for_bars(symbol: str, candles: pd.DataFrame) -> InstrumentSpec:
+    """Declared placeholder metadata priced at the run's first close.
+
+    A USD-base pair's tick value moves with its own price. The earliest close is
+    the value a `symbol_info` snapshot taken when the run started would report,
+    with no look-ahead. It is not re-derived per trade (no dynamic conversion is
+    modelled), and a cross still fails closed in `assumed_fx_spec`.
+    """
+
+    return assumed_fx_spec(symbol, reference_price=_first_close(candles))
+
+
+def _first_close(candles: pd.DataFrame) -> float | None:
+    bars = _normalize_candles(candles)
+    return float(bars["close"].iloc[0]) if len(bars) else None
 
 
 def generate_strategy_candidates(
@@ -919,11 +936,18 @@ def run_backtest_for_symbols(
     )
     profile = _signal_profile_settings(cfg.signal_profile, cfg.profile_config)
     resolved_symbols = [item.strip().upper() for item in symbols if item.strip()]
+    # History is read first: an assumed USD-base spec is priced from its own data.
+    loaded: list[tuple[str, Path, pd.DataFrame, DataQualityReport]] = []
+    for symbol in resolved_symbols:
+        path = _find_history_csv(Path(data_dir), symbol, timeframe)
+        candles, quality = load_historical_csv(path, symbol=symbol, timeframe=timeframe)
+        loaded.append((symbol, path, candles, quality))
     registry, instrument_metadata_source = resolve_registry(
         registry=instruments,
         data_dir=data_dir,
         symbols=resolved_symbols,
         allow_assumptions=allow_assumed_instruments,
+        reference_prices={symbol: _first_close(candles) for symbol, _, candles, _ in loaded},
     )
     all_trades: list[pd.DataFrame] = []
     all_equity: list[pd.DataFrame] = []
@@ -934,14 +958,20 @@ def run_backtest_for_symbols(
     signals_generated = 0
     dataset_paths: list[Path] = []
     dataset_end = pd.Timestamp("1970-01-01T00:00:00Z")
-    for symbol in resolved_symbols:
-        path = _find_history_csv(Path(data_dir), symbol, timeframe)
+    assumed_symbols: list[str] = []
+    for symbol, path, candles, quality in loaded:
         dataset_paths.append(path)
-        candles, quality = load_historical_csv(path, symbol=symbol, timeframe=timeframe)
         dataset_end = max(dataset_end, pd.Timestamp(candles["timestamp"].max()) + pd.Timedelta(seconds=_timeframe_seconds(timeframe)))
         qualities.append(quality)
         data_valid_symbols.append(symbol)
-        spec = registry.get(symbol) if registry.has(symbol) else assumed_fx_spec(symbol)
+        # A symbol missing from a sidecar is assumed only where assumptions are
+        # allowed; strict runs fail closed in `registry.get`.
+        if registry.has(symbol) or not allow_assumed_instruments:
+            spec = registry.get(symbol)
+        else:
+            spec = assumed_instrument_for_bars(symbol, candles)
+        if is_assumed(spec):
+            assumed_symbols.append(symbol)
         outcome = run_strategy_backtest(candles, symbol=symbol, settings=run_settings, config=cfg, timeframe=timeframe, instrument=spec)
         signals_generated += len(outcome.trades) + len(outcome.rejected_candidates)
         all_rejections.extend(dict(item) | {"symbol": symbol} for item in outcome.rejected_candidates)
@@ -975,7 +1005,7 @@ def run_backtest_for_symbols(
         "full_risk_pipeline_applied": False,
         "operationally_eligible": False,
         "instrument_metadata_source": instrument_metadata_source,
-        "instrument_metadata_assumed": instrument_metadata_source == ASSUMED_SOURCE,
+        "instrument_metadata_assumed": instrument_metadata_source == ASSUMED_SOURCE or bool(assumed_symbols),
         "signal_profile_used": profile["name"],
         "thresholds_used": dict(profile),
         "profile_hash": profile["profile_hash"],
@@ -1601,11 +1631,12 @@ def _snapshot_from_row(
     stops_level=10, freeze_level=5) are gone from this function.
     """
 
-    spec = instrument or assumed_fx_spec(symbol)
+    close = float(row["close"])
+    # Without an instrument, the bar's own close prices a USD-base tick value.
+    spec = instrument or assumed_fx_spec(symbol, reference_price=close)
     spread_points = float(row.get("spread_points", config.max_spread_points_default))
     if math.isnan(spread_points):
         spread_points = config.max_spread_points_default
-    close = float(row["close"])
     half_spread = spread_points * spec.point / 2.0
     return MarketSnapshot(
         symbol=symbol,

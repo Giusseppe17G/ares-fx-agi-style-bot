@@ -23,6 +23,10 @@ def audit_pnl_readiness(lifecycle: Mapping[str, Any], profile_values: Mapping[st
             issues.append({"trade_id": row.get("trade_id"), "issue": "PNL_SCALING_STATUS_ISSUE"})
         if row.get("missing_current_price"):
             continue
+        if row.get("pnl_tick_value_unavailable"):
+            # A PnL that cannot be valued is not ready, and not a zero.
+            issues.append({"trade_id": row.get("trade_id"), "issue": "PNL_TICK_VALUE_UNAVAILABLE"})
+            continue
         multiplier = _profile_multiplier(profile_values)
         if multiplier is not None and abs(raw) > 1e-9 and abs(scaled - (raw * multiplier)) > max(abs(raw) * 0.05, 1e-6):
             issues.append({"trade_id": row.get("trade_id"), "issue": "PNL_SCALED_VALUE_INCONSISTENT"})

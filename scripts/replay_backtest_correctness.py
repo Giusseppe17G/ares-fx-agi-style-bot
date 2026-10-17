@@ -25,11 +25,11 @@ def main() -> None:
         parser.error("source-root must contain the project backtester; installed packages are not a fallback")
     sys.path.insert(0, str(package_root))
     from agi_style_forex_bot_mt5.backtesting.backtester import (
-        ENGINE_VERSION, BacktestSettings, CostModel, load_historical_csv, run_strategy_backtest,
+        ENGINE_VERSION, BacktestSettings, CostModel, assumed_instrument_for_bars, load_historical_csv,
+        run_strategy_backtest,
     )
     from agi_style_forex_bot_mt5.config import BotConfig
     from agi_style_forex_bot_mt5.core import SafetyEnvelope
-    from agi_style_forex_bot_mt5.core.instruments import assumed_fx_spec
     from agi_style_forex_bot_mt5.strategy.strategy_ensemble import STRATEGY_VERSION
 
     # New output only: preserve previous historical reports.
@@ -53,7 +53,8 @@ def main() -> None:
             raise ValueError("diagnostic requires six-letter FX symbols")
         path = args.data_dir / (symbol + "_M5.csv")
         frame, quality = load_historical_csv(path, symbol=symbol, timeframe="M5")
-        instrument = assumed_fx_spec(symbol)
+        # USD-base pairs price their tick value at the first close; crosses fail closed.
+        instrument = assumed_instrument_for_bars(symbol, frame)
         outcome = run_strategy_backtest(
             frame, symbol=symbol, timeframe="M5", config=config,
             settings=settings, instrument=instrument,

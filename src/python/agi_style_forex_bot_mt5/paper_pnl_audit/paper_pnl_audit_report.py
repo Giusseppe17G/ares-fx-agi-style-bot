@@ -195,6 +195,9 @@ def _status(formulas: list[Mapping[str, Any]], micro: Mapping[str, Any], drawdow
         return "MICRO_RISK_NOT_APPLIED", "MICRO_MULTIPLIER_NOT_APPLIED"
     if any(flag in flags for flag in ("PNL_SIGN_ERROR", "PNL_SCALE_TOO_LARGE", "POINT_PIP_MISMATCH", "RISK_MULTIPLIER_NOT_APPLIED")):
         return "PAPER_PNL_SCALING_BUG", _first_flag(flags)
+    if "TICK_VALUE_UNAVAILABLE" in flags:
+        # The multiplier checks could not run for some trade; nothing below is proven.
+        return "PAPER_PNL_AUDIT_INCONCLUSIVE", "TICK_VALUE_UNAVAILABLE"
     if "DRAWDOWN_HISTORY_LEAK" in drawdown_flags:
         return "DRAWDOWN_HISTORY_LEAK", "DRAWDOWN_HISTORY_LEAK"
     if "DRAWDOWN_UNIT_MISMATCH" in drawdown_flags:

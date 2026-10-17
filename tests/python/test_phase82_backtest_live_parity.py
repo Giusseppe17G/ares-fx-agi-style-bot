@@ -156,7 +156,8 @@ def test_resolution_order_and_strict_mode(tmp_path: Path) -> None:
 
 def test_assumed_specs_are_labelled_so_reports_can_refuse_them() -> None:
     assert is_assumed(assumed_fx_spec("EURUSD")) is True
-    assert assumed_fx_spec("USDJPY").digits == 3
+    # A USDJPY placeholder needs its price: its tick value is 100 JPY per lot, not 1 USD.
+    assert assumed_fx_spec("USDJPY", reference_price=150.0).digits == 3
     assert assumed_fx_spec("EURUSD").digits == 5
 
 

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Mapping
+
+from agi_style_forex_bot_mt5.core.instruments import derive_tick_value
+from agi_style_forex_bot_mt5.core.operational_state.errors import InstrumentError
 
 
 def audit_pnl_formulas(trades: list[Mapping[str, Any]], contracts: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -19,8 +23,8 @@ def audit_pnl_formulas(trades: list[Mapping[str, Any]], contracts: list[Mapping[
         reported = _float(trade.get("reported_profit"))
         point = max(_float(contract.get("point"), 0.00001), 1e-12)
         tick_size = max(_float(contract.get("tick_size"), point), 1e-12)
-        tick_value = _float(contract.get("tick_value"), 1.0)
         contract_size = _float(contract.get("contract_size"), 100000.0)
+        tick_value = _tick_value(symbol, contract.get("tick_value"), tick_size=tick_size, contract_size=contract_size, price=exit_price)
         commission = _float(trade.get("commission_assumed"))
         raw_delta = exit_price - entry
         direction_delta = -raw_delta if direction == "SELL" else raw_delta
@@ -28,11 +32,14 @@ def audit_pnl_formulas(trades: list[Mapping[str, Any]], contracts: list[Mapping[
         pip_delta = point_delta / (10.0 if int(_float(contract.get("digits"), 5)) in {3, 5} else 1.0)
         pnl_naive = direction_delta
         pnl_with_contract_size = direction_delta * contract_size * volume - commission
-        pnl_with_tick_value = (direction_delta / tick_size) * tick_value * volume - commission
         micro = _float(trade.get("paper_risk_multiplier"), 1.0)
         risk_multiplier = _float(trade.get("risk_multiplier"), 1.0)
-        pnl_with_micro = pnl_with_tick_value * micro
-        pnl_with_risk = pnl_with_tick_value * risk_multiplier
+        if tick_value is None:
+            pnl_with_tick_value = pnl_with_micro = pnl_with_risk = None
+        else:
+            pnl_with_tick_value = (direction_delta / tick_size) * tick_value * volume - commission
+            pnl_with_micro = pnl_with_tick_value * micro
+            pnl_with_risk = pnl_with_tick_value * risk_multiplier
         scaled_recorded = _float(trade.get("scaled_paper_pnl"), reported)
         flags = _flags(
             trade=trade,
@@ -78,9 +85,9 @@ def _flags(
     *,
     trade: Mapping[str, Any],
     reported: float,
-    pnl_with_tick_value: float,
-    pnl_with_micro: float,
-    pnl_with_risk: float,
+    pnl_with_tick_value: float | None,
+    pnl_with_micro: float | None,
+    pnl_with_risk: float | None,
     direction_delta: float,
     point_delta: float,
 ) -> list[str]:
@@ -91,6 +98,10 @@ def _flags(
         flags.append("PNL_SIGN_ERROR")
     if abs(point_delta) > 1000:
         flags.append("POINT_PIP_MISMATCH")
+    if pnl_with_tick_value is None or pnl_with_micro is None or pnl_with_risk is None:
+        # No money unit to compare against: nothing is claimed about the multipliers.
+        flags.append("TICK_VALUE_UNAVAILABLE")
+        return flags
     micro = _float(trade.get("paper_risk_multiplier"), 1.0)
     if micro < 1.0 and _close(reported, pnl_with_tick_value) and not _close(reported, pnl_with_micro):
         flags.append("MICRO_MULTIPLIER_NOT_APPLIED")
@@ -102,6 +113,19 @@ def _flags(
     if not flags and reported == 0 and trade.get("exit_time_utc"):
         flags.append("UNKNOWN_PNL_FORMULA")
     return flags
+
+
+def _tick_value(symbol: str, reported: Any, *, tick_size: float, contract_size: float, price: float) -> float | None:
+    """MT5 tick value when captured, else derived from the trade's price, else None."""
+
+    if reported is not None and reported != "":
+        value = _float(reported, math.nan)
+        return value if not isinstance(reported, bool) and math.isfinite(value) and value > 0 else None
+    try:
+        return derive_tick_value(currency_base=symbol[0:3], currency_quote=symbol[3:6], tick_size=tick_size,
+                                 contract_size=contract_size, price=price)
+    except InstrumentError:
+        return None
 
 
 def _close(left: float, right: float, tolerance: float = 1e-6) -> bool:
