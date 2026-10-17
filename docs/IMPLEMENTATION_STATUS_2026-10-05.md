@@ -308,6 +308,16 @@ por Telegram, una cuenta real con el terminal desconectado bloquea, la parada es
 cooperativa (`stop-shadow`, Ctrl+C) y el watchdog no relanza paradas
 deliberadas, latches ni fallos de integridad.
 
+Estudio diario predeclarado de primas lentas FX (2026-10-17,
+`docs/research/daily-fx-slow-premia-predeclared-v1.md`): tendencia de 12 meses,
+carry y su mezcla sobre las nueve divisas G10 contra USD, simulados dentro de
+los limites del bot y congelados antes de ver resultados. Las tres hipotesis
+fallan los filtros de desarrollo (mejor t de Newey-West 0,62 frente a 2,0;
+PBO 0,69) y quedan rechazadas; el periodo reservado 2017-2026 no se evaluo y
+sigue sin usar. Con 0,5% de riesgo por posicion y stops de 2,5 sigmas
+mensuales la cartera es pequena (volatilidad cerca del 3%), y el sobrecoste
+del swap consume cerca de la mitad del rendimiento bruto de la tendencia.
+
 ## Pendientes que impiden promocion
 
 1. Capturas nuevas de quotes bid/ask y metadata del broker, con costes y moneda

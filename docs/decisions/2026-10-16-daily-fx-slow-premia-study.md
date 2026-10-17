@@ -86,3 +86,12 @@ re-scored by choosing another output path.
 - Compatibility: additive. `PortfolioConfig` gains `shift_days`, `backtest`
   gains `limits` and `rates`, the result gains `contributions`, and the FRED
   loader's convention is corrected. No public contract of the bot changes.
+
+## Outcome (2026-10-17)
+
+Plan v1 (hash `82e80e9d`) was frozen at commit 7ff2c2a and its development
+run recorded at b264293. All three hypotheses failed the development gates
+(best Newey-West t 0.62 against 2.0; PBO 0.69), so they are REJECTED and the
+holdout was not scored. Details:
+`docs/research/daily-fx-slow-premia-predeclared-v1.md`. The engine stays as
+research tooling; no daily paper path is opened on the basis of this study.

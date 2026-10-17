@@ -158,5 +158,56 @@ follow-up is a new plan scored on data no plan has seen.
 ## Results
 
 Filled in after the runs, without editing anything above. The development
-result, the holdout result and the trial ledger are written next to the
-frozen plan file (development.json, holdout.json, ledger.jsonl).
+result was written by the runner to
+`docs/research/daily_fx_slow_premia_v1/development.json` and every trial,
+control and summary to the shared ledger `docs/research/trial_ledger.jsonl`
+(11 records, chain verified).
+
+### Development (run once on 2026-10-17, commit b264293): all REJECTED
+
+Common window 2002-05-02 to 2016-12-30 (3,827 days); H1 from 2000. Seven
+trials: PBO 0.69 (gate <= 0.30), SPA_c p 0.15 (gate <= 0.05).
+
+| | H1 trend 12m | H2 blend | H3 carry |
+|---|---|---|---|
+| Net Sharpe (gate >= 0.3) | 0.14 | 0.17 | -0.11 |
+| Gross Sharpe (before costs and swap mark-up) | 0.29 | 0.27 | 0.04 |
+| Net annual return | 0.46% | 0.42% | -0.36% |
+| Annual volatility | 3.2% | 2.6% | 3.1% |
+| Max drawdown (gate < 12%) | 15.5% | 14.4% | 26.8% |
+| Newey-West t (gate >= 2.0) | 0.57 | 0.62 | -0.41 |
+| Holm-adjusted p (gate <= 0.05) | 0.79 | 0.79 | 0.79 |
+| Deflated Sharpe (gate >= 0.95) | 0.37 | 0.41 | 0.10 |
+| Share of random books as good (gate <= 0.05) | 0.065 | 0.10 | 0.37 |
+| Share of time-shifted books as good (gate <= 0.05) | 0.065 | 0.27 | 0.69 (not gated) |
+| Sharpe with doubled costs (gate > 0) | 0.001 | 0.06 | -0.27 |
+| Gates failed | 9 of 11 | 9 of 11 | 10 of 11 |
+
+Reading, without changing any verdict:
+
+- No hypothesis comes close: the best t-statistic is 0.62 against a bar of
+  2.0. The declared variants (H1 at 6 and 3 months, the 3/6/12 mix, H2 at
+  6 months) reach net Sharpes of 0.23-0.40; with PBO 0.69, picking the best
+  of them would most likely be overfitting, and none would reach t >= 2.
+- Trend made money in 2000-2004 and 2007-2008 and lost from 2009 to 2013,
+  in line with the published post-2008 weakness of FX momentum. Carry lost
+  9.8% in 2008 and 7.8% in 2014.
+- Under the bot's invariants the book is small (gross exposure about 0.3-0.6
+  of equity, volatility about 3%), so the swap mark-up on gross exposure
+  takes about half of H1's gross return. A premium of this size cannot pay
+  retail financing at these position sizes.
+- The take-profit never triggered and no rebalance was blocked by a loss
+  halt, as stated before the run; stops triggered 15, 29 and 53 times.
+
+### Holdout: not run
+
+No hypothesis passed development, so per the plan none is scored on the
+holdout. The holdout phase was deliberately not executed: it would score
+nothing, and recording a holdout window in the shared ledger would block
+those dates for future plans although no plan has looked at them. The
+2017-01-01 to 2026-10-09 data remain unscored by any plan.
+
+### Verdict
+
+H1, H2 and H3 are REJECTED (kill rule: not re-tuned, not re-tested on these
+data). No daily FX book is promoted to paper or demo work by this study.
