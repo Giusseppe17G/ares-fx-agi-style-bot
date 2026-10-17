@@ -35,7 +35,8 @@ It compares:
 - Profit factor.
 - Max drawdown percent.
 - Expectancy R.
-- Sharpe and Sortino.
+- Sharpe (daily mark-to-market, annualised) and Sortino.
+- Per-trade t-statistic (`t_stat`, not a Sharpe).
 - Winrate.
 - Trades count.
 - Robustness score.

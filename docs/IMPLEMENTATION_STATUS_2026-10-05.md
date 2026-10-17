@@ -41,6 +41,9 @@ anteriores. Se conserva ese historial y se distingue de la evidencia nueva.
 - Motor OHLC 0.3.2 transmite tick_size real al fill y valida la rejilla de SL/TP.
   BE/trailing usan distancias decimales y stops conservadores; las regresiones
   reproducen precios antes inejecutables y activacion perdida de BE exacto.
+- Motor OHLC 0.4.0 (barras bid, gaps a traves del SL, spread de la barra de
+  salida y `t_stat` separado del Sharpe diario): reportes de motores anteriores
+  deben reevaluarse antes de usarse como evidencia, sin sobrescribirlos.
 - Monte Carlo conserva la secuencia realmente mezclada y separa su indice
   sintetico del calendario. Stress declara aproximaciones posteriores al trade;
   retrasos, sesiones, fill rate y barras ausentes siguen NOT_MODELED. Reportes v2

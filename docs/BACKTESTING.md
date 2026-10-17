@@ -98,7 +98,8 @@ Read these first:
 - `max_drawdown_pct`
 - `winrate`
 - `expectancy_r`
-- `sharpe`
+- `sharpe` (annualised from daily mark-to-market equity, flat weekdays included)
+- `t_stat` (per-trade mean/std times sqrt(n); it grows with the sample and is not a Sharpe)
 - `sortino`
 
 Then inspect:

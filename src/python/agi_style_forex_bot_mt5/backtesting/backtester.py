@@ -34,11 +34,17 @@ from ..core.run_manifest import RunManifest
 from ..core.instruments.snapshot import instrument_metadata_hash
 from ..core.operational_state.errors import ExecutionSimulationError
 from ..core.instruments import ASSUMED_SOURCE, InstrumentRegistry, InstrumentSpec, assumed_fx_spec, resolve_registry
+from ..execution_simulation.gap_model import GapModel
 from ..strategy import evaluate_ensemble
 from ..strategy.strategy_ensemble import EnsembleConfig, STRATEGY_VERSION
 
 
-ENGINE_VERSION = "0.3.2"
+# 0.4.0: bid bars, ask-side SELL exits, gap fills, exit-bar spread, and the
+# per-trade statistic reported as t_stat beside a daily mark-to-market Sharpe.
+ENGINE_VERSION = "0.4.0"
+# Daily metrics sample every weekday, flat days and holidays included, so the
+# sampling frequency is also the annualisation factor.
+WEEKDAYS_PER_YEAR = 365.25 / 7 * 5
 
 
 @dataclass(frozen=True)
@@ -180,8 +186,16 @@ class BacktestMetrics:
     profit_factor: float
     max_drawdown_pct: float
     daily_max_drawdown_pct: float
+    # Annualised, from weekday mark-to-market equity; None without marks.
     sharpe: float | None
     sortino: float | None
+    # Mean/std of per-trade returns times sqrt(n): grows with the sample.
+    t_stat: float | None
+    skew: float | None
+    # Non-excess (normal = 3), as research.edge_statistics.moments.
+    kurtosis: float | None
+    cagr_pct: float | None
+    calmar: float | None
     expectancy: float
     expected_payoff: float
     average_r: float
@@ -222,6 +236,11 @@ class BacktestMetrics:
             "expected_payoff": self.expected_payoff,
             "sharpe": self.sharpe,
             "sortino": self.sortino,
+            "t_stat": self.t_stat,
+            "skew": self.skew,
+            "kurtosis": self.kurtosis,
+            "cagr_pct": self.cagr_pct,
+            "calmar": self.calmar,
             "recovery_factor": self.recovery_factor,
             "notes": "Python OHLC research backtest; not an MT5 execution report.",
             "avg_win": self.avg_win,
@@ -255,6 +274,8 @@ class BacktestOutcome:
     trades: tuple[TradeResult, ...]
     rejected_candidates: tuple[dict[str, Any], ...]
     equity_curve: pd.DataFrame
+    # Realized equity plus open positions marked at each bar close.
+    mark_to_market_curve: pd.DataFrame | None = None
 
     def trades_frame(self) -> pd.DataFrame:
         rows: list[dict[str, Any]] = []
@@ -340,6 +361,8 @@ class Backtester:
         trades: list[TradeResult] = []
         rejected: list[dict[str, Any]] = []
         exposure_indices: set[int] = set()
+        realized = np.zeros(len(bars), dtype=float)
+        unrealized = np.zeros(len(bars), dtype=float)
         for candidate in normalized_candidates:
             stable_reason = dict(candidate.metadata).get("stable_rejection_reason")
             if stable_reason:
@@ -353,7 +376,7 @@ class Backtester:
                 )
                 continue
             try:
-                trade, used_indices = self._simulate_candidate(bars, candidate)
+                trade, used_indices, marks = self._simulate_candidate(bars, candidate)
             except ValueError as exc:
                 rejected.append(
                     {
@@ -367,17 +390,26 @@ class Backtester:
             if trade is not None:
                 trades.append(trade)
                 exposure_indices.update(used_indices)
+                # Unrepresentable money stays non-finite; daily metrics then report None.
+                with np.errstate(invalid="ignore", over="ignore"):
+                    realized[max(used_indices)] += trade.profit
+                    for idx, value in marks.items():
+                        unrealized[idx] += value
         equity_curve = build_equity_curve(
             trades,
             initial_balance=self.settings.initial_balance,
             candles=bars,
         )
+        with np.errstate(invalid="ignore", over="ignore"):
+            marked_equity = self.settings.initial_balance + np.cumsum(realized) + unrealized
+        mark_to_market_curve = pd.DataFrame({"timestamp": bars["timestamp"], "equity": marked_equity})
         metrics = calculate_metrics(
             trades,
             initial_balance=self.settings.initial_balance,
             equity_curve=equity_curve,
             total_bars=len(bars),
             exposed_bars=len(exposure_indices),
+            mark_to_market=mark_to_market_curve,
         )
         return BacktestOutcome(
             settings=self.settings,
@@ -385,11 +417,12 @@ class Backtester:
             trades=tuple(trades),
             rejected_candidates=tuple(rejected),
             equity_curve=equity_curve,
+            mark_to_market_curve=mark_to_market_curve,
         )
 
     def _simulate_candidate(
         self, bars: pd.DataFrame, candidate: TradeCandidate
-    ) -> tuple[TradeResult | None, set[int]]:
+    ) -> tuple[TradeResult | None, set[int], dict[int, float]]:
         if not math.isfinite(candidate.lot) or candidate.lot <= 0:
             raise ValueError("candidate lot must be positive")
         if not all(math.isfinite(value) and value > 0 for value in (candidate.sl_price, candidate.tp_price)):
@@ -425,6 +458,7 @@ class Backtester:
             raise ValueError("spread exceeds configured maximum")
 
         direction = _direction_value(candidate.direction)
+        # Bars, and a legacy entry_price, are bid quotes: a BUY opens on the ask.
         base_entry = float(candidate.entry_price if candidate.entry_price is not None else entry_bar.open)
         entry_price = _apply_entry_cost(
             base_entry,
@@ -434,6 +468,7 @@ class Backtester:
             point=self.settings.cost_model.point,
             tick_size=self.settings.cost_model.tick_size,
             max_spread_points=self.settings.cost_model.max_spread_points,
+            quote="bid",
         )
         _validate_directional_prices(direction, entry_price, candidate.sl_price, candidate.tp_price)
 
@@ -451,69 +486,78 @@ class Backtester:
 
         mae = 0.0
         mfe = 0.0
-        exit_base_price = float(bars.iloc[max_idx].close)
-        exit_reason = "END_OF_DATA"
-        exit_idx = max_idx
         used_indices: set[int] = set()
+        marks: dict[int, float] = {}
+        commission = self.settings.cost_model.commission_per_lot_round_turn * candidate.lot
+        point = Decimal(str(self.settings.cost_model.point))
+        # Missing held-bar spread is never read as zero: the closing side
+        # assumes the widest spread the entry gate admits.
+        assumed_spread = max(spread_points, self.settings.cost_model.max_spread_points)
+        assumed_spread_bars = 0
+        gap_model = GapModel()
+        decision = None
 
         for idx in range(start_idx, max_idx + 1):
             row = bars.iloc[idx]
             used_indices.add(idx)
-            high = float(row.high)
-            low = float(row.low)
+            bar_spread = spread_points
+            if idx != start_idx:
+                try:
+                    bar_spread = _bar_spread_points(row, self.settings.cost_model.spread_points)
+                except ValueError:
+                    bar_spread = assumed_spread
+                    assumed_spread_bars += 1
+            # Bars are bid quotes. A BUY closes on the bid and a SELL on the ask,
+            # so SELL protection triggers on bar prices plus this bar's spread.
+            offset = Decimal(0) if direction == Direction.BUY.value else Decimal(str(bar_spread)) * point
+            open_, high, low, close = (Decimal(str(float(row[name]))) + offset
+                                       for name in ("open", "high", "low", "close"))
             if direction == Direction.BUY.value:
-                mae = min(mae, float(Decimal(str(low)) - entry_decimal))
-                mfe = max(mfe, float(Decimal(str(high)) - entry_decimal))
-                if low <= current_sl:
-                    exit_base_price = current_sl
-                    exit_reason = "SL"
-                    exit_idx = idx
-                    break
-                if high >= tp_price:
-                    exit_base_price = tp_price
-                    exit_reason = "TP"
-                    exit_idx = idx
-                    break
-                current_sl = self._maybe_move_stop(
-                    direction=direction,
-                    current_sl=current_sl,
-                    entry_price=entry_price,
-                    favorable_excursion=mfe,
-                    risk_distance=risk_distance,
-                    bar_extreme=high,
-                )
+                mae = min(mae, float(low - entry_decimal))
+                mfe = max(mfe, float(high - entry_decimal))
             else:
-                mae = min(mae, float(entry_decimal - Decimal(str(high))))
-                mfe = max(mfe, float(entry_decimal - Decimal(str(low))))
-                if high >= current_sl:
-                    exit_base_price = current_sl
-                    exit_reason = "SL"
-                    exit_idx = idx
-                    break
-                if low <= tp_price:
-                    exit_base_price = tp_price
-                    exit_reason = "TP"
-                    exit_idx = idx
-                    break
-                current_sl = self._maybe_move_stop(
-                    direction=direction,
-                    current_sl=current_sl,
-                    entry_price=entry_price,
-                    favorable_excursion=mfe,
-                    risk_distance=risk_distance,
-                    bar_extreme=low,
+                mae = min(mae, float(entry_decimal - high))
+                mfe = max(mfe, float(entry_decimal - low))
+            # A gap through the stop fills at the worse open; a gap through the
+            # target fills at the target; a bar touching both is a stop.
+            decision = gap_model.resolve_bar_exit(
+                direction=direction, open_price=float(open_), high=float(high), low=float(low),
+                sl=current_sl, tp=tp_price,
+            )
+            if decision is not None:
+                break
+            if idx < max_idx:
+                marks[idx] = _profit_for_price_move(
+                    direction=direction, entry_price=entry_price, exit_price=float(close), lot=candidate.lot,
+                    tick_size=self.settings.cost_model.tick_size, tick_value=self.settings.cost_model.tick_value,
+                    commission=commission,
                 )
+            current_sl = self._maybe_move_stop(
+                direction=direction,
+                current_sl=current_sl,
+                entry_price=entry_price,
+                favorable_excursion=mfe,
+                risk_distance=risk_distance,
+                bar_extreme=float(high if direction == Direction.BUY.value else low),
+            )
 
+        exit_idx = idx
+        if decision is None:
+            exit_base_price, exit_reason, exit_flags = float(close), "END_OF_DATA", ()
+        else:
+            exit_base_price, exit_flags = float(decision.exit_price), tuple(decision.flags)
+            exit_reason = "SL" if decision.exit_reason == "GAP_THROUGH_SL" else decision.exit_reason
         exit_price = _apply_exit_cost(
             exit_base_price,
             direction=direction,
-            spread_points=spread_points,
+            spread_points=bar_spread,
             slippage_points=self.settings.cost_model.slippage_points,
             point=self.settings.cost_model.point,
             tick_size=self.settings.cost_model.tick_size,
-            max_spread_points=self.settings.cost_model.max_spread_points,
+            # The spread gate decides entries; it never refuses a protective exit.
+            max_spread_points=max(self.settings.cost_model.max_spread_points, bar_spread),
+            quote="closing_side",
         )
-        commission = self.settings.cost_model.commission_per_lot_round_turn * candidate.lot
         profit = _profit_for_price_move(
             direction=direction,
             entry_price=entry_price,
@@ -563,9 +607,12 @@ class Backtester:
                     "available_at_utc": timestamp.isoformat(),
                     "entry_timing": "FIRST_OPEN_AT_OR_AFTER_AVAILABILITY",
                 } if candidate.available_at_utc is not None else {}),
+                "exit_spread_points": bar_spread,
+                "exit_fill_flags": exit_flags,
+                "assumed_spread_bars": assumed_spread_bars,
             },
         )
-        return trade, used_indices
+        return trade, used_indices, marks
 
     def _maybe_move_stop(
         self,
@@ -927,6 +974,7 @@ def run_backtest_for_symbols(
     )
     all_trades: list[pd.DataFrame] = []
     all_equity: list[pd.DataFrame] = []
+    all_marks: list[pd.DataFrame] = []
     all_rejections: list[dict[str, Any]] = []
     qualities: list[DataQualityReport] = []
     promotions: dict[str, PromotionGateResult] = {}
@@ -952,11 +1000,15 @@ def run_backtest_for_symbols(
         equity = outcome.equity_curve.copy()
         equity["symbol"] = symbol
         all_equity.append(equity)
+        if outcome.mark_to_market_curve is not None:
+            all_marks.append(outcome.mark_to_market_curve.assign(symbol=symbol))
         promotions[symbol] = classify_strategy_promotion(outcome.metrics, trades)
 
     trades_frame = pd.concat(all_trades, ignore_index=True) if all_trades else _empty_trades_frame()
     equity_curve = _aggregate_equity_curves(all_equity, run_settings.initial_balance)
-    metrics = calculate_metrics(trades_frame.to_dict("records"), initial_balance=run_settings.initial_balance, equity_curve=equity_curve)
+    marks = _aggregate_equity_curves(all_marks, run_settings.initial_balance) if all_marks else None
+    metrics = calculate_metrics(trades_frame.to_dict("records"), initial_balance=run_settings.initial_balance,
+                                equity_curve=equity_curve, mark_to_market=marks)
     by_symbol = _group_metrics(trades_frame, "symbol")
     by_regime = _group_metrics(trades_frame, "regime")
     by_session = _group_metrics(trades_frame, "session")
@@ -1002,6 +1054,11 @@ def run_backtest_for_symbols(
         "expectancy_r": metrics.average_r,
         "sharpe": metrics.sharpe,
         "sortino": metrics.sortino,
+        "t_stat": metrics.t_stat,
+        "skew": metrics.skew,
+        "kurtosis": metrics.kurtosis,
+        "cagr_pct": metrics.cagr_pct,
+        "calmar": metrics.calmar,
         "classification": "WARNING_SIGNALS_NO_TRADES" if signals_generated > 0 and metrics.trades_total == 0 else classification,
         "execution_attempted": False,
         "reports_created": [],
@@ -1102,8 +1159,14 @@ def calculate_metrics(
     equity_curve: pd.DataFrame | None = None,
     total_bars: int | None = None,
     exposed_bars: int | None = None,
+    mark_to_market: pd.DataFrame | None = None,
 ) -> BacktestMetrics:
-    """Calculate project-required metrics from closed trades."""
+    """Calculate project-required metrics from closed trades.
+
+    Sharpe, skew, kurtosis, CAGR and Calmar need mark-to-market equity
+    (timestamp, equity) and are None without it; closed trades alone would
+    hide open-position risk.
+    """
 
     normalized = _ordered_trade_mappings(trades)
     profits = np.array([float(trade["profit"]) for trade in normalized], dtype=float)
@@ -1134,8 +1197,10 @@ def calculate_metrics(
     max_dd_pct, drawdown_pct = _max_drawdown_pct(equity)
     daily_max_dd_pct = _daily_max_drawdown_pct(equity_curve, initial_balance)
     trade_returns = _trade_returns(profits, initial_balance)
-    sharpe = _sharpe(trade_returns)
+    t_stat = _trade_t_stat(trade_returns)
     sortino = _sortino(trade_returns)
+    daily_equity = _daily_mark_to_market_equity(mark_to_market) if mark_to_market is not None else None
+    sharpe, skew, kurtosis, cagr_pct, calmar = _daily_equity_metrics(daily_equity, initial_balance)
     max_dd_amount = float((equity.cummax() - equity).max()) if len(equity) else 0.0
     recovery_factor = net_profit / max_dd_amount if max_dd_amount > 0 else None
     monthly_returns, trades_per_month = _monthly_stats(normalized, initial_balance)
@@ -1167,6 +1232,11 @@ def calculate_metrics(
         daily_max_drawdown_pct=daily_max_dd_pct,
         sharpe=sharpe,
         sortino=sortino,
+        t_stat=t_stat,
+        skew=skew,
+        kurtosis=kurtosis,
+        cagr_pct=cagr_pct,
+        calmar=calmar,
         expectancy=expectancy,
         expected_payoff=expectancy,
         average_r=average_r,
@@ -1283,11 +1353,14 @@ def _apply_entry_cost(
     point: float,
     tick_size: float | None = None,
     max_spread_points: float = 25.0,
+    quote: str = "mid",
 ) -> float:
     """Entry price under the shared execution model.
 
     Delegates to `execution_simulation.FillModel` via SharedFillModel, the same
     model paper trading uses, including its price precision and spread gate.
+    `quote` says what base_price is: "mid" (legacy private callers) or "bid"
+    (bar prices, as the Backtester passes them).
     """
 
     return _shared_fill_price(
@@ -1299,6 +1372,7 @@ def _apply_entry_cost(
         tick_size=tick_size,
         is_entry=True,
         max_spread_points=max_spread_points,
+        quote=quote,
     )
 
 
@@ -1312,8 +1386,12 @@ def _shared_fill_price(
     is_entry: bool,
     tick_size: float | None = None,
     max_spread_points: float = 25.0,
+    quote: str = "mid",
 ) -> float:
-    snapshot = _replay_snapshot(base_price, spread_points=spread_points, point=point, tick_size=tick_size)
+    if quote not in {"mid", "bid", "closing_side"} or (is_entry and quote == "closing_side"):
+        raise ValueError("unsupported replay quote convention")
+    snapshot = _replay_snapshot(base_price, spread_points=spread_points, point=point, tick_size=tick_size,
+                                quote="mid" if quote == "mid" else "bid")
     model = SharedFillModel(max_spread_points=max_spread_points, slippage_points=slippage_points)
     # Reapply the same limit as the run's gate, without inflating it.
     # Preserve the observed spread exactly, including zero.
@@ -1321,7 +1399,10 @@ def _shared_fill_price(
     if is_entry:
         result = model.entry(direction=direction, snapshot=snapshot, replay=True, context=context)
     else:
-        result = model.exit(direction=direction, snapshot=snapshot, replay=True, context=context)
+        # A closing-side base is already the bid (BUY) or ask (SELL) exit level;
+        # the snapshot then only carries the spread evidence for the gate.
+        result = model.exit(direction=direction, snapshot=snapshot, replay=True, context=context,
+                            base_price=base_price if quote == "closing_side" else None)
     if not result.accepted or result.fill_price is None:
         raise ExecutionSimulationError(
             f"replay fill rejected: {result.reject_reason or result.reject_code}",
@@ -1332,23 +1413,29 @@ def _shared_fill_price(
 
 
 def _replay_snapshot(base_price: float, *, spread_points: float, point: float,
-                     tick_size: float | None = None) -> MarketSnapshot:
+                     tick_size: float | None = None, quote: str = "mid") -> MarketSnapshot:
     """Price-only replay, never a live tick or a source of volume limits.
 
     Legacy private price callers may omit tick_size; Backtester always passes
     the explicit instrument geometry from CostModel. lot=0 requests only a
     price estimate from SharedFillModel, so placeholder volume fields do not
     validate candidate sizing. Instrument-aware callers must validate sizing.
+    quote="mid" centres the spread on base_price; quote="bid" puts the ask a
+    full spread above a bid base_price, as for bid bars.
     """
 
     half = spread_points * point / 2.0
+    if quote == "bid":
+        bid, ask = base_price, base_price + spread_points * point
+    else:
+        bid, ask = max(point, base_price - half), base_price + half
     digits = max(0, int(round(-math.log10(point)))) if point > 0 else 5
     return MarketSnapshot(
         symbol="REPLAY",
         timeframe="REPLAY",
         timestamp_utc=datetime(1970, 1, 1, tzinfo=timezone.utc),
-        bid=max(point, base_price - half),
-        ask=base_price + half,
+        bid=bid,
+        ask=ask,
         spread_points=spread_points,
         digits=digits,
         point=point,
@@ -1371,12 +1458,16 @@ def _apply_exit_cost(
     point: float,
     tick_size: float | None = None,
     max_spread_points: float = 25.0,
+    quote: str = "mid",
 ) -> float:
+    """Exit price; quote="closing_side" takes base_price as the executable level."""
+
     return _shared_fill_price(
         base_price, direction=direction, spread_points=spread_points,
         slippage_points=slippage_points, point=point, is_entry=False,
         tick_size=tick_size,
         max_spread_points=max_spread_points,
+        quote=quote,
     )
 
 
@@ -1471,13 +1562,69 @@ def _trade_returns(profits: np.ndarray, initial_balance: float) -> np.ndarray:
     return np.array(returns, dtype=float)
 
 
-def _sharpe(returns: np.ndarray) -> float | None:
+def _trade_t_stat(returns: np.ndarray) -> float | None:
+    """t-statistic of the mean trade return; not a Sharpe ratio (it grows with n)."""
     if len(returns) < 2:
         return None
     std = float(returns.std(ddof=1))
     if std == 0:
         return None
     return float(returns.mean() / std * math.sqrt(len(returns)))
+
+
+def _daily_mark_to_market_equity(curve: pd.DataFrame) -> pd.Series | None:
+    """End-of-day mark-to-market equity on every weekday of the observed span.
+
+    Weekend observations roll into the following Monday. A weekday without a
+    close or a move repeats the previous equity, so it counts as a zero return.
+    """
+    if curve is None or curve.empty:
+        return None
+    frame = curve[["timestamp", "equity"]].copy()
+    frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
+    frame["equity"] = frame["equity"].astype(float)
+    if frame["timestamp"].isna().any():
+        raise ValueError("mark-to-market equity requires valid timestamps")
+    if not np.isfinite(frame["equity"]).all():
+        return None  # no daily statistic from unrepresentable equity
+    frame = frame.sort_values("timestamp", kind="stable")
+    days = frame["timestamp"].dt.tz_localize(None).dt.normalize()
+    weekday = days.dt.weekday.to_numpy()
+    days = days + pd.to_timedelta(np.where(weekday == 5, 2, np.where(weekday == 6, 1, 0)), unit="D")
+    closes = frame["equity"].groupby(days.to_numpy()).last()
+    return closes.reindex(pd.bdate_range(closes.index.min(), closes.index.max())).ffill()
+
+
+def _daily_equity_metrics(
+    daily_equity: pd.Series | None, initial_balance: float
+) -> tuple[float | None, float | None, float | None, float | None, float | None]:
+    """Annualised Sharpe, skew, non-excess kurtosis, CAGR % and Calmar.
+
+    Same formulas as research.edge_statistics, which cannot be imported here:
+    the research package imports this module.
+    """
+    if daily_equity is None or not len(daily_equity) or initial_balance <= 0:
+        return None, None, None, None, None
+    equity = np.concatenate(([float(initial_balance)], daily_equity.to_numpy(dtype=float)))
+    # Once equity is exhausted every later day is a total loss.
+    returns = np.divide(equity[1:], equity[:-1], out=np.zeros(len(equity) - 1), where=equity[:-1] > 0) - 1.0
+    sharpe = skew = kurtosis = None
+    if len(returns) >= 2 and float(returns.std(ddof=1)) > 0:
+        sharpe = float(returns.mean() / returns.std(ddof=1) * math.sqrt(WEEKDAYS_PER_YEAR))
+    centred = returns - returns.mean()
+    scale = float(np.sqrt(np.mean(centred**2)))
+    if len(returns) >= 3 and scale > 0:
+        skew = float(np.mean(centred**3)) / scale**3
+        kurtosis = float(np.mean(centred**4)) / scale**4
+    growth = float(equity[-1] / equity[0])
+    try:
+        cagr: float | None = growth ** (WEEKDAYS_PER_YEAR / len(returns)) - 1.0 if growth > 0 else -1.0
+    except OverflowError:
+        cagr = None  # a short sample cannot be annualised into a finite number
+    peaks = np.maximum.accumulate(equity)
+    max_drawdown = float(np.max((peaks - equity) / peaks))
+    calmar = cagr / max_drawdown if cagr is not None and max_drawdown > 0 else None
+    return sharpe, skew, kurtosis, None if cagr is None else cagr * 100.0, calmar
 
 
 def _sortino(returns: np.ndarray) -> float | None:

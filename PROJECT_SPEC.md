@@ -430,8 +430,13 @@ Campos:
 - `trades_total`: int.
 - `win_rate_pct`: double.
 - `expected_payoff`: double.
-- `sharpe`: double opcional.
+- `sharpe`: double opcional; anualizado desde equity mark-to-market diaria de
+  todos los dias laborables, incluidos los planos. Null sin marcas.
 - `sortino`: double opcional.
+- `t_stat`: double opcional; media/desviacion de retornos por trade por raiz(n).
+  Hasta el motor 0.3.2 este valor se publicaba como `sharpe`.
+- `skew`, `kurtosis` (no excedente, normal = 3), `cagr_pct`, `calmar`: double
+  opcionales de la misma serie diaria que `sharpe`.
 - `recovery_factor`: double opcional.
 - `notes`: string.
 - `avg_win`: double.
@@ -695,6 +700,14 @@ Metricas minimas:
   full_pipeline_verified y stage_parity_pct. PARITY_INCOMPLETE identifica la
   verificacion parcial. Consumidores que aceptaban PARITY_OK como aprobacion
   integral deben fallar cerrados. ADAPTER_REQUIRED no es implementacion compartida.
+- Motor 0.4.0: las barras son bid. BUY abre en ask y cierra en bid; SELL abre
+  en bid y cierra en ask, por lo que su SL/TP se evalua sobre precios + spread
+  de cada barra. Un gap a traves del SL llena en la apertura, peor que el SL;
+  a traves del TP, en el TP. La salida usa el spread de su propia barra; el gate
+  de spread solo decide entradas y un spread ausente en la posicion asume el
+  maximo admitido, nunca cero. El antiguo `sharpe` por trade pasa a `t_stat`.
+  Reportes de motores anteriores deben reevaluarse antes de usarse como
+  evidencia, sin sobrescribirlos.
 - Esto no habilita ejecucion demo/real ni sustituye Risk Gate. Decision y limites:
   docs/decisions/2026-10-05-causal-backtests-and-honest-parity.md.
 
