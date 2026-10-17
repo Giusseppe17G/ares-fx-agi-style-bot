@@ -43,7 +43,10 @@ anteriores. Se conserva ese historial y se distingue de la evidencia nueva.
   reproducen precios antes inejecutables y activacion perdida de BE exacto.
 - Motor OHLC 0.4.0 (barras bid, gaps a traves del SL, spread de la barra de
   salida y `t_stat` separado del Sharpe diario): reportes de motores anteriores
-  deben reevaluarse antes de usarse como evidencia, sin sobrescribirlos.
+  deben reevaluarse antes de usarse como evidencia, sin sobrescribirlos. SL/TP
+  ya cruzados en su lado de disparo se rechazan, un stop BE/trailing cruzado
+  dentro de su barra llena en su nivel sin gap falso y Sharpe/CAGR/Calmar exigen
+  muestra diaria minima (docs/decisions/2026-10-17-bid-bar-gap-and-exit-spread-convention.md).
 - Monte Carlo conserva la secuencia realmente mezclada y separa su indice
   sintetico del calendario. Stress declara aproximaciones posteriores al trade;
   retrasos, sesiones, fill rate y barras ausentes siguen NOT_MODELED. Reportes v2

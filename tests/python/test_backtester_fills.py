@@ -1,5 +1,6 @@
 """Bid-bar exit fills, gaps, exit-bar spread and daily metrics; synthetic, no broker."""
 
+import json
 import math
 
 import numpy as np
@@ -63,6 +64,93 @@ def test_gap_through_a_moved_break_even_stop_also_fills_at_the_open():
     assert trade.final_sl_price == 1.1
     assert (trade.exit_reason, trade.exit_price) == ("SL", 1.0995)
     assert trade.profit == pytest.approx(-50)
+
+
+@pytest.mark.parametrize("next_open", [1.1015, 1.1031])
+def test_stop_trailed_behind_the_bar_close_fills_at_the_stop_not_as_a_gap(next_open):
+    # Bar 1 peaks at 1.1030 and closes at 1.1015, through the 1.1029 stop trailed
+    # from that peak: the price crossed it inside bar 1. Bar 2's open is neither a
+    # gap (1.1015) nor a reason to keep the trade alive (1.1031).
+    bars = frame([(1.1, 1.1, 1.1, 1.1, 0), (1.1, 1.103, 1.1, 1.1015, 0),
+                  (next_open, next_open + 0.0004, next_open - 0.0005, next_open, 0), (1.1012, 1.1012, 1.1012, 1.1012, 0)])
+    trade = only_trade(run(bars, "BUY", 1.098, 1.11, trailing_start_r=0.5, trailing_distance_points=10))
+    assert trade.final_sl_price == 1.1029
+    assert (trade.exit_reason, trade.exit_price) == ("SL", 1.1029)
+    assert trade.exit_time == bars.timestamp[2].isoformat()
+    assert trade.metadata["exit_fill_flags"] == ("moved_stop_crossed_in_prior_bar",)
+    assert trade.profit == pytest.approx(290)
+
+
+def test_stop_level_after_a_prior_bar_crossing_still_pays_slippage():
+    bars = frame([(1.1, 1.1, 1.1, 1.1, 0), (1.1, 1.103, 1.1, 1.1015, 0), (1.1015, 1.1018, 1.101, 1.1012, 0)])
+    trade = only_trade(run(bars, "BUY", 1.098, 1.11, trailing_start_r=0.5, trailing_distance_points=10,
+                           cost_model=CostModel(slippage_points=2, max_spread_points=25)))
+    assert trade.entry_price == 1.10002
+    assert trade.exit_price == 1.10288  # the 1.1029 stop minus 2 points
+    assert "gap_through_sl" not in trade.metadata["exit_fill_flags"]
+
+
+def test_a_real_gap_through_a_trailed_stop_still_fills_at_the_open():
+    # Bar 1 closes at 1.1030, above the 1.1029 trailed stop; bar 2 gaps to 1.1020.
+    bars = frame([(1.1, 1.1, 1.1, 1.1, 0), (1.1, 1.103, 1.1, 1.103, 0), (1.102, 1.1022, 1.1018, 1.102, 0)])
+    trade = only_trade(run(bars, "BUY", 1.098, 1.11, trailing_start_r=0.5, trailing_distance_points=10))
+    assert trade.final_sl_price == 1.1029
+    assert (trade.exit_reason, trade.exit_price) == ("SL", 1.102)
+    assert trade.metadata["exit_fill_flags"] == ("gap_through_sl",)
+    assert trade.profit == pytest.approx(200)
+
+
+@pytest.mark.parametrize("direction,sl,tp,reason", [
+    ("BUY", 1.1001, 1.11, "BUY candidate requires sl < bid < tp at entry"),  # between bid 1.1 and ask 1.1002
+    ("BUY", 1.1, 1.11, "BUY candidate requires sl < bid < tp at entry"),  # at the bid: an instant stop
+    ("SELL", 1.1001, 1.09, "SELL candidate requires tp < ask < sl at entry"),  # between bid 1.1 and ask 1.1002
+    ("SELL", 1.1002, 1.09, "SELL candidate requires tp < ask < sl at entry"),  # at the ask: an instant stop
+])
+def test_protection_already_crossed_on_its_trigger_side_is_rejected(direction, sl, tp, reason):
+    bars = frame([(1.1, 1.1, 1.1, 1.1, 20), (1.1, 1.1, 1.1, 1.1, 20)])
+    outcome = run(bars, direction, sl, tp)
+    assert outcome.trades == ()
+    assert outcome.rejected_candidates[0]["reason"] == reason
+    assert bt._canonical_trade_blocker(reason) == "INVALID_RR"
+
+
+@pytest.mark.parametrize("direction,sl,tp", [("BUY", 1.09999, 1.11), ("SELL", 1.10021, 1.09)])
+def test_protection_one_tick_beyond_its_trigger_quote_is_accepted(direction, sl, tp):
+    bars = frame([(1.1, 1.1, 1.1, 1.1, 20), (1.1, 1.1, 1.1, 1.1, 20)])
+    trade = only_trade(run(bars, direction, sl, tp))
+    assert trade.exit_reason == "END_OF_DATA"
+
+
+@pytest.mark.parametrize("bid_low,moved", [(1.099, False), (1.0989, True)])
+def test_sell_break_even_is_measured_on_the_ask(bid_low, moved):
+    # Entry bid 1.1, ask = bid + 10 points. 0.5R is 10 pips of ask move: the
+    # 1.0990 bid low (ask 1.0991) is one point short; 1.0989 (ask 1.0990) is not.
+    bars = frame([(1.1, 1.1, 1.1, 1.1, 10), (1.0995, 1.0995, bid_low, 1.0992, 10),
+                  (1.0993, 1.0999, 1.0992, 1.0993, 10)])
+    trade = only_trade(run(bars, "SELL", 1.102, 1.09, break_even_trigger_r=0.5))
+    if moved:
+        assert trade.final_sl_price == 1.1
+        assert (trade.exit_reason, trade.exit_price) == ("SL", 1.1)  # bar 2's ask high 1.1000 reaches it
+        assert trade.profit == pytest.approx(0)
+    else:
+        assert trade.final_sl_price == 1.102
+        assert (trade.exit_reason, trade.exit_price) == ("END_OF_DATA", 1.0994)
+
+
+@pytest.mark.parametrize("bar1_close,bar2,flags", [
+    # Ask close 1.0987 is safe; bar 2's ask high 1.0989 (bid 1.0988) reaches the stop.
+    (1.0986, (1.0986, 1.0988, 1.0984, 1.0987, 10), ()),
+    # Ask close 1.0991 is already behind the stop: filled there, not at bar 2's open.
+    (1.099, (1.099, 1.0992, 1.0989, 1.099, 10), ("moved_stop_crossed_in_prior_bar",)),
+])
+def test_sell_trailing_stop_follows_and_triggers_on_the_ask(bar1_close, bar2, flags):
+    # Ask low 1.0986 (bid 1.0985 + 10 points) trails the stop to 1.0989, not 1.0988.
+    bars = frame([(1.1, 1.1, 1.1, 1.1, 10), (1.0995, 1.0995, 1.0985, bar1_close, 10), bar2])
+    trade = only_trade(run(bars, "SELL", 1.102, 1.09, trailing_start_r=0.5, trailing_distance_points=30))
+    assert trade.final_sl_price == 1.0989
+    assert (trade.exit_reason, trade.exit_price) == ("SL", 1.0989)
+    assert trade.metadata["exit_fill_flags"] == flags
+    assert trade.profit == pytest.approx(110)
 
 
 def test_sell_stop_triggers_when_the_ask_reaches_it():
@@ -132,29 +220,76 @@ def test_per_trade_statistic_is_reported_as_t_stat_not_sharpe():
     assert payload["t_stat"] == metrics.t_stat and payload["sharpe"] is None
 
 
+def _sharpe(daily, initial=10_000.0):
+    returns = daily / np.concatenate(([initial], daily[:-1])) - 1.0
+    return returns, returns.mean() / returns.std(ddof=1) * math.sqrt(WEEKDAYS_PER_YEAR)
+
+
 def test_sharpe_is_annualised_from_daily_mark_to_market_equity_with_flat_days():
-    closes = [1.101, 1.099, 1.102, 1.103, 1.103, 1.103, 1.103, 1.103, 1.103, 1.103]
+    closes = [1.101, 1.099, 1.102] + [1.103] * 22
     bars = frame([(1.1 if i == 0 else closes[i - 1], 1.104, 1.0995, close, 0) for i, close in enumerate(closes)],
                  freq="B")
     outcome = run(bars, "BUY", 1.09, 1.11, max_bars_in_trade=4)
     trade = only_trade(outcome)
     assert trade.exit_reason == "END_OF_DATA" and trade.profit == pytest.approx(300)
-    # The open trade is marked at every close; the six flat days are kept.
-    daily = np.array([10_100, 9_900, 10_200, 10_300, 10_300, 10_300, 10_300, 10_300, 10_300, 10_300], dtype=float)
-    returns = daily / np.concatenate(([10_000.0], daily[:-1])) - 1.0
+    # The open trade is marked at every close; the 21 flat days are kept.
+    daily = np.array([10_100, 9_900, 10_200] + [10_300] * 22, dtype=float)
+    returns, sharpe = _sharpe(daily)
     metrics = outcome.metrics
-    assert metrics.sharpe == pytest.approx(returns.mean() / returns.std(ddof=1) * math.sqrt(WEEKDAYS_PER_YEAR))
+    assert metrics.daily_returns_count == 25
+    assert metrics.sharpe == pytest.approx(sharpe)
     centred = returns - returns.mean()
     scale = math.sqrt(np.mean(centred**2))
     assert metrics.skew == pytest.approx(np.mean(centred**3) / scale**3)
     assert metrics.kurtosis == pytest.approx(np.mean(centred**4) / scale**4)
-    cagr = (10_300 / 10_000) ** (WEEKDAYS_PER_YEAR / len(returns)) - 1.0
-    assert metrics.cagr_pct == pytest.approx(cagr * 100.0)
-    assert metrics.calmar == pytest.approx(cagr / (200 / 10_100))
+    # 25 weekdays are not a year: no annualised growth is extrapolated from them.
+    assert (metrics.cagr_pct, metrics.calmar) == (None, None)
+    assert metrics.daily_metrics_flags == (bt.INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR,)
     # The old per-trade statistic is undefined for one trade; it is not the Sharpe.
     assert metrics.t_stat is None
     curve = outcome.mark_to_market_curve
     assert list(curve["equity"]) == pytest.approx(list(daily))
+
+
+def _marks(equity, start="2026-01-05"):
+    stamps = pd.bdate_range(start, periods=len(equity), tz="UTC") + pd.Timedelta(hours=20)
+    return pd.DataFrame({"timestamp": stamps, "equity": np.asarray(equity, dtype=float)})
+
+
+def test_two_weekdays_of_marks_report_no_sharpe_cagr_or_calmar():
+    # Without the guard: Sharpe 5.84, CAGR 1224% and Calmar 1261 from two days.
+    metrics = bt.calculate_metrics([], initial_balance=10_000, mark_to_market=_marks([10_300, 10_200]))
+    assert (metrics.sharpe, metrics.cagr_pct, metrics.calmar) == (None, None, None)
+    assert metrics.daily_returns_count == 2
+    assert metrics.daily_metrics_flags == (bt.INSUFFICIENT_DAILY_SAMPLE_SHARPE, bt.INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR)
+    payload = metrics.to_project_result(run_id="r")
+    assert payload["daily_returns_count"] == 2
+    assert json.loads(payload["daily_metrics_flags_json"]) == list(metrics.daily_metrics_flags)
+
+
+def test_daily_sample_thresholds_are_one_month_for_sharpe_and_one_year_for_growth():
+    assert (bt.MIN_DAILY_RETURNS_SHARPE, bt.MIN_DAILY_RETURNS_ANNUALISED) == (20, 261)
+    pattern = [10_000 + (50 if i % 2 else -30) + 2 * i for i in range(300)]
+    below = bt.calculate_metrics([], initial_balance=10_000, mark_to_market=_marks(pattern[:19]))
+    assert below.sharpe is None and bt.INSUFFICIENT_DAILY_SAMPLE_SHARPE in below.daily_metrics_flags
+    at = bt.calculate_metrics([], initial_balance=10_000, mark_to_market=_marks(pattern[:20]))
+    assert at.sharpe == pytest.approx(_sharpe(np.array(pattern[:20], dtype=float))[1])
+    assert at.daily_metrics_flags == (bt.INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR,)
+    short_year = bt.calculate_metrics([], initial_balance=10_000, mark_to_market=_marks(pattern[:260]))
+    assert (short_year.cagr_pct, short_year.calmar) == (None, None)
+    year = bt.calculate_metrics([], initial_balance=10_000, mark_to_market=_marks(pattern[:261]))
+    equity = np.array([10_000.0] + pattern[:261])
+    cagr = (equity[-1] / equity[0]) ** (WEEKDAYS_PER_YEAR / 261) - 1.0
+    peaks = np.maximum.accumulate(equity)
+    assert year.cagr_pct == pytest.approx(cagr * 100.0)
+    assert year.calmar == pytest.approx(cagr / np.max((peaks - equity) / peaks))
+    assert year.daily_metrics_flags == ()
+
+
+def test_metrics_without_marks_flag_the_missing_mark_to_market():
+    metrics = bt.calculate_metrics(_trade_rows([100.0, -50.0, 80.0]), initial_balance=10_000)
+    assert metrics.daily_returns_count == 0
+    assert metrics.daily_metrics_flags == (bt.MARK_TO_MARKET_UNAVAILABLE,)
 
 
 def test_daily_sharpe_does_not_grow_with_the_number_of_trades():
@@ -188,8 +323,49 @@ def test_batch_summary_and_engine_version_expose_both_statistics(tmp_path):
     data_dir.mkdir()
     _historical_csv(data_dir / "EURUSD_M5.csv", rows=260)
     summary = bt.run_backtest_for_symbols(data_dir=data_dir, symbols=("EURUSD",)).summary
-    assert {"t_stat", "sharpe", "skew", "kurtosis", "cagr_pct", "calmar"} <= set(summary)
+    assert {"t_stat", "sharpe", "skew", "kurtosis", "cagr_pct", "calmar",
+            "daily_returns_count", "daily_metrics_flags"} <= set(summary)
     assert bt.ENGINE_VERSION == "0.4.0"
+
+
+def test_two_symbol_summary_aggregates_the_mark_to_market_curves(tmp_path, monkeypatch):
+    from test_backtesting import _historical_csv
+
+    data_dir = tmp_path / "historical"
+    data_dir.mkdir()
+    for symbol in ("EURUSD", "GBPUSD"):
+        _historical_csv(data_dir / f"{symbol}_M5.csv", rows=260)
+    # Controlled daily trades replace the strategy, so every summary value is known.
+    eur = [1.101, 1.099, 1.102] + [1.103] * 22  # BUY from 1.1: +100, -100, +200, closes +300
+    gbp = [1.199, 1.201, 1.198] + [1.1985] * 22  # SELL from 1.2: +100, -100, +200, closes +150
+    scripted = {
+        "EURUSD": (frame([(1.1 if i == 0 else eur[i - 1], 1.104, 1.0995, c, 0) for i, c in enumerate(eur)],
+                         start="2026-01-05", freq="B"), "BUY", 1.09, 1.11),
+        "GBPUSD": (frame([(1.2 if i == 0 else gbp[i - 1], 1.2015, 1.1975, c, 0) for i, c in enumerate(gbp)],
+                         start="2026-01-07", freq="B"), "SELL", 1.21, 1.19),
+    }
+
+    def scripted_backtest(candles, *, symbol, settings, **_):
+        bars, direction, sl, tp = scripted[symbol]
+        candidate = TradeCandidate(timestamp=bars.timestamp[0], symbol=symbol, direction=direction,
+                                   sl_price=sl, tp_price=tp, lot=1.0)
+        return Backtester(BacktestSettings(initial_balance=settings.initial_balance, max_bars_in_trade=4,
+                                           cost_model=CostModel(max_spread_points=25))).run(bars, [candidate])
+
+    monkeypatch.setattr(bt, "run_strategy_backtest", scripted_backtest)
+    summary = bt.run_backtest_for_symbols(data_dir=data_dir, symbols=("EURUSD", "GBPUSD")).summary
+    # GBPUSD starts two weekdays later and ends two later; each symbol carries its
+    # own last equity forward and the shared capital is counted once.
+    daily = np.array([10_100, 9_900, 10_300, 10_200, 10_500, 10_450] + [10_450] * 21, dtype=float)
+    returns, sharpe = _sharpe(daily)
+    assert summary["total_trades"] == 2
+    assert summary["net_return_pct"] == pytest.approx(4.5)
+    assert summary["daily_returns_count"] == 27
+    assert summary["sharpe"] == pytest.approx(sharpe)
+    centred = returns - returns.mean()
+    assert summary["skew"] == pytest.approx(np.mean(centred**3) / math.sqrt(np.mean(centred**2)) ** 3)
+    assert (summary["cagr_pct"], summary["calmar"]) == (None, None)
+    assert summary["daily_metrics_flags"] == [bt.INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR]
 
 
 def test_readers_keep_the_daily_sharpe_and_the_t_stat_apart(tmp_path):

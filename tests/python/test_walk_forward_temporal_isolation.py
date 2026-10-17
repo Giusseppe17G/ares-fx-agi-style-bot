@@ -118,12 +118,20 @@ def test_scoped_outcome_discards_truncated_closures_and_rebuilds_equity():
     start = pd.Timestamp(frame.attrs["walk_forward_context"]["evaluation_start_utc"])
     valid = _trade(start, profit=-10)
     truncated = replace(_trade(start, profit=999), exit_reason="END_OF_DATA", duration_bars=4)
-    clean = wf._scoped_outcome(_outcome([valid, truncated], limit=10, forged=True), frame)
+    marks = pd.DataFrame({"timestamp": pd.bdate_range("2026-01-05", periods=30, tz="UTC"),
+                          "equity": [500.0 + (-1) ** i * i for i in range(30)]})
+    outcome = replace(_outcome([valid, truncated], limit=10, forged=True), mark_to_market_curve=marks)
+    clean = wf._scoped_outcome(outcome, frame)
     assert clean.trades == (valid,)
     assert clean.metrics.net_profit == -10
     assert clean.equity_curve.equity.iloc[-1] == 490
     assert clean.equity_curve.timestamp.max() <= frame.timestamp.max()
     assert clean.rejected_candidates[-1]["reason"] == "WF_TRUNCATED_EXIT"
+    # Unscoped marks include warmup and excluded trades: no daily metric from them.
+    assert clean.mark_to_market_curve is None
+    metrics = clean.metrics
+    assert (metrics.sharpe, metrics.skew, metrics.kurtosis, metrics.cagr_pct, metrics.calmar) == (None,) * 5
+    assert metrics.daily_metrics_flags == ("MARK_TO_MARKET_UNAVAILABLE",)
 
 
 def test_completed_predefined_holding_horizon_is_not_false_truncation():

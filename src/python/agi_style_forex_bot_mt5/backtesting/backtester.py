@@ -34,7 +34,7 @@ from ..core.run_manifest import RunManifest
 from ..core.instruments.snapshot import instrument_metadata_hash
 from ..core.operational_state.errors import ExecutionSimulationError
 from ..core.instruments import ASSUMED_SOURCE, InstrumentRegistry, InstrumentSpec, assumed_fx_spec, resolve_registry
-from ..execution_simulation.gap_model import GapModel
+from ..execution_simulation.gap_model import GapDecision, GapModel
 from ..strategy import evaluate_ensemble
 from ..strategy.strategy_ensemble import EnsembleConfig, STRATEGY_VERSION
 
@@ -45,6 +45,15 @@ ENGINE_VERSION = "0.4.0"
 # Daily metrics sample every weekday, flat days and holidays included, so the
 # sampling frequency is also the annualisation factor.
 WEEKDAYS_PER_YEAR = 365.25 / 7 * 5
+# Minimum daily returns before a daily metric is computed at all; below them
+# the metric is None and daily_metrics_flags says why. About one month of
+# weekdays for Sharpe; one year for CAGR/Calmar, which would otherwise
+# extrapolate compounding. A computed value is still not evidence by itself.
+MIN_DAILY_RETURNS_SHARPE = 20
+MIN_DAILY_RETURNS_ANNUALISED = math.ceil(WEEKDAYS_PER_YEAR)
+MARK_TO_MARKET_UNAVAILABLE = "MARK_TO_MARKET_UNAVAILABLE"
+INSUFFICIENT_DAILY_SAMPLE_SHARPE = "INSUFFICIENT_DAILY_SAMPLE_SHARPE"
+INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR = "INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR"
 
 
 @dataclass(frozen=True)
@@ -186,7 +195,8 @@ class BacktestMetrics:
     profit_factor: float
     max_drawdown_pct: float
     daily_max_drawdown_pct: float
-    # Annualised, from weekday mark-to-market equity; None without marks.
+    # Annualised, from weekday mark-to-market equity; None without marks or
+    # below MIN_DAILY_RETURNS_SHARPE daily returns.
     sharpe: float | None
     sortino: float | None
     # Mean/std of per-trade returns times sqrt(n): grows with the sample.
@@ -194,8 +204,12 @@ class BacktestMetrics:
     skew: float | None
     # Non-excess (normal = 3), as research.edge_statistics.moments.
     kurtosis: float | None
+    # None below MIN_DAILY_RETURNS_ANNUALISED daily returns.
     cagr_pct: float | None
     calmar: float | None
+    # Daily returns behind the daily metrics (0 without marks) and why any is None.
+    daily_returns_count: int
+    daily_metrics_flags: tuple[str, ...]
     expectancy: float
     expected_payoff: float
     average_r: float
@@ -241,6 +255,8 @@ class BacktestMetrics:
             "kurtosis": self.kurtosis,
             "cagr_pct": self.cagr_pct,
             "calmar": self.calmar,
+            "daily_returns_count": self.daily_returns_count,
+            "daily_metrics_flags_json": json.dumps(list(self.daily_metrics_flags)),
             "recovery_factor": self.recovery_factor,
             "notes": "Python OHLC research backtest; not an MT5 execution report.",
             "avg_win": self.avg_win,
@@ -471,6 +487,13 @@ class Backtester:
             quote="bid",
         )
         _validate_directional_prices(direction, entry_price, candidate.sl_price, candidate.tp_price)
+        # Protection triggers on the closing side, a BUY's on the bid and a
+        # SELL's on the ask: a level already crossed there is invalid, never an
+        # instant stop.
+        closing_quote = Decimal(str(base_entry))
+        if direction == Direction.SELL.value:
+            closing_quote += Decimal(str(spread_points)) * Decimal(str(self.settings.cost_model.point))
+        _validate_protection_side(direction, float(closing_quote), candidate.sl_price, candidate.tp_price)
 
         initial_sl = float(candidate.sl_price)
         current_sl = initial_sl
@@ -496,6 +519,7 @@ class Backtester:
         assumed_spread_bars = 0
         gap_model = GapModel()
         decision = None
+        previous_close: float | None = None
 
         for idx in range(start_idx, max_idx + 1):
             row = bars.iloc[idx]
@@ -518,12 +542,18 @@ class Backtester:
             else:
                 mae = min(mae, float(entry_decimal - high))
                 mfe = max(mfe, float(entry_decimal - low))
-            # A gap through the stop fills at the worse open; a gap through the
-            # target fills at the target; a bar touching both is a stop.
-            decision = gap_model.resolve_bar_exit(
-                direction=direction, open_price=float(open_), high=float(high), low=float(low),
-                sl=current_sl, tp=tp_price,
-            )
+            if previous_close is not None and _stop_reached(direction, previous_close, current_sl):
+                # Only a stop moved from the previous bar's extreme can sit behind
+                # that bar's close: the price crossed it inside that bar, so this
+                # open is no gap and the stop level fills.
+                decision = GapDecision(current_sl, "SL", False, ("moved_stop_crossed_in_prior_bar",))
+            else:
+                # A gap through the stop fills at the worse open; a gap through the
+                # target fills at the target; a bar touching both is a stop.
+                decision = gap_model.resolve_bar_exit(
+                    direction=direction, open_price=float(open_), high=float(high), low=float(low),
+                    sl=current_sl, tp=tp_price,
+                )
             if decision is not None:
                 break
             if idx < max_idx:
@@ -540,6 +570,7 @@ class Backtester:
                 risk_distance=risk_distance,
                 bar_extreme=float(high if direction == Direction.BUY.value else low),
             )
+            previous_close = float(close)
 
         exit_idx = idx
         if decision is None:
@@ -1059,6 +1090,8 @@ def run_backtest_for_symbols(
         "kurtosis": metrics.kurtosis,
         "cagr_pct": metrics.cagr_pct,
         "calmar": metrics.calmar,
+        "daily_returns_count": metrics.daily_returns_count,
+        "daily_metrics_flags": list(metrics.daily_metrics_flags),
         "classification": "WARNING_SIGNALS_NO_TRADES" if signals_generated > 0 and metrics.trades_total == 0 else classification,
         "execution_attempted": False,
         "reports_created": [],
@@ -1200,7 +1233,7 @@ def calculate_metrics(
     t_stat = _trade_t_stat(trade_returns)
     sortino = _sortino(trade_returns)
     daily_equity = _daily_mark_to_market_equity(mark_to_market) if mark_to_market is not None else None
-    sharpe, skew, kurtosis, cagr_pct, calmar = _daily_equity_metrics(daily_equity, initial_balance)
+    daily_metrics = _daily_equity_metrics(daily_equity, initial_balance)
     max_dd_amount = float((equity.cummax() - equity).max()) if len(equity) else 0.0
     recovery_factor = net_profit / max_dd_amount if max_dd_amount > 0 else None
     monthly_returns, trades_per_month = _monthly_stats(normalized, initial_balance)
@@ -1230,13 +1263,9 @@ def calculate_metrics(
         profit_factor=profit_factor,
         max_drawdown_pct=max_dd_pct,
         daily_max_drawdown_pct=daily_max_dd_pct,
-        sharpe=sharpe,
         sortino=sortino,
         t_stat=t_stat,
-        skew=skew,
-        kurtosis=kurtosis,
-        cagr_pct=cagr_pct,
-        calmar=calmar,
+        **daily_metrics,
         expectancy=expectancy,
         expected_payoff=expectancy,
         average_r=average_r,
@@ -1478,6 +1507,19 @@ def _validate_directional_prices(direction: str, entry: float, sl: float, tp: fl
         raise ValueError("SELL candidate requires tp < entry < sl")
 
 
+def _validate_protection_side(direction: str, closing_quote: float, sl: float, tp: float) -> None:
+    """Levels must straddle the quote they trigger on: bid for a BUY, ask for a SELL."""
+    if direction == Direction.BUY.value and not (sl < closing_quote < tp):
+        raise ValueError("BUY candidate requires sl < bid < tp at entry")
+    if direction == Direction.SELL.value and not (tp < closing_quote < sl):
+        raise ValueError("SELL candidate requires tp < ask < sl at entry")
+
+
+def _stop_reached(direction: str, closing_price: float, stop: float) -> bool:
+    """Whether a closing-side price is at or beyond the stop, as GapModel tests a touch."""
+    return closing_price <= stop if direction == Direction.BUY.value else closing_price >= stop
+
+
 def _profit_for_price_move(
     *,
     direction: str,
@@ -1595,36 +1637,45 @@ def _daily_mark_to_market_equity(curve: pd.DataFrame) -> pd.Series | None:
     return closes.reindex(pd.bdate_range(closes.index.min(), closes.index.max())).ffill()
 
 
-def _daily_equity_metrics(
-    daily_equity: pd.Series | None, initial_balance: float
-) -> tuple[float | None, float | None, float | None, float | None, float | None]:
+def _daily_equity_metrics(daily_equity: pd.Series | None, initial_balance: float) -> dict[str, Any]:
     """Annualised Sharpe, skew, non-excess kurtosis, CAGR % and Calmar.
 
     Same formulas as research.edge_statistics, which cannot be imported here:
-    the research package imports this module.
+    the research package imports this module. Below MIN_DAILY_RETURNS_SHARPE
+    (Sharpe) or MIN_DAILY_RETURNS_ANNUALISED (CAGR, Calmar) daily returns the
+    metric is None and daily_metrics_flags names the shortfall.
     """
+    result: dict[str, Any] = {"sharpe": None, "skew": None, "kurtosis": None, "cagr_pct": None,
+                              "calmar": None, "daily_returns_count": 0, "daily_metrics_flags": ()}
     if daily_equity is None or not len(daily_equity) or initial_balance <= 0:
-        return None, None, None, None, None
+        return result | {"daily_metrics_flags": (MARK_TO_MARKET_UNAVAILABLE,)}
     equity = np.concatenate(([float(initial_balance)], daily_equity.to_numpy(dtype=float)))
     # Once equity is exhausted every later day is a total loss.
     returns = np.divide(equity[1:], equity[:-1], out=np.zeros(len(equity) - 1), where=equity[:-1] > 0) - 1.0
-    sharpe = skew = kurtosis = None
-    if len(returns) >= 2 and float(returns.std(ddof=1)) > 0:
-        sharpe = float(returns.mean() / returns.std(ddof=1) * math.sqrt(WEEKDAYS_PER_YEAR))
+    flags: list[str] = []
+    result["daily_returns_count"] = len(returns)
+    if len(returns) < MIN_DAILY_RETURNS_SHARPE:
+        flags.append(INSUFFICIENT_DAILY_SAMPLE_SHARPE)
+    elif float(returns.std(ddof=1)) > 0:
+        result["sharpe"] = float(returns.mean() / returns.std(ddof=1) * math.sqrt(WEEKDAYS_PER_YEAR))
     centred = returns - returns.mean()
     scale = float(np.sqrt(np.mean(centred**2)))
     if len(returns) >= 3 and scale > 0:
-        skew = float(np.mean(centred**3)) / scale**3
-        kurtosis = float(np.mean(centred**4)) / scale**4
-    growth = float(equity[-1] / equity[0])
-    try:
-        cagr: float | None = growth ** (WEEKDAYS_PER_YEAR / len(returns)) - 1.0 if growth > 0 else -1.0
-    except OverflowError:
-        cagr = None  # a short sample cannot be annualised into a finite number
-    peaks = np.maximum.accumulate(equity)
-    max_drawdown = float(np.max((peaks - equity) / peaks))
-    calmar = cagr / max_drawdown if cagr is not None and max_drawdown > 0 else None
-    return sharpe, skew, kurtosis, None if cagr is None else cagr * 100.0, calmar
+        result["skew"] = float(np.mean(centred**3)) / scale**3
+        result["kurtosis"] = float(np.mean(centred**4)) / scale**4
+    if len(returns) < MIN_DAILY_RETURNS_ANNUALISED:
+        flags.append(INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR)
+    else:
+        growth = float(equity[-1] / equity[0])
+        try:
+            cagr: float | None = growth ** (WEEKDAYS_PER_YEAR / len(returns)) - 1.0 if growth > 0 else -1.0
+        except OverflowError:
+            cagr = None  # not representable as a finite annual rate
+        peaks = np.maximum.accumulate(equity)
+        max_drawdown = float(np.max((peaks - equity) / peaks))
+        result["cagr_pct"] = None if cagr is None else cagr * 100.0
+        result["calmar"] = cagr / max_drawdown if cagr is not None and max_drawdown > 0 else None
+    return result | {"daily_metrics_flags": tuple(flags)}
 
 
 def _sortino(returns: np.ndarray) -> float | None:

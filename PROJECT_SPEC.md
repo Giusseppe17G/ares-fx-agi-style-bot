@@ -431,12 +431,19 @@ Campos:
 - `win_rate_pct`: double.
 - `expected_payoff`: double.
 - `sharpe`: double opcional; anualizado desde equity mark-to-market diaria de
-  todos los dias laborables, incluidos los planos. Null sin marcas.
+  todos los dias laborables, incluidos los planos. Null sin marcas o con menos
+  de 20 retornos diarios (`INSUFFICIENT_DAILY_SAMPLE_SHARPE`).
 - `sortino`: double opcional.
 - `t_stat`: double opcional; media/desviacion de retornos por trade por raiz(n).
   Hasta el motor 0.3.2 este valor se publicaba como `sharpe`.
 - `skew`, `kurtosis` (no excedente, normal = 3), `cagr_pct`, `calmar`: double
-  opcionales de la misma serie diaria que `sharpe`.
+  opcionales de la misma serie diaria que `sharpe`. `cagr_pct` y `calmar` son
+  null con menos de 261 retornos diarios, un ano de dias laborables
+  (`INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR`).
+- `daily_returns_count`: int; retornos diarios usados (0 sin marcas).
+- `daily_metrics_flags_json`: string JSON; motivos por los que una metrica
+  diaria es null (`MARK_TO_MARKET_UNAVAILABLE` o los umbrales anteriores). Un
+  valor calculado sobre el umbral sigue sin ser evidencia por si solo.
 - `recovery_factor`: double opcional.
 - `notes`: string.
 - `avg_win`: double.
@@ -708,8 +715,26 @@ Metricas minimas:
   maximo admitido, nunca cero. El antiguo `sharpe` por trade pasa a `t_stat`.
   Reportes de motores anteriores deben reevaluarse antes de usarse como
   evidencia, sin sobrescribirlos.
+- Motor 0.4.0, niveles y stops movidos: SL y TP deben quedar estrictamente a
+  ambos lados del precio que los dispara al entrar (BUY: bid de entrada; SELL:
+  ask = bid + spread de la barra); si no, el candidato se rechaza con un motivo
+  estable y no se simula un stop instantaneo. BE/trailing mueven el stop al
+  cierre de cada barra, desde su extremo, y el nuevo stop rige desde la barra
+  siguiente. Solo se marca `gap_through_sl` si el cierre anterior (lado de
+  cierre) quedaba del lado seguro del stop vigente; si ese cierre ya lo habia
+  cruzado, la salida llena en el nivel del stop (con slippage) y marca
+  `moved_stop_crossed_in_prior_bar`, sea cual sea la apertura siguiente.
+- Instantaneas de senal: `generate_strategy_candidates` (y el evaluador
+  predeclarado de trend pullback) siguen centrando el spread en el cierre
+  (bid = cierre - spread/2, ask = cierre + spread/2). Solo derivan niveles SL/TP
+  y features; fills, disparos y R-multiples usan la convencion bid anterior y el
+  precio real de entrada. Frente a un forward sobre la misma barra bid, ambos
+  niveles quedan medio spread mas abajo. Se conserva para no cambiar los niveles
+  de candidatos de estudios ya registrados; migrar a bid = cierre y
+  ask = cierre + spread requiere nueva version de motor y reevaluacion.
 - Esto no habilita ejecucion demo/real ni sustituye Risk Gate. Decision y limites:
-  docs/decisions/2026-10-05-causal-backtests-and-honest-parity.md.
+  docs/decisions/2026-10-05-causal-backtests-and-honest-parity.md y
+  docs/decisions/2026-10-17-bid-bar-gap-and-exit-spread-convention.md.
 
 ## 13. Estructura De Repositorio
 

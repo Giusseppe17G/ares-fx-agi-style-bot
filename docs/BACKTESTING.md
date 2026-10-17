@@ -98,7 +98,9 @@ Read these first:
 - `max_drawdown_pct`
 - `winrate`
 - `expectancy_r`
-- `sharpe` (annualised from daily mark-to-market equity, flat weekdays included)
+- `sharpe` (annualised from daily mark-to-market equity, flat weekdays included;
+  null below 20 daily returns, and `cagr_pct`/`calmar` below 261;
+  `daily_metrics_flags` says why)
 - `t_stat` (per-trade mean/std times sqrt(n); it grows with the sample and is not a Sharpe)
 - `sortino`
 
