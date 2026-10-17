@@ -1,14 +1,15 @@
 # Pre-registration: daily FX slow premia v1
 
-Status: DRAFT until the plan file and hashes below are filled in; then
-FROZEN before any result of this plan exists. Research only; no
+Status: FROZEN on 2026-10-17 at commit ebb61b1, before any result of this
+plan existed. Research only; no
 verdict of this study authorises execution (release-lock ADR). Decision
 record: `docs/decisions/2026-10-16-daily-fx-slow-premia-study.md`.
 
 - Plan: `slow_premia_v1` in `src/python/agi_style_forex_bot_mt5/research/daily_fx/plans.py`.
-- Frozen plan file: plan.json in docs/research/daily_fx_slow_premia_v1 (written by `runner freeze`).
-- Plan hash (sha256 of the canonical plan JSON): `PLAN_HASH_PENDING`.
-- Engine hash (sha256 of the engine sources): `ENGINE_HASH_PENDING`.
+- Frozen plan file: `docs/research/daily_fx_slow_premia_v1/plan.json` (written by `runner freeze`).
+- Plan hash (sha256 of the canonical plan JSON): `82e80e9d8acdb6d071744aaea9f67bde9855aefa45ababefc088564b438557b9`.
+- Engine hash (sha256 of the engine sources): `62e730be23f3e76df2a44ec74c3f0f18b4f6af4fc5d6bdc1eddc3e2179859f60`
+- Environment: Python 3.14.4, numpy 2.4.4, pandas 3.0.2..
 
 Any change to the code, data, parameters or gates gives a different hash, and
 the runner refuses it. A new idea needs a new plan, scored only on data that
