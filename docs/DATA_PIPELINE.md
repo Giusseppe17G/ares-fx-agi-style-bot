@@ -49,6 +49,8 @@ Reports:
 - `data/reports/data_quality/anomalies.csv`
 - `data/reports/data_quality/dataset_manifest.json`
 
+A file without a `spread` column is classified `REJECTED` with `rejection_reason=SPREAD_DATA_MISSING` (also listed in `rejected_files` of `summary.json`), and the other files are still scanned.
+
 If data is missing, corrupt, sparse, or unrealistic, downstream validation must remain `WATCHLIST`, `NEEDS_MORE_DATA`, or `REJECTED`.
 
 ## Historical Data Audit
@@ -114,9 +116,9 @@ $env:PYTHONPATH="src/python"
 py -m agi_style_forex_bot_mt5.cli --mode strategy-data-contract --symbols EURUSD,GBPUSD,USDJPY,USDCAD,USDCHF,AUDUSD,EURJPY,NZDUSD --data-dir data\runs\<RUN_ID>\historical --report-dir data\runs\<RUN_ID>\reports\data_contract
 ```
 
-Specific CSV blockers include `CSV_FILE_NOT_FOUND`, `CSV_EMPTY`, `CSV_READ_ERROR`, `CSV_MISSING_OHLC`, `CSV_NUMERIC_CONVERSION_ERROR`, `CSV_TIMESTAMP_PARSE_ERROR`, `CSV_TOO_FEW_ROWS`, `CSV_DUPLICATE_TIMESTAMPS`, `CSV_UNSORTED_FIXED`, and `CSV_SPREAD_MISSING_ASSUMED_ZERO`.
+Specific CSV blockers include `CSV_FILE_NOT_FOUND`, `CSV_EMPTY`, `CSV_READ_ERROR`, `CSV_MISSING_OHLC`, `CSV_NUMERIC_CONVERSION_ERROR`, `CSV_TIMESTAMP_PARSE_ERROR`, `CSV_TOO_FEW_ROWS`, `CSV_DUPLICATE_TIMESTAMPS`, `CSV_UNSORTED_FIXED`, and `SPREAD_DATA_MISSING`.
 
-If `spread` is missing, the loader creates `spread=0` and emits `CSV_SPREAD_MISSING_ASSUMED_ZERO`; this is acceptable for plumbing diagnostics but not enough for final cost validation. Do not tune thresholds until `data_contract_status=OK`.
+If the `spread` column is missing, the loader blocks the file with `SPREAD_DATA_MISSING` (PROJECT_SPEC 12.3): an absent spread is missing cost evidence and is never replaced by zero. An explicit `spread` of `0` is still a valid observation. The same rule applies to live MT5 rates. Older reports may still show the retired warning `CSV_SPREAD_MISSING_ASSUMED_ZERO`; the loader no longer emits it, so rebuild those reports. Do not tune thresholds until `data_contract_status=OK`.
 
 ## Broker Cost Profile
 
@@ -125,3 +127,5 @@ $env:PYTHONPATH="src/python"; py -m agi_style_forex_bot_mt5.cli --mode build-cos
 ```
 
 The profile includes average, median, p95 and p99 spread by symbol plus spread by session, hour UTC, and day. Future realized slippage fields are present but remain empty until real execution data exists.
+
+A symbol whose M5 file has no `spread` column gets no profile. It is listed under `blocked_symbols` with reason `SPREAD_DATA_MISSING`, the other symbols are still profiled, and the profile classification stays `WATCHLIST`.

@@ -82,7 +82,7 @@ def load_historical_csv_contract(path: str | Path, *, symbol: str = "", timefram
         warnings.append("CSV_UNSORTED_FIXED")
     for column in REQUIRED_CONTRACT_COLUMNS:
         if column not in frame.columns:
-            frame[column] = 0 if column in {"spread", "real_volume"} else ""
+            frame[column] = 0 if column == "real_volume" else ""
     frame = frame.loc[:, list(REQUIRED_CONTRACT_COLUMNS) + [column for column in frame.columns if column not in REQUIRED_CONTRACT_COLUMNS]]
     diagnostics = _diagnostics(
         csv_path,

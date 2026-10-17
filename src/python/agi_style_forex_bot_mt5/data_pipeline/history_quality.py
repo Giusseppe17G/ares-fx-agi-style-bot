@@ -37,6 +37,7 @@ class HistoryQualityResult:
     fingerprint: str
     quality_score: float
     classification: str
+    rejection_reason: str = ""
 
 
 def load_history_csv(path: str | Path, *, symbol: str, timeframe: str) -> pd.DataFrame:
@@ -131,7 +132,15 @@ def scan_history_directory(
                 continue
             paths.append((csv_path, symbol, timeframe))
     for csv_path, symbol, timeframe in paths:
-        result, gaps, anomalies = evaluate_history_quality(csv_path, symbol=symbol, timeframe=timeframe)
+        try:
+            result, gaps, anomalies = evaluate_history_quality(csv_path, symbol=symbol, timeframe=timeframe)
+        except ValueError as exc:
+            if not _is_spread_data_missing(exc):
+                raise
+            # PROJECT_SPEC 12.3: no spread column is missing cost, never zero
+            # cost. Reject this file with its reason and keep scanning others.
+            results.append(_rejected_result(csv_path, symbol=symbol, timeframe=timeframe, reason="SPREAD_DATA_MISSING"))
+            continue
         results.append(result)
         gap_frames.append(gaps)
         anomaly_frames.append(anomalies)
@@ -152,6 +161,7 @@ def scan_history_directory(
         "files_scanned": len(results),
         "total_gaps": int(sum(item.gaps for item in results)),
         "total_anomalies": int(sum(item.anomalies for item in results)),
+        "rejected_files": [{"symbol": item.symbol, "timeframe": item.timeframe, "reason": item.rejection_reason} for item in results if item.rejection_reason],
         "dataset_fingerprint": manifest["dataset_fingerprint"],
         "reports_created": [
             str(report_path / "summary.json"),
@@ -168,6 +178,12 @@ def scan_history_directory(
     anomalies.to_csv(report_path / "anomalies.csv", index=False)
     (report_path / "dataset_manifest.json").write_text(json.dumps(_jsonable(manifest), indent=2, sort_keys=True), encoding="utf-8")
     return summary
+
+
+def _is_spread_data_missing(exc: BaseException) -> bool:
+    """Return whether a loader error is the fail-closed missing-spread status."""
+
+    return str(exc).split(":", 1)[0].strip() == "SPREAD_DATA_MISSING"
 
 
 def parse_history_filename(path: Path) -> tuple[str, str] | None:
@@ -192,6 +208,27 @@ def timeframe_seconds(timeframe: str) -> float:
 def dataset_fingerprint(fingerprints: Iterable[str]) -> str:
     joined = "|".join(sorted(fingerprints))
     return sha256(joined.encode("utf-8")).hexdigest()
+
+
+def _rejected_result(csv_path: Path, *, symbol: str, timeframe: str, reason: str) -> HistoryQualityResult:
+    return HistoryQualityResult(
+        symbol=symbol,
+        timeframe=timeframe,
+        file_path=str(csv_path),
+        rows=0,
+        start_utc="",
+        end_utc="",
+        duplicate_timestamps=0,
+        gaps=0,
+        anomalies=0,
+        spread_extreme_count=0,
+        spread_p95=None,
+        spread_p99=None,
+        fingerprint=sha256(csv_path.read_bytes()).hexdigest(),
+        quality_score=0.0,
+        classification="REJECTED",
+        rejection_reason=reason,
+    )
 
 
 def _gap_frame(frame: pd.DataFrame, expected_gap: float, *, symbol: str, timeframe: str) -> pd.DataFrame:
