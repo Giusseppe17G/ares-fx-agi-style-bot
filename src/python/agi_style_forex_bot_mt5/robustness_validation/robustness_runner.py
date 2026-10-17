@@ -10,6 +10,7 @@ import pandas as pd
 
 
 TRADE_COLUMNS = ["signal_id", "symbol", "strategy_name", "session", "regime", "entry_time", "exit_time", "profit", "r_multiple"]
+COST_INPUT_COLUMNS = ("spread_points", "slippage_points", "commission")
 
 
 def load_balanced_trades(
@@ -111,9 +112,13 @@ def normalize_trade_frame(frame: pd.DataFrame) -> pd.DataFrame:
         copy["profit"] = pd.to_numeric(copy["r_multiple"], errors="coerce").fillna(0.0)
     if "r_multiple" not in copy.columns and "profit" in copy.columns:
         copy["r_multiple"] = pd.to_numeric(copy["profit"], errors="coerce").fillna(0.0)
-    for column in ("profit", "r_multiple", "spread_points", "slippage_points", "commission"):
+    for column in ("profit", "r_multiple"):
         if column in copy.columns:
             copy[column] = pd.to_numeric(copy[column], errors="coerce").fillna(0.0)
+    # Blank cost cells stay NaN: a zero would turn a missing cost into a free trade.
+    for column in COST_INPUT_COLUMNS:
+        if column in copy.columns:
+            copy[column] = pd.to_numeric(copy[column], errors="coerce")
     for column in ("symbol", "strategy_name", "session", "regime"):
         if column not in copy.columns:
             copy[column] = "UNKNOWN"
