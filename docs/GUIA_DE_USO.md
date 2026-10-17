@@ -16,10 +16,12 @@ actual. Para el detalle tecnico ver `PROJECT_SPEC.md` (seccion 17.3),
   activarla. `DEMO_ONLY=True` y `LIVE_TRADING_APPROVED=False` no se pueden
   cambiar: la configuracion rechaza otros valores.
 - **No esta listo para dinero real ni para operar en demo.** La estrategia
-  actual no supera a entradas aleatorias en los datos disponibles
-  (`docs/research/trend-pullback-predeclared-v1-baselines.md`). El objetivo de
-  esta guia es ponerlo a observar en papel con una cuenta demo y reunir la
-  evidencia que exige el Strategy Promotion Gate.
+  intradia actual no supera a entradas aleatorias en los datos disponibles
+  (`docs/research/trend-pullback-predeclared-v1-baselines.md`), y las primas
+  lentas diarias (tendencia de 12 meses, carry y su mezcla) tampoco pasan un
+  estudio predeclarado dentro de los limites de riesgo del bot (seccion 10).
+  El objetivo de esta guia es ponerlo a observar en papel con una cuenta demo
+  y reunir la evidencia que exige el Strategy Promotion Gate.
 
 ## 1. Requisitos
 
@@ -290,6 +292,34 @@ pwsh -NoProfile -File .\scripts\run_native_math_harness.ps1
 
 El segundo inicia una copia portable del terminal en modo matematico del
 Strategy Tester, sin cuenta. Detalle en `docs/testing/native-math-harness.md`.
+
+## 10. Estudio diario de primas lentas (investigacion, opcional)
+
+Resultado del 2026-10-17: tendencia de 12 meses, carry y su mezcla sobre
+EUR, JPY, GBP, CHF, CAD, AUD, NZD, SEK y NOK contra USD, simulados dia a dia
+dentro de los limites del bot (0,5% de riesgo por posicion, 5% de riesgo
+abierto, 10 posiciones, SL y TP siempre) con un plan congelado antes de ver
+resultados. Las tres hipotesis quedan **rechazadas** en el periodo de
+desarrollo 1999-2016 (mejor t de Newey-West 0,62 frente al minimo de 2,0) y
+el periodo reservado 2017-2026 no se evaluo: sigue disponible para una idea
+nueva, que debe predeclararse antes de mirarlo. Detalle y cifras:
+`docs/research/daily-fx-slow-premia-predeclared-v1.md`.
+
+Para reproducir el desarrollo hacen falta los mismos archivos de datos (la
+copia de FRED H.10 de github.com/datasets/exchange-rates en el commit
+c023dd8b8f87 y el CSV de tipos OECD indicado en el documento; clona con
+`git clone -c core.autocrlf=false` para no alterar el sha256) y las mismas
+versiones de Python, numpy y pandas; si no coinciden, el runner se niega con
+codigo 2. El plan original y su ledger ya tienen el desarrollo registrado, asi
+que se reproduce sobre copias:
+
+```powershell
+New-Item -ItemType Directory -Force data\runs\daily_fx_repro | Out-Null
+Copy-Item docs\research\daily_fx_slow_premia_v1\plan.json data\runs\daily_fx_repro\plan.json
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.runner development --prices data\historical\fred\daily.csv --rates data\historical\oecd\short-term-interest.csv --plan-file data\runs\daily_fx_repro\plan.json --ledger data\runs\daily_fx_repro\ledger.jsonl
+```
+
+Nada de esto lee el terminal ni envia ordenes.
 
 ## Codigos de salida
 
