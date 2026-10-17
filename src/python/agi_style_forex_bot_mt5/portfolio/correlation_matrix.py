@@ -104,13 +104,14 @@ def _clusters(pairs: list[dict[str, Any]]) -> list[list[str]]:
     return [sorted(cluster) for cluster in clusters]
 
 
-def _write_matrix(path: Path, matrix: dict[str, dict[str, float]]) -> None:
+def _write_matrix(path: Path, matrix: dict[str, dict[str, float | None]]) -> None:
     symbols = sorted(matrix)
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["symbol", *symbols])
         for symbol in symbols:
-            writer.writerow([symbol, *[matrix[symbol].get(other, 0.0) for other in symbols]])
+            # A null (or absent) correlation is written as an empty cell, never 0.0.
+            writer.writerow([symbol, *[matrix[symbol].get(other) for other in symbols]])
 
 
 def _write_rows(path: Path, rows: list[dict[str, Any]]) -> None:

@@ -1,12 +1,13 @@
 """Correlations pair returns by timestamp and fail closed on short overlap."""
 
+import csv
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from agi_style_forex_bot_mt5.portfolio import compute_correlation_matrix
+from agi_style_forex_bot_mt5.portfolio import build_correlation_report, compute_correlation_matrix
 
 
 def _times(start: int, count: int) -> list[str]:
@@ -86,3 +87,18 @@ def test_independent_aligned_series_are_ok(tmp_path):
     assert report["matrix"]["EURUSD"]["EURUSD"] == pytest.approx(1.0)
     assert report["highly_correlated_pairs"] == report["insufficient_overlap_pairs"] == []
     assert report["classification"] == "OK"
+
+
+def test_matrix_csv_writes_null_correlations_as_empty_cells(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    _write(data / "EURUSD_M5.csv", _times(0, 60), _walk(60, seed=9))
+    _write(data / "USDCHF_M5.csv", _times(0, 60), [0.9] * 60)  # Zero variance: null diagonal too.
+
+    build_correlation_report(data_dir=data, output_dir=tmp_path / "out", window=60)
+
+    with (tmp_path / "out" / "correlation_matrix.csv").open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.reader(handle))
+    assert rows[0] == ["symbol", "EURUSD", "USDCHF"]
+    assert rows[1][0] == "EURUSD" and float(rows[1][1]) == pytest.approx(1.0) and rows[1][2] == ""
+    assert rows[2] == ["USDCHF", "", ""]

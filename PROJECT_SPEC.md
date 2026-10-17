@@ -1155,15 +1155,38 @@ y falsea drawdown y rachas. Tampoco se atribuye un calendario observado a ella.
 - Stress de costes multiplica por k el round trip completo de cada trade en sus
   propias unidades: spread registrado mas un suelo aditivo de 10 puntos
   (`STRESS_SPREAD_FLOOR_POINTS`), slippage en ambos lados y comision. Un spread
-  registrado de cero sigue estresado. El escenario `spread_multiplier` pasa a
-  `cost_multiplier`, y `cost_sensitivity` reporta `*_cost_x2` y
-  `break_even_cost_multiplier`; sin costes por trade validos es
-  `NEEDS_MORE_ROBUSTNESS_DATA` con fragilidad 100. Reportes previos subestiman
-  costes y deben reevaluarse antes de usarse como evidencia.
+  registrado de cero sigue estresado. El escenario gate `spread_multiplier` de
+  `StressTester.comprehensive` pasa a `cost_multiplier`. En
+  `spread_slippage_sensitivity` el parametro y la clave `spread_multiplier`
+  conservan su nombre, pero ahora escalan el spread registrado mas el suelo.
+- `cost_sensitivity` penaliza cada trade con max((k-1) x su round trip,
+  penalizacion fija legacy de k: 0.0125/0.025/0.05/0.10 en unidades de
+  `trade_values`), asi que nunca estresa menos que antes: un trade de stop amplio
+  cuyo round trip es menor conserva la penalizacion legacy. Como el gate 2x de
+  `stress_tester`, profit factor < 1 o expectancy <= 0 a 2x costes (break-even
+  <= 2.0) clasifica `NEEDS_COST_RECALIBRATION`, nunca `COST_SENSITIVITY_OK`.
+  Reporta `*_cost_x2`, `break_even_cost_multiplier`, `cost_model`,
+  `penalty_rule`, `gate_cost_multiplier`, `cost_units` (R o PROFIT) y
+  `spread_floor_points`. En cost_sensitivity.csv las columnas
+  `spread_multiplier` y `penalty_r` pasan a `cost_multiplier` y `mean_penalty`,
+  y se agrega `penalty_floor`.
+- Sin costes por trade validos `cost_sensitivity` es `NEEDS_MORE_ROBUSTNESS_DATA`
+  con fragilidad 100 y `reason`: `NO_TRADES`, `COST_INPUTS_MISSING_OR_INVALID` o
+  `PROFIT_AND_R_MULTIPLE_NOT_DISTINCT` (profit y r_multiple identicos, p. ej. una
+  columna ausente que el loader copia de la otra: unidades desconocidas).
+  `normalize_trade_frame` ya no rellena con 0 celdas vacias de spread, slippage
+  o comision; llegan como faltantes y fallan cerrado tambien por
+  `run_robustness_fast`. Reportes previos pueden subestimar costes y deben
+  reevaluarse antes de usarse como evidencia.
+- Limitacion conocida: `stress_fast` sigue restando penalizaciones fijas en
+  unidades de `trade_values` para spread, slippage y comision, no el round trip
+  real de cada trade. Es diagnostico; la evidencia de costes por trade es
+  `cost_sensitivity`.
 - La matriz de correlacion alinea retornos por timestamp (inner join) y no por
-  posicion de fila. Con menos de 30 retornos alineados, sin timestamps o con
-  varianza nula la correlacion es null, el par figura en
-  `insufficient_overlap_pairs` y la clasificacion no es `OK`.
+  posicion de fila. Con menos de 30 retornos alineados (`min_aligned_returns`),
+  sin timestamps o con varianza nula la correlacion es null, incluida la
+  diagonal; el par figura en `insufficient_overlap_pairs` y la clasificacion no
+  es `OK`. correlation_matrix.csv escribe null como celda vacia.
 - Reportes v2 conservan entradas normalizadas y hashes de datos/configuracion,
   RunManifest, commit, fuentes, runtime y seed. Configuracion identifica capital,
   umbral y supuestos de costes. Procedencia upstream permanece UNKNOWN salvo
