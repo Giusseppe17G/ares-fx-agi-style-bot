@@ -86,10 +86,12 @@ def test_edge_filtering_falls_back_to_summary_counts(tmp_path: Path) -> None:
 
 
 def test_symbol_filter_keep_and_disable() -> None:
+    # KEEP also needs the symbol selector's Holm-adjusted p-value <= 0.05
+    # (docs/decisions/2026-10-22-deflated-promotion-gate.md).
     frame = pd.DataFrame(
         [
-            {"symbol": "EURUSD", "total_trades": 79, "profit_factor": 1.2, "expectancy_r": 0.08},
-            {"symbol": "GBPUSD", "total_trades": 68, "profit_factor": 0.8, "expectancy_r": -0.05},
+            {"symbol": "EURUSD", "total_trades": 79, "profit_factor": 1.2, "expectancy_r": 0.08, "holm_adjusted_p_value": 0.01},
+            {"symbol": "GBPUSD", "total_trades": 68, "profit_factor": 0.8, "expectancy_r": -0.05, "holm_adjusted_p_value": 1.0},
         ]
     )
 
@@ -215,16 +217,17 @@ def _write_edge_reports(tmp_path: Path) -> Path:
         json.dumps({"run_id": "edge-run", "decision": "TEST_ACTIVE_RESEARCH_ONLY", "metrics_status": "FULL_EDGE_METRICS", "total_trades": 213}),
         encoding="utf-8",
     )
+    # The selectors write holm_adjusted_p_value; edge filtering KEEP needs it <= 0.05.
     pd.DataFrame(
         [
-            {"symbol": "EURUSD", "total_trades": 79, "profit_factor": 1.2, "expectancy_r": 0.08, "max_drawdown_pct": 4},
-            {"symbol": "GBPUSD", "total_trades": 68, "profit_factor": 0.8, "expectancy_r": -0.05, "max_drawdown_pct": 6},
+            {"symbol": "EURUSD", "total_trades": 79, "profit_factor": 1.2, "expectancy_r": 0.08, "max_drawdown_pct": 4, "holm_adjusted_p_value": 0.01},
+            {"symbol": "GBPUSD", "total_trades": 68, "profit_factor": 0.8, "expectancy_r": -0.05, "max_drawdown_pct": 6, "holm_adjusted_p_value": 1.0},
         ]
     ).to_csv(edge / "by_symbol.csv", index=False)
     pd.DataFrame(
         [
-            {"strategy_name": "trend_pullback", "total_trades": 60, "profit_factor": 1.2, "expectancy_r": 0.06, "winrate": 48},
-            {"strategy_name": "mean_reversion", "total_trades": 40, "profit_factor": 0.9, "expectancy_r": -0.03, "winrate": 38},
+            {"strategy_name": "trend_pullback", "total_trades": 60, "profit_factor": 1.2, "expectancy_r": 0.06, "winrate": 48, "holm_adjusted_p_value": 0.02},
+            {"strategy_name": "mean_reversion", "total_trades": 40, "profit_factor": 0.9, "expectancy_r": -0.03, "winrate": 38, "holm_adjusted_p_value": 1.0},
         ]
     ).to_csv(edge / "by_strategy.csv", index=False)
     pd.DataFrame(

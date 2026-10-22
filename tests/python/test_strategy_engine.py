@@ -113,9 +113,13 @@ def test_demo_mode_fails_closed_without_promotion_evidence() -> None:
 
 
 def test_demo_mode_can_emit_candidate_after_promotion_gate_passes() -> None:
+    # The cumulative gate (docs/decisions/2026-10-22-deflated-promotion-gate.md)
+    # also needs shadow approval (>= 300 trades, PF > 1.25), Phase 8 forward
+    # evidence and deflated statistics; the old 260 trades at PF 1.25 no longer pass.
+    returns = tuple(1.5 if index % 5 < 3 else -1.0 for index in range(400))
     evidence = PromotionEvidence(
-        historical_trades=260,
-        oos_profit_factor=1.25,
+        historical_trades=400,
+        oos_profit_factor=1.40,
         oos_expected_payoff=2.5,
         oos_max_drawdown_pct=4.0,
         max_drawdown_limit_pct=6.0,
@@ -126,6 +130,15 @@ def test_demo_mode_can_emit_candidate_after_promotion_gate_passes() -> None:
         shadow_signals=35,
         shadow_days=15,
         shadow_audit_complete=True,
+        shadow_approval_classification="APPROVED_FOR_SHADOW_OBSERVATION",
+        oos_expectancy_r=0.2,
+        forward_paper_trades=210,
+        forward_profit_factor=1.2,
+        forward_expectancy_r=0.1,
+        forward_controls_passed=True,
+        return_sequence=returns,
+        trials=1,
+        pbo=0.05,
     )
     signal = evaluate_ensemble(
         _snapshot(),

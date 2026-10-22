@@ -151,12 +151,26 @@ def _metrics_for_frame(frame: pd.DataFrame) -> dict[str, Any]:
         "profit_factor": metrics.profit_factor,
         "expectancy_r": metrics.average_r,
         "average_r": metrics.average_r,
+        "r_multiple_std": _r_multiple_std(frame),
         "net_profit": metrics.net_profit,
         "max_drawdown_pct": metrics.max_drawdown_pct,
         "return_pct": metrics.total_return_pct,
         "average_trade_duration": metrics.average_duration_seconds,
         "execution_attempted": False,
     }
+
+
+def _r_multiple_std(frame: pd.DataFrame) -> float | None:
+    """Sample standard deviation (ddof=1) of R, the dispersion the selectors' t-test needs.
+
+    It is taken over the same ``r_multiple`` values ``calculate_metrics``
+    averages; None when the column is absent or fewer than two trades exist.
+    """
+
+    if "r_multiple" not in frame.columns or len(frame) < 2:
+        return None
+    values = pd.to_numeric(frame["r_multiple"], errors="coerce").fillna(0.0)
+    return float(values.std(ddof=1))
 
 
 def _find_backtest_summary(root: Path) -> dict[str, Any]:
@@ -233,7 +247,7 @@ def _empty_global_metrics() -> dict[str, Any]:
 
 def _group_metrics(frame: pd.DataFrame, column: str) -> pd.DataFrame:
     if frame.empty or column not in frame.columns:
-        return pd.DataFrame(columns=[column, "total_trades", "sample_status", "winrate", "profit_factor", "expectancy_r", "net_profit", "max_drawdown_pct", "return_pct"])
+        return pd.DataFrame(columns=[column, "total_trades", "sample_status", "winrate", "profit_factor", "expectancy_r", "r_multiple_std", "net_profit", "max_drawdown_pct", "return_pct"])
     rows: list[dict[str, Any]] = []
     for value, group in frame.groupby(column, dropna=False):
         metrics = _metrics_for_frame(group)

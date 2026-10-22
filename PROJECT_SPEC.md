@@ -645,10 +645,56 @@ backtest o justificacion escrita, PF > 1.25, DD < 12%, expectancy R > 0), (b) la
 evidencia forward shadow de su Phase 8 (al menos dos semanas o 200 paper trades,
 lo que tarde mas, con PF forward > 1.15) y (c) los criterios OOS de esta
 seccion. Si los umbrales se solapan, aplica el mas estricto; los 200/1.15 de
-aqui nunca relajan los minimos de shadow. Deuda tecnica: hoy
-`strategy/scoring_engine.py:evaluate_promotion_gate` solo comprueba el
-subconjunto de esta seccion; antes de cualquier release ejecutable debe exigir
-(a) y (b). No es explotable mientras `EXECUTION_NOT_RELEASED` bloquee todo envio.
+aqui nunca relajan los minimos de shadow.
+
+Ademas exige estadisticas deflactadas (decision
+`docs/decisions/2026-10-22-deflated-promotion-gate.md`): al menos 60
+observaciones (una `return_sequence` mas corta es inutilizable e invalida todo
+el bloque, aunque lleguen valores validos del llamador; las observaciones
+usadas, la menor entre la longitud de la secuencia y `sharpe_observations`,
+deben llegar a 60 y ademas a MinTRL), PSR(0) >= 0.95 con
+observaciones >= MinTRL al 95%, `trials` declarado (>= 1; ausente o < 1 falla;
+cuenta todas las configuraciones probadas, incluida la seleccionada)
+y Deflated Sharpe >= 0.95 dado ese numero de trials, t de Newey-West >= 3.0
+(>= 2.0 solo si `single_preregistered_hypothesis` es `True` y hubo un unico
+trial) y PBO <= 0.10 (PBO ausente falla).
+
+La deuda tecnica anterior queda pagada: `strategy/scoring_engine.py:evaluate_promotion_gate`
+exige en modo demo los criterios de esta seccion, (a), (b) y las estadisticas
+deflactadas. Contrato:
+
+- `PromotionEvidence` conserva todos sus campos y valores por defecto y anade
+  campos cuyo valor por defecto falla: `shadow_approval_classification`,
+  `oos_expectancy_r`, `forward_paper_trades`, `forward_profit_factor`,
+  `forward_expectancy_r`, `forward_controls_passed`, `return_sequence`
+  (retornos por trade o por dia), `trials`, `trial_sharpes`,
+  `single_preregistered_hypothesis`, `psr_zero`, `min_track_record_length`,
+  `sharpe_observations`, `deflated_sharpe`, `newey_west_t` y `pbo`.
+  `shadow_days` es la duracion del forward shadow (>= 14 dias) y se exigen
+  ademas >= 200 paper trades. Si llegan la secuencia y valores calculados por
+  el llamador, gana el menos favorable. Evidencia ausente, mal formada, no
+  finita o fuera de rango falla su check.
+- `PromotionDecision` anade `statistics` (valores usados, serializables a JSON
+  sin NaN ni infinito); el ensemble los incluye en el payload de auditoria de
+  modo demo. El modo shadow sigue aprobado para auditoria igual que antes y con
+  el mismo payload.
+- Compatibilidad: un llamador que no pasa la nueva evidencia obtiene demo
+  `REJECTED` (modo efectivo shadow), la direccion fail-closed; evidencia que
+  solo cumplia el subconjunto anterior, o con menos de 60 observaciones, deja
+  de aprobar. Ninguna aprobacion ejecuta nada mientras `EXECUTION_NOT_RELEASED`
+  bloquee todo envio.
+
+Los selectores de edge (`edge_evaluation/strategy_selector.py` y
+`edge_evaluation/symbol_selector.py`) solo marcan `KEEP` si ademas la p
+ajustada por Holm (test t unilateral de R medio, familia = todas las filas de
+la llamada) es <= 0.05; si no, la fila queda `WATCHLIST` con el motivo y la p
+ajustada en la columna `holm_adjusted_p_value`. `COUNTS_ONLY` no cambia. Los
+filtros de `BALANCED_FILTERED` (`edge_filtering/symbol_filter.py` y
+`edge_filtering/strategy_filter.py`) solo marcan `KEEP` si ademas esa
+`holm_adjusted_p_value` leida de `by_symbol.csv` o `by_strategy.csv` es un
+valor finito en [0, 0.05]; columna ausente, valor vacio, invalido o mayor
+falla cerrado a `WATCHLIST`. Compatibilidad: reportes de edge sin esa columna
+ya no producen `KEEP` en el filtro; hay que regenerarlos con `edge-evaluation`.
 
 ### 12.2 Reproducibilidad Y Datos
 
