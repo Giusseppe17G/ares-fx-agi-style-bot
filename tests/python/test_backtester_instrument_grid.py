@@ -8,12 +8,17 @@ import pytest
 from agi_style_forex_bot_mt5.backtesting import Backtester, BacktestSettings, CostModel, TradeCandidate
 
 
-def _bars(*, high=1.1004, low=1.0996):
+def _bars(*, high=1.1004, low=1.0996, close=1.1):
     return pd.DataFrame({
         "timestamp": pd.date_range("2026-01-01", periods=2, freq="5min", tz="UTC"),
         "open": [1.1, 1.1], "high": [high, high], "low": [low, low],
-        "close": [1.1, 1.1], "spread_points": [0, 0],
+        "close": [close, close], "spread_points": [0, 0],
     })
+
+
+def _favourable_close(direction, *, high=1.1004, low=1.0996):
+    """A moved stop is sent at the bar close and must sit strictly behind it."""
+    return _bars(high=high, low=low, close=high if direction == "BUY" else low)
 
 
 def _candidate(direction, **overrides):
@@ -55,7 +60,7 @@ def test_off_grid_protection_is_rejected_without_rounding_history(direction, fie
 @pytest.mark.parametrize("direction,stop", [("BUY", 1.10025), ("SELL", 1.09975)])
 def test_trailing_protection_is_conservatively_aligned(direction, stop):
     outcome = Backtester(_settings(trailing_start_r=0.1, trailing_distance_points=11)).run(
-        _bars(), [_candidate(direction)])
+        _favourable_close(direction), [_candidate(direction)])
     trade, = outcome.trades
     assert trade.final_sl_price == stop
     assert Decimal(str(trade.final_sl_price)) % Decimal("0.00005") == 0
@@ -64,7 +69,7 @@ def test_trailing_protection_is_conservatively_aligned(direction, stop):
 @pytest.mark.parametrize("direction,stop", [("BUY", 1.10005), ("SELL", 1.09995)])
 def test_break_even_fractional_tick_lock_never_rounds_to_extra_profit(direction, stop):
     outcome = Backtester(_settings(break_even_trigger_r=0.1, break_even_lock_points=1)).run(
-        _bars(), [_candidate(direction)])
+        _favourable_close(direction), [_candidate(direction)])
     trade, = outcome.trades
     assert trade.final_sl_price == stop
 
@@ -85,5 +90,5 @@ def test_exact_break_even_trigger_uses_declared_decimal_distances(direction, hig
         cost_model=CostModel(point=0.00001, tick_size=0.00005, tick_value=2),
         break_even_trigger_r=0.6,
     )
-    trade, = Backtester(settings).run(_bars(high=high, low=low), [_candidate(direction)]).trades
+    trade, = Backtester(settings).run(_favourable_close(direction, high=high, low=low), [_candidate(direction)]).trades
     assert trade.final_sl_price == 1.1

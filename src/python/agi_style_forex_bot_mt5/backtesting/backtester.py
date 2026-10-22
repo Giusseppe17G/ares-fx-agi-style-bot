@@ -34,14 +34,20 @@ from ..core.run_manifest import RunManifest
 from ..core.instruments.snapshot import instrument_metadata_hash
 from ..core.operational_state.errors import ExecutionSimulationError
 from ..core.instruments import ASSUMED_SOURCE, InstrumentRegistry, InstrumentSpec, assumed_fx_spec, resolve_registry
-from ..execution_simulation.gap_model import GapDecision, GapModel
+from ..execution_simulation.gap_model import GapModel
 from ..strategy import evaluate_ensemble
 from ..strategy.strategy_ensemble import EnsembleConfig, STRATEGY_VERSION
 
 
 # 0.4.0: bid bars, ask-side SELL exits, gap fills, exit-bar spread, and the
 # per-trade statistic reported as t_stat beside a daily mark-to-market Sharpe.
-ENGINE_VERSION = "0.4.0"
+# 0.4.1: a break-even/trailing move proposed at a bar close is refused unless
+# it is strictly on the protective side of that close (bid for BUY, ask for
+# SELL); the previous stop stays and the trade carries stop_move_flags. SL/TP
+# already crossed at entry are rejected, daily metrics need a minimum sample
+# (skew/kurtosis included) and every None daily metric carries a flag.
+ENGINE_VERSION = "0.4.1"
+STOP_MOVE_REJECTED_INVALID_SIDE = "stop_move_rejected_invalid_side"
 # Daily metrics sample every weekday, flat days and holidays included, so the
 # sampling frequency is also the annualisation factor.
 WEEKDAYS_PER_YEAR = 365.25 / 7 * 5
@@ -50,10 +56,30 @@ WEEKDAYS_PER_YEAR = 365.25 / 7 * 5
 # weekdays for Sharpe; one year for CAGR/Calmar, which would otherwise
 # extrapolate compounding. A computed value is still not evidence by itself.
 MIN_DAILY_RETURNS_SHARPE = 20
+# Skew and kurtosis describe the same returns as the Sharpe (PSR takes all
+# three), so they share its sample. At 20 returns their standard errors are
+# still about 0.5 and 1.0: descriptive only.
+MIN_DAILY_RETURNS_MOMENTS = MIN_DAILY_RETURNS_SHARPE
 MIN_DAILY_RETURNS_ANNUALISED = math.ceil(WEEKDAYS_PER_YEAR)
 MARK_TO_MARKET_UNAVAILABLE = "MARK_TO_MARKET_UNAVAILABLE"
 INSUFFICIENT_DAILY_SAMPLE_SHARPE = "INSUFFICIENT_DAILY_SAMPLE_SHARPE"
+INSUFFICIENT_DAILY_SAMPLE_MOMENTS = "INSUFFICIENT_DAILY_SAMPLE_MOMENTS"
 INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR = "INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR"
+DAILY_RETURNS_ZERO_VARIANCE = "DAILY_RETURNS_ZERO_VARIANCE"
+DAILY_RETURNS_NOT_FINITE = "DAILY_RETURNS_NOT_FINITE"
+CAGR_OVERFLOW = "CAGR_OVERFLOW"
+CALMAR_ZERO_DRAWDOWN = "CALMAR_ZERO_DRAWDOWN"
+# Which daily metrics each flag explains as None; every None has one.
+DAILY_METRIC_FLAG_SCOPE: Mapping[str, tuple[str, ...]] = {
+    MARK_TO_MARKET_UNAVAILABLE: ("sharpe", "skew", "kurtosis", "cagr_pct", "calmar"),
+    INSUFFICIENT_DAILY_SAMPLE_SHARPE: ("sharpe",),
+    INSUFFICIENT_DAILY_SAMPLE_MOMENTS: ("skew", "kurtosis"),
+    INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR: ("cagr_pct", "calmar"),
+    DAILY_RETURNS_ZERO_VARIANCE: ("sharpe", "skew", "kurtosis"),
+    DAILY_RETURNS_NOT_FINITE: ("sharpe", "skew", "kurtosis"),
+    CAGR_OVERFLOW: ("cagr_pct", "calmar"),
+    CALMAR_ZERO_DRAWDOWN: ("calmar",),
+}
 
 
 @dataclass(frozen=True)
@@ -519,7 +545,7 @@ class Backtester:
         assumed_spread_bars = 0
         gap_model = GapModel()
         decision = None
-        previous_close: float | None = None
+        stop_moves_rejected = 0
 
         for idx in range(start_idx, max_idx + 1):
             row = bars.iloc[idx]
@@ -542,18 +568,14 @@ class Backtester:
             else:
                 mae = min(mae, float(entry_decimal - high))
                 mfe = max(mfe, float(entry_decimal - low))
-            if previous_close is not None and _stop_reached(direction, previous_close, current_sl):
-                # Only a stop moved from the previous bar's extreme can sit behind
-                # that bar's close: the price crossed it inside that bar, so this
-                # open is no gap and the stop level fills.
-                decision = GapDecision(current_sl, "SL", False, ("moved_stop_crossed_in_prior_bar",))
-            else:
-                # A gap through the stop fills at the worse open; a gap through the
-                # target fills at the target; a bar touching both is a stop.
-                decision = gap_model.resolve_bar_exit(
-                    direction=direction, open_price=float(open_), high=float(high), low=float(low),
-                    sl=current_sl, tp=tp_price,
-                )
+            # The stop in force is strictly on the safe side of the entry quote or
+            # of the previous close, so an open beyond it is a real gap and fills
+            # at that worse open; a gap through the target fills at the target; a
+            # bar touching both is a stop.
+            decision = gap_model.resolve_bar_exit(
+                direction=direction, open_price=float(open_), high=float(high), low=float(low),
+                sl=current_sl, tp=tp_price,
+            )
             if decision is not None:
                 break
             if idx < max_idx:
@@ -562,7 +584,7 @@ class Backtester:
                     tick_size=self.settings.cost_model.tick_size, tick_value=self.settings.cost_model.tick_value,
                     commission=commission,
                 )
-            current_sl = self._maybe_move_stop(
+            proposed_sl = self._maybe_move_stop(
                 direction=direction,
                 current_sl=current_sl,
                 entry_price=entry_price,
@@ -570,7 +592,13 @@ class Backtester:
                 risk_distance=risk_distance,
                 bar_extreme=float(high if direction == Direction.BUY.value else low),
             )
-            previous_close = float(close)
+            # A bar-close EA sends the move at this close. MT5 refuses an SL at or
+            # beyond the quote it triggers on (invalid stops): the previous stop
+            # stays, so no exit can fill at a level the price never traded.
+            if proposed_sl == current_sl or _stop_on_protective_side(direction, float(close), proposed_sl):
+                current_sl = proposed_sl
+            else:
+                stop_moves_rejected += 1
 
         exit_idx = idx
         if decision is None:
@@ -641,6 +669,8 @@ class Backtester:
                 "exit_spread_points": bar_spread,
                 "exit_fill_flags": exit_flags,
                 "assumed_spread_bars": assumed_spread_bars,
+                "stop_move_flags": (STOP_MOVE_REJECTED_INVALID_SIDE,) if stop_moves_rejected else (),
+                "stop_moves_rejected": stop_moves_rejected,
             },
         )
         return trade, used_indices, marks
@@ -1515,9 +1545,13 @@ def _validate_protection_side(direction: str, closing_quote: float, sl: float, t
         raise ValueError("SELL candidate requires tp < ask < sl at entry")
 
 
-def _stop_reached(direction: str, closing_price: float, stop: float) -> bool:
-    """Whether a closing-side price is at or beyond the stop, as GapModel tests a touch."""
-    return closing_price <= stop if direction == Direction.BUY.value else closing_price >= stop
+def _stop_on_protective_side(direction: str, closing_quote: float, stop: float) -> bool:
+    """Whether MT5 would accept this SL now: strictly below the bid (BUY) or above the ask (SELL).
+
+    The OHLC engine models no broker stops level (its replay snapshot uses 0),
+    so the bound is the closing-side quote itself.
+    """
+    return stop < closing_quote if direction == Direction.BUY.value else stop > closing_quote
 
 
 def _profit_for_price_move(
@@ -1641,41 +1675,66 @@ def _daily_equity_metrics(daily_equity: pd.Series | None, initial_balance: float
     """Annualised Sharpe, skew, non-excess kurtosis, CAGR % and Calmar.
 
     Same formulas as research.edge_statistics, which cannot be imported here:
-    the research package imports this module. Below MIN_DAILY_RETURNS_SHARPE
-    (Sharpe) or MIN_DAILY_RETURNS_ANNUALISED (CAGR, Calmar) daily returns the
-    metric is None and daily_metrics_flags names the shortfall.
+    the research package imports this module. Every None metric has a reason
+    in daily_metrics_flags (see DAILY_METRIC_FLAG_SCOPE): no marks, a sample
+    below MIN_DAILY_RETURNS_SHARPE / _MOMENTS / _ANNUALISED, zero variance,
+    unrepresentable returns or growth, or a Calmar without drawdown.
     """
     result: dict[str, Any] = {"sharpe": None, "skew": None, "kurtosis": None, "cagr_pct": None,
                               "calmar": None, "daily_returns_count": 0, "daily_metrics_flags": ()}
     if daily_equity is None or not len(daily_equity) or initial_balance <= 0:
         return result | {"daily_metrics_flags": (MARK_TO_MARKET_UNAVAILABLE,)}
     equity = np.concatenate(([float(initial_balance)], daily_equity.to_numpy(dtype=float)))
-    # Once equity is exhausted every later day is a total loss.
-    returns = np.divide(equity[1:], equity[:-1], out=np.zeros(len(equity) - 1), where=equity[:-1] > 0) - 1.0
+    # Once equity is exhausted every later day is a total loss. Overflow is
+    # kept as inf (or nan once centred) and reported below, never computed
+    # into a ratio.
+    with np.errstate(over="ignore", invalid="ignore"):
+        returns = np.divide(equity[1:], equity[:-1], out=np.zeros(len(equity) - 1), where=equity[:-1] > 0) - 1.0
+        centred = returns - returns.mean()
+        second, third, fourth = (float(np.mean(centred**power)) for power in (2, 3, 4))
     flags: list[str] = []
     result["daily_returns_count"] = len(returns)
+    # The three ratios describe one sample (PSR takes all of them), so they
+    # share one test: a finite fourth moment also bounds scale**3 and scale**4.
+    representable = all(math.isfinite(moment) for moment in (second, third, fourth))
     if len(returns) < MIN_DAILY_RETURNS_SHARPE:
         flags.append(INSUFFICIENT_DAILY_SAMPLE_SHARPE)
-    elif float(returns.std(ddof=1)) > 0:
+    elif not representable:
+        flags.append(DAILY_RETURNS_NOT_FINITE)
+    elif not second > 0:
+        flags.append(DAILY_RETURNS_ZERO_VARIANCE)
+    else:
         result["sharpe"] = float(returns.mean() / returns.std(ddof=1) * math.sqrt(WEEKDAYS_PER_YEAR))
-    centred = returns - returns.mean()
-    scale = float(np.sqrt(np.mean(centred**2)))
-    if len(returns) >= 3 and scale > 0:
-        result["skew"] = float(np.mean(centred**3)) / scale**3
-        result["kurtosis"] = float(np.mean(centred**4)) / scale**4
+    if len(returns) < MIN_DAILY_RETURNS_MOMENTS:
+        flags.append(INSUFFICIENT_DAILY_SAMPLE_MOMENTS)
+    elif not representable:
+        flags.append(DAILY_RETURNS_NOT_FINITE)
+    elif not second > 0:
+        flags.append(DAILY_RETURNS_ZERO_VARIANCE)
+    else:
+        scale = math.sqrt(second)
+        result["skew"] = third / scale**3
+        result["kurtosis"] = fourth / scale**4
     if len(returns) < MIN_DAILY_RETURNS_ANNUALISED:
         flags.append(INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR)
     else:
-        growth = float(equity[-1] / equity[0])
+        with np.errstate(over="ignore"):
+            growth = float(equity[-1] / equity[0])
         try:
             cagr: float | None = growth ** (WEEKDAYS_PER_YEAR / len(returns)) - 1.0 if growth > 0 else -1.0
         except OverflowError:
-            cagr = None  # not representable as a finite annual rate
-        peaks = np.maximum.accumulate(equity)
-        max_drawdown = float(np.max((peaks - equity) / peaks))
-        result["cagr_pct"] = None if cagr is None else cagr * 100.0
-        result["calmar"] = cagr / max_drawdown if cagr is not None and max_drawdown > 0 else None
-    return result | {"daily_metrics_flags": tuple(flags)}
+            cagr = None
+        if cagr is None or not math.isfinite(cagr):
+            flags.append(CAGR_OVERFLOW)  # not representable as a finite annual rate
+        else:
+            peaks = np.maximum.accumulate(equity)
+            max_drawdown = float(np.max((peaks - equity) / peaks))
+            result["cagr_pct"] = cagr * 100.0
+            if max_drawdown > 0:
+                result["calmar"] = cagr / max_drawdown
+            else:
+                flags.append(CALMAR_ZERO_DRAWDOWN)
+    return result | {"daily_metrics_flags": tuple(dict.fromkeys(flags))}
 
 
 def _sortino(returns: np.ndarray) -> float | None:

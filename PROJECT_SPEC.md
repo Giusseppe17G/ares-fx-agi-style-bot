@@ -437,13 +437,20 @@ Campos:
 - `t_stat`: double opcional; media/desviacion de retornos por trade por raiz(n).
   Hasta el motor 0.3.2 este valor se publicaba como `sharpe`.
 - `skew`, `kurtosis` (no excedente, normal = 3), `cagr_pct`, `calmar`: double
-  opcionales de la misma serie diaria que `sharpe`. `cagr_pct` y `calmar` son
-  null con menos de 261 retornos diarios, un ano de dias laborables
+  opcionales de la misma serie diaria que `sharpe`. `skew` y `kurtosis` son
+  null con menos de 20 retornos diarios, la misma muestra que `sharpe`
+  (`INSUFFICIENT_DAILY_SAMPLE_MOMENTS`); con 20 su error estandar sigue siendo
+  cerca de 0.5 y 1.0, son descriptivos. `cagr_pct` y `calmar` son null con
+  menos de 261 retornos diarios, un ano de dias laborables
   (`INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR`).
 - `daily_returns_count`: int; retornos diarios usados (0 sin marcas).
-- `daily_metrics_flags_json`: string JSON; motivos por los que una metrica
-  diaria es null (`MARK_TO_MARKET_UNAVAILABLE` o los umbrales anteriores). Un
-  valor calculado sobre el umbral sigue sin ser evidencia por si solo.
+- `daily_metrics_flags_json`: string JSON; toda metrica diaria null tiene un
+  motivo: `MARK_TO_MARKET_UNAVAILABLE`, los umbrales anteriores,
+  `DAILY_RETURNS_ZERO_VARIANCE` o `DAILY_RETURNS_NOT_FINITE` (retornos o sus
+  momentos no representables como double finito; sharpe, skew, kurtosis),
+  `CAGR_OVERFLOW` (crecimiento no representable como tasa anual finita;
+  cagr_pct y calmar) o `CALMAR_ZERO_DRAWDOWN`. Un valor calculado sobre el
+  umbral sigue sin ser evidencia por si solo.
 - `recovery_factor`: double opcional.
 - `notes`: string.
 - `avg_win`: double.
@@ -715,15 +722,28 @@ Metricas minimas:
   maximo admitido, nunca cero. El antiguo `sharpe` por trade pasa a `t_stat`.
   Reportes de motores anteriores deben reevaluarse antes de usarse como
   evidencia, sin sobrescribirlos.
-- Motor 0.4.0, niveles y stops movidos: SL y TP deben quedar estrictamente a
-  ambos lados del precio que los dispara al entrar (BUY: bid de entrada; SELL:
-  ask = bid + spread de la barra); si no, el candidato se rechaza con un motivo
-  estable y no se simula un stop instantaneo. BE/trailing mueven el stop al
-  cierre de cada barra, desde su extremo, y el nuevo stop rige desde la barra
-  siguiente. Solo se marca `gap_through_sl` si el cierre anterior (lado de
-  cierre) quedaba del lado seguro del stop vigente; si ese cierre ya lo habia
-  cruzado, la salida llena en el nivel del stop (con slippage) y marca
-  `moved_stop_crossed_in_prior_bar`, sea cual sea la apertura siguiente.
+- Motor 0.4.0, niveles: SL y TP deben quedar estrictamente a ambos lados del
+  precio que los dispara al entrar (BUY: bid de entrada; SELL: ask = bid +
+  spread de la barra); si no, el candidato se rechaza con un motivo estable y no
+  se simula un stop instantaneo.
+- Motor 0.4.1, stops movidos (EA al cierre de barra): BE/trailing proponen un
+  nuevo stop al cierre de cada barra (BUY/SELL: BE en entrada +/- lock;
+  trailing en extremo favorable de la barra -/+ distancia) en una sola
+  modificacion. Solo
+  se acepta si queda estrictamente del lado protector de la cotizacion de
+  cierre que lo dispara (BUY: por debajo del bid de cierre; SELL: por encima del
+  ask de cierre); el motor OHLC no modela stops level ni freeze level del
+  broker (0). Si no, MT5 la rechazaria por stops invalidos: se conserva el stop
+  anterior completo (una propuesta BE+trailing rechazada no se reduce a su
+  parte BE) y el trade registra
+  `stop_move_flags = ["stop_move_rejected_invalid_side"]` y
+  `stop_moves_rejected`. Un stop aceptado rige desde la barra siguiente. Asi el
+  stop vigente siempre queda del lado seguro del cierre anterior: una apertura
+  mas alla de el es un gap real y llena en la apertura, peor que el stop
+  (`gap_through_sl`). Ninguna salida por stop llena en un nivel que el precio
+  no negocio (se elimina `moved_stop_crossed_in_prior_bar`) y una salida
+  END_OF_DATA nunca reporta un stop final ya cruzado por el cierre. Reportes
+  0.4.0 con BE o trailing activos deben reejecutarse en 0.4.1.
 - Instantaneas de senal: `generate_strategy_candidates` (y el evaluador
   predeclarado de trend pullback) siguen centrando el spread en el cierre
   (bid = cierre - spread/2, ask = cierre + spread/2). Solo derivan niveles SL/TP
