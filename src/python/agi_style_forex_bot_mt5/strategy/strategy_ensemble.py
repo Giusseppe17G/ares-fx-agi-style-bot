@@ -229,13 +229,18 @@ def _signal_payload(signal: StrategySignal) -> Mapping[str, Any]:
 
 
 def _decision_payload(decision: PromotionDecision) -> Mapping[str, Any]:
-    return {
+    payload = {
         "requested_mode": decision.requested_mode,
         "approved": decision.approved,
         "effective_mode": decision.effective_mode,
         "reasons": decision.reasons,
         "checks": dict(decision.checks),
     }
+    # Demo-mode decisions carry their deflated statistics for the audit trail;
+    # shadow-mode payloads stay exactly as before.
+    if decision.statistics:
+        payload["statistics"] = dict(decision.statistics)
+    return payload
 
 
 def _merge_component_scores(signals: Sequence[StrategySignal], action: SignalAction) -> Mapping[str, float]:

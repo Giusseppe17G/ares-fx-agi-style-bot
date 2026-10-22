@@ -85,10 +85,12 @@ def test_edge_evaluation_total_trades_matches_latest_run_summary_counts_only(tmp
 
 
 def test_symbol_selector_keep_and_reject() -> None:
+    # KEEP now also needs a Holm-adjusted one-sided t-test of mean R, so the
+    # rows carry the R dispersion (t = 0.2 * sqrt(35) / 0.5 = 2.37, adjusted p ~ 0.02).
     frame = pd.DataFrame(
         [
-            {"symbol": "EURUSD", "total_trades": 35, "expectancy_r": 0.2, "profit_factor": 1.4, "winrate": 52},
-            {"symbol": "GBPUSD", "total_trades": 35, "expectancy_r": -0.2, "profit_factor": 0.8, "winrate": 35},
+            {"symbol": "EURUSD", "total_trades": 35, "expectancy_r": 0.2, "r_multiple_std": 0.5, "profit_factor": 1.4, "winrate": 52},
+            {"symbol": "GBPUSD", "total_trades": 35, "expectancy_r": -0.2, "r_multiple_std": 1.0, "profit_factor": 0.8, "winrate": 35},
         ]
     )
 

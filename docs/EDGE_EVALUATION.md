@@ -117,6 +117,18 @@ Reports are written to `data/reports/edge` unless another output directory is pr
 
 `balanced_filtered.ini` keeps risk and safety unchanged while suggesting symbols, strategies, and sessions to continue testing. `research_active.ini` is marked `NOT FOR DEMO/LIVE EXECUTION`.
 
+## Significant KEEP
+
+Profit factor above `1.10` with positive mean R on `30` trades is passed by a zero-edge slice about a third of the time, and by at least one slice in almost every batch of 20 slices. Symbol and strategy selection therefore also require significance before `KEEP` (decision record: `docs/decisions/2026-10-22-deflated-promotion-gate.md`):
+
+- Each row gets a one-sided Student t test of mean R (H0: mean R <= 0) from `expectancy_r`, `r_multiple_std` and `total_trades`.
+- The p-values are Holm-adjusted across every row evaluated in the same selector call. Rows that cannot be tested (`COUNTS_ONLY`, fewer than 3 trades, missing or zero dispersion) count in the family with p = 1.
+- `KEEP` needs the old metric rule and an adjusted p-value of at most `0.05`. A row that passes only the metric rule becomes `WATCHLIST`, and its reason names the adjusted p-value and the family size.
+- `by_symbol.csv` and `by_strategy.csv` carry `mean_r_t_stat`, `mean_r_p_value`, `holm_adjusted_p_value`, `holm_family_size` and `significance_status`; every grouped metrics table carries `r_multiple_std`.
+- `COUNTS_ONLY` rows keep `WATCHLIST_COUNTS_ONLY`.
+
+Evaluating more symbols or strategies in one call makes `KEEP` harder, by design. Edge filtering (`edge-filtering`) still re-derives its own decisions from the metric columns and does not yet apply this test.
+
 ## Decisions
 
 - `NEEDS_MORE_TRADES`: fewer than 30 closed simulated trades.
