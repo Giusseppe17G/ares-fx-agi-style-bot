@@ -927,6 +927,32 @@ no autoriza ejecucion demo ni real y no sustituye el Strategy Promotion Gate.
   `InstrumentError`. `assumed_fx_spec` acepta `reference_price` (backtests: primer
   cierre); no existe tick value supuesto de 1.0. Compatibilidad: llamadas sin
   precio para USDJPY/USDCHF/USDCAD o con cruces ahora fallan cerradas.
+- Swap del broker (2026-10-22, solo lectura): CLI `capture-swap-snapshot` con
+  `--broker-symbol-map` y `--swap-snapshot-output` registra por simbolo solo
+  `swap_long`, `swap_short`, `swap_mode` (entero + nombre ENUM_SYMBOL_SWAP_MODE),
+  `swap_rollover3days` (entero + dia), monedas base/profit/margin,
+  `trade_contract_size`, `point`, `digits` y `spread_points`, con
+  `captured_at_utc`, el `MT5_SERVER_TIME` declarado, `swap_terms_hash` (solo
+  los terminos de los simbolos capturados, sin `status`, motivo ni spread) y
+  `payload_sha256` (sha256 del JSON canonico; integridad, no origen autentico).
+  Mismo patron que `build-instrument-registry`: argumentos validados antes de
+  importar MT5, solo initialize/symbol_info/shutdown (`initialize()` debe
+  devolver exactamente `True`), sin datos de cuenta, sin sobrescribir ni crear
+  carpetas, envelope sellado; 2 argumentos/destino, 3 sin MT5. Un simbolo sin
+  `symbol_info`, con campo invalido o modo desconocido queda `UNAVAILABLE` con
+  codigo de motivo cerrado y el snapshot es `PARTIAL` (`UNAVAILABLE` si no se
+  capturo ninguno: el archivo se escribe igual, pero el codigo de salida es 3).
+  `annualised_swap_carry` convierte solo `SWAP_MODE_POINTS` a % anual del
+  nocional (precio del llamador, valor USD como `derive_tick_value`, 365
+  cargos/ano); otros modos, cruces, triple swap en fin de semana, precio
+  invalido, precio con escala implausible para `digits` (`price/point` fuera de
+  `[10**4, 10**7)`, `PRICE_SCALE_IMPLAUSIBLE`) o carry anual mayor que 50% del
+  nocional (`ANNUAL_CARRY_IMPLAUSIBLE`) fallan cerrados. Resultado `OBSERVED`
+  (cubre los terminos de swap del broker, no el precio del llamador:
+  `observed_scope=BROKER_SWAP_TERMS`, `price_observed=False`),
+  `carry_assumed=False`. Compatibilidad: modo nuevo y aditivo; el formato y los
+  hashes de `InstrumentRegistrySnapshot` no cambian. No alimenta backtests ni
+  decisiones todavia (`docs/decisions/2026-10-22-broker-swap-snapshot.md`).
 - `RunManifest` version1.1 agrega hashes de fuentes Python/MQL/scripts y metadata
   o snapshot de instrumentos a la identidad. IDs cambian respecto1.0; campos
   anteriores permanecen. Backtest batch incluye config efectiva, settings y
@@ -1161,8 +1187,11 @@ persiste y valora el libro. No obtiene cotizaciones faltantes por su cuenta.
   `forward-shadow` devuelve 4 con lifecycle bloqueado, 5 tras una parada por
   integridad y 3 sin MT5 conectado ni ciclos completados (salvo `--max-cycles 0`,
   que es una comprobacion de arranque y devuelve 0); `mt5-data`, `mt5-diagnose`,
-  `export-history` y `build-instrument-registry` devuelven 3 sin MT5 (paquete
-  ausente o terminal no conectado). El JSON de stdout conserva los detalles.
+  `export-history`, `build-instrument-registry` y `capture-swap-snapshot`
+  devuelven 3 sin MT5 (paquete ausente o terminal no conectado);
+  `capture-swap-snapshot` tambien devuelve 3 si no registro ningun simbolo
+  (`status=UNAVAILABLE`), aunque escribe el archivo. El JSON de stdout conserva
+  los detalles.
 - Los rechazos normales de estrategia no impiden evaluar el siguiente candidato
   con exposicion actualizada. Se conservan gates de recuperacion, microforward,
   estabilidad, riesgo y limites paper. Solo una pausa propia por drawdown diario

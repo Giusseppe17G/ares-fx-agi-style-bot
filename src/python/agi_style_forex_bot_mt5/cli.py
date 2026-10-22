@@ -201,6 +201,7 @@ def main(argv: list[str] | None = None) -> int:
             "backtest",
             "export-history",
             "build-instrument-registry",
+            "capture-swap-snapshot",
             "walk-forward",
             "monte-carlo",
             "stress-test",
@@ -356,6 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--symbol", default="", help="Single symbol convenience override.")
     parser.add_argument("--broker-symbol-map", type=Path, help="JSON mapping canonical symbols to exact broker names for metadata capture.")
     parser.add_argument("--instrument-registry-output", type=Path, help="New snapshot JSON path; existing files are never overwritten.")
+    parser.add_argument("--swap-snapshot-output", type=Path, help="New broker swap snapshot JSON path; existing files are never overwritten.")
     parser.add_argument("--bars", type=int, default=260, help="Bars per timeframe for mt5-data.")
     parser.add_argument("--timeframes", default="M5,M15,H1", help="Comma-separated timeframes for export-history.")
     parser.add_argument("--data-dir", type=Path, default=Path("data/historical"), help="Historical CSV directory for backtest.")
@@ -587,6 +589,56 @@ def main(argv: list[str] | None = None) -> int:
                 return EXIT_MT5_UNAVAILABLE
             print(_json_dumps(summary))
             return 0
+
+        if args.mode == "capture-swap-snapshot":
+            if args.broker_symbol_map is None or args.swap_snapshot_output is None:
+                parser.error("swap snapshot capture requires --broker-symbol-map and --swap-snapshot-output")
+            from .core.operational_state.errors import InstrumentError
+            from .core.safety import SafetyEnvelope
+            from .swap_snapshot_command import capture_swap_snapshot, prepare_swap_capture
+
+            def swap_refusal(status: str, reason: str) -> str:
+                return _json_dumps(SafetyEnvelope().seal({"mode": args.mode, "status": status, "reason": reason,
+                                                          "account_data_read": False}, full=True))
+
+            # Every argument is checked before MetaTrader5 is imported or started.
+            try:
+                prepare_swap_capture(symbol_map_path=args.broker_symbol_map, output_path=args.swap_snapshot_output,
+                                     mt5_server_time=config.mt5_server_time)
+            except FileExistsError as exc:
+                print(swap_refusal("OUTPUT_EXISTS", str(exc)))
+                return EXIT_INVALID_ARGUMENTS
+            except (ValueError, InstrumentError) as exc:
+                print(swap_refusal("INVALID_ARGUMENTS", str(exc)))
+                return EXIT_INVALID_ARGUMENTS
+            try:
+                import MetaTrader5 as swap_client
+            except ImportError:
+                print(swap_refusal("MT5_UNAVAILABLE", "MetaTrader5 package is not installed"))
+                return EXIT_MT5_UNAVAILABLE
+            try:
+                summary = capture_swap_snapshot(client=swap_client, symbol_map_path=args.broker_symbol_map,
+                                                output_path=args.swap_snapshot_output, mt5_server_time=config.mt5_server_time)
+            except FileExistsError as exc:
+                print(swap_refusal("OUTPUT_EXISTS", str(exc)))
+                return EXIT_INVALID_ARGUMENTS
+            except ValueError as exc:
+                print(swap_refusal("INVALID_ARGUMENTS", str(exc)))
+                return EXIT_INVALID_ARGUMENTS
+            except InstrumentError as exc:
+                print(swap_refusal("CAPTURE_REFUSED", str(exc)))
+                return EXIT_INVALID_ARGUMENTS
+            except RuntimeError as exc:
+                print(swap_refusal("MT5_UNAVAILABLE", str(exc)))
+                return EXIT_MT5_UNAVAILABLE
+            except OSError:
+                # Fixed text: an OS message may name local paths.
+                print(swap_refusal("OUTPUT_NOT_WRITABLE", "cannot publish swap snapshot; destination must be new and writable"))
+                return EXIT_INVALID_ARGUMENTS
+            print(_json_dumps(summary))
+            # The file is written as evidence, but a capture with no symbol is no
+            # success for anything that checks only the exit code.
+            return EXIT_MT5_UNAVAILABLE if summary["status"] == "UNAVAILABLE" else 0
 
         if args.mode == "db-migrate":
             summary = run_db_migrations(sqlite_path=args.sqlite, backup_dir=args.backup_dir)
