@@ -382,7 +382,9 @@ vez de un numero absurdo. Cambia el nombre del archivo por el que creaste:
 swap anual de un largo y de un corto (negativo = lo pagas). `OBSERVED` se
 refiere solo a los terminos de swap del broker: el precio es el que tu pasaste
 (`price_source` = `caller`, `price_observed` = `false`), asi que un precio
-plausible pero desactualizado mueve el porcentaje en la misma proporcion.
+desactualizado mueve el porcentaje en la misma proporcion, y un precio con un
+decimal mal puesto (10.8 en vez de 1.08 para EURUSD) no siempre se detecta y
+divide el resultado por diez: comprueba el precio antes de usar la cifra.
 `implied_symmetric_markup_bps_per_year` es el margen del broker si lo aplica por
 igual a largos y cortos, comparable con los 75 pb supuestos. Es una
 aproximacion: ignora los festivos con rollover extra y los cambios de terminos

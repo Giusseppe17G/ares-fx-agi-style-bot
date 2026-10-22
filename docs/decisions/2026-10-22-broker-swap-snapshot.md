@@ -150,9 +150,13 @@ symbol is still never estimated.
 - A snapshot is a point in time; brokers can change swaps at any rollover. The
   guide suggests a weekly capture and comparing `swap_terms_hash` between
   snapshots that captured the same symbols.
-- The price checks catch a price on the wrong scale and absurd results, not a
-  plausible but stale or slightly wrong price: that error passes through to
-  the percentages in proportion.
+- The price checks catch a price far off the symbol's scale (for example
+  USDJPY at 1.08) and annual carry above 50% of notional. The scale window
+  spans three decades, so a price shifted by a single decimal place (EURUSD at
+  10.8, USDJPY at 1500) still passes and divides the carry by ten, the
+  understating direction for a cost; a stale or slightly wrong price passes
+  too. Every such error moves the percentages in proportion, so callers must
+  pass a verified current price. Nothing consumes the carry yet.
 
 ## Verification
 
