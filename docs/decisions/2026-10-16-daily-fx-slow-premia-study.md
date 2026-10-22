@@ -95,3 +95,8 @@ run recorded at b264293. All three hypotheses failed the development gates
 holdout was not scored. Details:
 `docs/research/daily-fx-slow-premia-predeclared-v1.md`. The engine stays as
 research tooling; no daily paper path is opened on the basis of this study.
+After the run, PR review found that the floating-loss halt measured the loss
+on the drifted weight instead of the exposure taken at entry and that the
+daily-loss halt ignored the day's costs; both are fixed (more conservative),
+v1 reproduces at commit b264293, and a diagnostic re-run shows no change to
+its numbers.

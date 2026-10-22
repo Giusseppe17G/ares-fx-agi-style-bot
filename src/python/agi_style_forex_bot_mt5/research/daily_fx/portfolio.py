@@ -285,6 +285,24 @@ def _apply_limits(weights: np.ndarray, stop_distance: np.ndarray, limits: RiskLi
     return capped
 
 
+def _open_pnl(entry_weight: np.ndarray, entry: np.ndarray, price: np.ndarray, entry_equity: np.ndarray,
+              equity: float) -> float:
+    """Unrealised P&L of the open positions as a fraction of current equity.
+
+    A position opened with signed weight w on equity E0 holds w * E0 / entry
+    units, so its open P&L is w * E0 * (price / entry - 1) whatever its weight
+    has drifted to since.
+    """
+
+    if equity <= 0.0:
+        return -math.inf
+    live = (entry_weight != 0) & np.isfinite(entry)
+    if not live.any():
+        return 0.0
+    pnl = entry_weight[live] * (price[live] / entry[live] - 1.0) * entry_equity[live]
+    return float(np.sum(pnl)) / equity
+
+
 def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
              limits: RiskLimits = RiskLimits(), rates: pd.DataFrame | None = None) -> BacktestResult:
     """Simulate the book day by day over ``prices`` (USD price per currency)."""
@@ -323,6 +341,9 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
     days, count = price.shape
     weights = np.zeros(count)
     entry = np.full(count, np.nan)
+    entry_weight = np.zeros(count)  # signed weight when the position was (re)opened
+    entry_equity = np.ones(count)  # equity index at that moment
+    equity = 1.0
     stop = np.zeros(count)
     held = np.zeros((days, count))
     contrib = np.zeros((days, count))
@@ -336,9 +357,7 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
         gross = float(np.sum(contrib[t]))
         day_cost = float(np.sum(np.abs(weights))) * financing * elapsed[t]
         weights = weights * (1.0 + moved) / (1.0 + gross) if (1.0 + gross) > 0 else np.zeros(count)
-        with np.errstate(invalid="ignore"):
-            floating = float(np.sum(np.where(weights != 0, np.sign(weights) * (price[t] / entry - 1.0)
-                                             * np.abs(weights), 0.0)))
+        floating = _open_pnl(entry_weight, entry, price[t], entry_equity, equity * (1.0 + gross - day_cost))
         # 2) Protective exits on the close.
         live = weights != 0
         if live.any():
@@ -355,6 +374,7 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
                 take_profits += int(hit_tp.sum())
                 weights[exits] = 0.0
                 entry[exits] = np.nan
+                entry_weight[exits] = 0.0
         # 3) Rebalance on schedule, inside the invariants.
         decision = t - config.execution_lag_days
         if (decision - first) % config.rebalance_days == 0 and decision >= first:
@@ -365,7 +385,8 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
                 # Incomplete inputs: fail closed to a flat book.
                 wanted, stop_distance = np.zeros(count), np.full(count, 1e-6)
             new = _apply_limits(wanted, stop_distance, limits)
-            halted = ((limits.daily_loss_halt is not None and gross <= -limits.daily_loss_halt)
+            # The day's loss counts its costs so far (financing and protective exits).
+            halted = ((limits.daily_loss_halt is not None and gross - day_cost <= -limits.daily_loss_halt)
                       or (limits.floating_loss_halt is not None and floating <= -limits.floating_loss_halt))
             if halted:
                 # Only reductions: no new position, no increase, no flip.
@@ -380,11 +401,14 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
                 entry = np.where(reset, price[t], entry)
                 stop = np.where(reset, stop_distance, stop)
                 entry = np.where(new == 0, np.nan, entry)
+                entry_weight = np.where(new == 0, 0.0, np.where(reset, new, entry_weight))
+                entry_equity = np.where(reset, equity * (1.0 + gross - day_cost), entry_equity)
                 weights = new
         held[t] = weights
         gross_out[t] = gross
         cost_out[t] = day_cost
         net_out[t] = gross - day_cost
+        equity *= 1.0 + net_out[t]
     index = prices.index[start:]
     sl = slice(start, days)
     net = pd.Series(np.log1p(net_out[sl]), index=index)

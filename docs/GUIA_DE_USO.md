@@ -310,13 +310,17 @@ copia de FRED H.10 de github.com/datasets/exchange-rates en el commit
 c023dd8b8f87 y el CSV de tipos OECD indicado en el documento; clona con
 `git clone -c core.autocrlf=false` para no alterar el sha256) y las mismas
 versiones de Python, numpy y pandas; si no coinciden, el runner se niega con
-codigo 2. El plan original y su ledger ya tienen el desarrollo registrado, asi
+codigo 2. El motor se corrigio despues de esa ejecucion, asi que el plan v1
+solo se reproduce con el codigo del commit b264293 (vuelve a `main` al
+terminar). El plan original y su ledger ya tienen el desarrollo registrado, asi
 que se reproduce sobre copias:
 
 ```powershell
+git switch --detach b264293
 New-Item -ItemType Directory -Force data\runs\daily_fx_repro | Out-Null
 Copy-Item docs\research\daily_fx_slow_premia_v1\plan.json data\runs\daily_fx_repro\plan.json
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.runner development --prices data\historical\fred\daily.csv --rates data\historical\oecd\short-term-interest.csv --plan-file data\runs\daily_fx_repro\plan.json --ledger data\runs\daily_fx_repro\ledger.jsonl
+git switch main
 ```
 
 Nada de esto lee el terminal ni envia ordenes.

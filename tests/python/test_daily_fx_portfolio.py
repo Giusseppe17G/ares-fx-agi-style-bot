@@ -262,3 +262,27 @@ def test_oecd_rates_loader(tmp_path):
     assert rates.loc[pd.Period("2020-02", "M"), "EUR"] == pytest.approx(-0.1)
     with pytest.raises(ValueError):
         load_oecd_rates(path, ("GBP",))
+
+
+def test_open_pnl_uses_the_exposure_taken_at_entry():
+    from agi_style_forex_bot_mt5.research.daily_fx.portfolio import _open_pnl
+
+    # Long half the equity at 1.0; the price falls 10%, so equity falls to 0.95.
+    pnl = _open_pnl(np.array([0.5]), np.array([1.0]), np.array([0.9]), np.array([1.0]), 0.95)
+    assert pnl == pytest.approx(-0.05 / 0.95)
+    # The drifted weight (0.5 * 0.9 / 0.95) times the move would understate it.
+    assert pnl < -(0.5 * 0.9 / 0.95) * 0.1
+    short = _open_pnl(np.array([-0.5]), np.array([1.0]), np.array([1.1]), np.array([1.0]), 0.95)
+    assert short == pytest.approx(-0.05 / 0.95)
+    assert _open_pnl(np.zeros(2), np.full(2, np.nan), np.ones(2), np.ones(2), 1.0) == 0.0
+    assert _open_pnl(np.array([0.5]), np.array([1.0]), np.array([0.9]), np.array([1.0]), 0.0) == -np.inf
+
+
+def test_daily_loss_halt_counts_the_days_costs():
+    prices = _prices(days=1500, seed=15)
+    config = PortfolioConfig(rebalance_days=5)
+    limits = RiskLimits(daily_loss_halt=1e-9, floating_loss_halt=None)
+    free = backtest(prices, config, ZERO, limits)
+    # A large swap mark-up makes every held day lose money net of costs.
+    costly = backtest(prices, config, CostModel({code: 0.0 for code in CURRENCIES}, 50_000.0), limits)
+    assert costly.blocked_rebalances > free.blocked_rebalances

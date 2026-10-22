@@ -204,6 +204,16 @@ the frozen plan into a fresh ledger with the same data and environment; its
 result digest equals the one the shared ledger recorded
 (`aac13d4236565b656ae7d048d2827271abde8e7d74b191243908760dccab8cd5`).
 
+Engine change after the run (2026-10-22): review of the pull request found
+that the engine understated the floating loss (it multiplied the drifted
+weight, not the exposure taken at entry, by the move since entry) and that
+the daily-loss halt ignored the day's costs. Both are fixed after this run,
+so the engine hash moved and this plan now reproduces only at commit b264293
+(the runner refuses the newer engine). A diagnostic re-run of the three
+primaries with the fixed engine on the same development data gives identical
+results (0 blocked rebalances, same Sharpe, t and drawdown), because neither
+halt engaged under these settings. The verdict is unchanged.
+
 ### Holdout: not run
 
 No hypothesis passed development, so per the plan none is scored on the
