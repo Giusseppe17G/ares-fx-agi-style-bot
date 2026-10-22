@@ -19,8 +19,11 @@ from .monte_carlo import (
 APPROXIMATION_SCOPE = "POST_TRADE_APPROXIMATION"
 UNMODELED_SCOPE = "REQUIRES_EXPLICIT_QUOTE_REPLAY"
 UNMODELED_SCENARIOS = ("entry_delay_one_bar", "session_shift", "fill_rate", "missing_bars")
+# Additive spread floor in instrument points. A recorded zero spread is valid,
+# so it must still be stressed; 10 matches the p95 fallback of cost_for_symbol.
+STRESS_SPREAD_FLOOR_POINTS = 10.0
 SCENARIO_CONFIG = {
-    "spread_multipliers": [1.0, 1.5, 2.0, 3.0],
+    "cost_multipliers": [1.0, 1.5, 2.0, 3.0],
     "slippage_multipliers": [1.0, 1.5, 2.0, 3.0],
     "commission_multipliers": [1.0, 1.5, 2.0],
     "remove_best_percent": [1, 5, 10], "losses_added": [3, 5, 8],
@@ -108,9 +111,12 @@ class StressTester:
 
         source = _source_trades(trades)
         results: list[StressResult] = []
-        for multiplier in SCENARIO_CONFIG["spread_multipliers"]:
-            stressed = [_apply_cost_penalty(trade, spread_multiplier=multiplier, extra_slippage_points=0.0) for trade in source]
-            results.append(StressResult("spread_multiplier", {"spread_multiplier": multiplier}, self._metrics(stressed)))
+        for multiplier in SCENARIO_CONFIG["cost_multipliers"]:
+            # Whole round trip: spread plus floor, slippage on both sides, commission.
+            stressed = [_apply_cost_penalty(trade, spread_multiplier=multiplier,
+                extra_slippage_points=trade.slippage_points * (multiplier - 1.0),
+                commission_multiplier=multiplier) for trade in source]
+            results.append(StressResult("cost_multiplier", {"cost_multiplier": multiplier}, self._metrics(stressed)))
         for multiplier in SCENARIO_CONFIG["slippage_multipliers"]:
             stressed = [_apply_cost_penalty(trade, spread_multiplier=1.0, extra_slippage_points=trade.slippage_points * (multiplier - 1.0)) for trade in source]
             results.append(StressResult("slippage_multiplier", {"slippage_multiplier": multiplier}, self._metrics(stressed)))
@@ -197,6 +203,8 @@ def run_stress_report(
         "cost_model": "FIXED_TICK_VALUE_POST_TRADE_MONETARY_PENALTY",
         "cost_assumptions": {
             "extra_spread_charged_once": True, "extra_slippage_charged_per_side": True,
+            "spread_floor_points": STRESS_SPREAD_FLOOR_POINTS,
+            "cost_multiplier_scope": "SPREAD_PLUS_FLOOR_SLIPPAGE_COMMISSION",
             "input_commission_is_round_trip": True, "position_resizing": False,
             "fills_replayed": False, "negative_cost_penalties_allowed": False,
             "r_denominator": "ORIGINAL_PNL_DIVIDED_BY_R_OR_INITIAL_SL_DISTANCE",
@@ -343,8 +351,10 @@ def _apply_cost_penalty(
     *,
     spread_multiplier: float,
     extra_slippage_points: float,
+    commission_multiplier: float = 1.0,
 ) -> TradeResult:
-    extra_spread_points = max(0.0, trade.spread_points * (spread_multiplier - 1.0))
+    # Scale recorded spread plus the floor, so a zero-spread bar is still stressed.
+    extra_spread_points = max(0.0, (trade.spread_points + STRESS_SPREAD_FLOOR_POINTS) * (spread_multiplier - 1.0))
     extra_round_trip_points = extra_spread_points + (2.0 * extra_slippage_points)
     penalty = (
         extra_round_trip_points
@@ -352,7 +362,7 @@ def _apply_cost_penalty(
         / trade.tick_size
         * trade.tick_value
         * trade.lot
-    )
+    ) + max(0.0, trade.commission * (commission_multiplier - 1.0))
     return _penalize(trade, penalty)
 
 
@@ -386,12 +396,12 @@ def _classify_stress(rows: list[dict[str, Any]]) -> str:
     rows = [row for row in rows if row.get("status") == "COMPLETED"]
     if not rows:
         return "REJECTED"
-    spread_x2 = [row for row in rows if row["scenario"] == "spread_multiplier" and '"spread_multiplier": 2.0' in row["parameters"]]
+    cost_x2 = [row for row in rows if row["scenario"] == "cost_multiplier" and '"cost_multiplier": 2.0' in row["parameters"]]
     top5 = [row for row in rows if row["scenario"] == "remove_best_percent" and '"removed_pct": 5' in row["parameters"]]
-    spread_ok = bool(spread_x2 and spread_x2[0]["net_profit"] > 0)
+    cost_ok = bool(cost_x2 and cost_x2[0]["net_profit"] > 0)
     top5_ok = bool(top5 and top5[0]["net_profit"] > 0)
-    if spread_ok and top5_ok:
+    if cost_ok and top5_ok:
         return "APPROVED_FOR_SHADOW_OBSERVATION"
-    if spread_ok or top5_ok:
+    if cost_ok or top5_ok:
         return "WATCHLIST"
     return "REJECTED"

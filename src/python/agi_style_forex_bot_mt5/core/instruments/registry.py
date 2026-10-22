@@ -13,7 +13,9 @@ it. Not adopted: the multi-exchange unified API, which buys nothing with one
 broker.
 
 Fail closed: a missing or invalid spec raises `InstrumentError`. Nothing here
-substitutes a default for metadata it does not have.
+substitutes a default for metadata it does not have. A tick value is the
+broker's `trade_tick_value`, or derived from price by `derive_tick_value`
+where the pair itself is the conversion rate; never a constant.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import asdict, dataclass
+from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping
@@ -302,6 +305,58 @@ def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return values
 
 
+# --------------------------------------------------------------------------- derived tick value
+
+# Research and paper reports are denominated in USD (`denomination_currency`,
+# `tick_value_currency`); a derived tick value is a USD amount.
+DERIVED_TICK_VALUE_CURRENCY = "USD"
+
+
+def derive_tick_value(
+    *,
+    currency_base: str,
+    currency_quote: str,
+    tick_size: float,
+    contract_size: float,
+    price: float | None = None,
+    account_currency: str = DERIVED_TICK_VALUE_CURRENCY,
+) -> float:
+    """Account-currency value of one tick on one lot, computed without a broker.
+
+    MT5 reports this as `trade_tick_value`; use that whenever it exists. Without
+    it the value is known only when the pair converts itself:
+
+    - quote is the account currency (EURUSD): `tick_size * contract_size`;
+    - base is the account currency (USDJPY): `tick_size * contract_size / price`,
+      the pair's own price. One 0.001 JPY tick on 100,000 USD is 100 JPY, about
+      0.67 USD near 150 -- not 1.0.
+
+    A cross (EURJPY, EURGBP) needs a third rate that is not available here, and
+    a base-currency pair without a valid price is just as unknown. Both raise
+    `InstrumentError` instead of substituting a constant.
+    """
+
+    base = _currency(currency_base, "currency_base")
+    quote = _currency(currency_quote, "currency_quote")
+    account = _currency(account_currency, "account_currency")
+    # Decimal keeps decimal inputs exact: 0.00007 * 100000 is 7.0, not 6.999999999999999.
+    per_tick = Decimal(str(_positive_number(tick_size, "tick_size"))) * Decimal(str(_positive_number(contract_size, "contract_size")))
+    if quote == account:
+        return float(per_tick)
+    if base == account:
+        if price is None:
+            raise InstrumentError(
+                f"{base}{quote}: tick value in {account} needs the pair's price; none supplied",
+                source="instrument_registry",
+            )
+        return float(per_tick / Decimal(str(_positive_number(price, "price"))))
+    raise InstrumentError(
+        f"{base}{quote}: no {account} conversion rate for a cross; tick value must come from the broker",
+        source="instrument_registry",
+        detail={"currency_base": base, "currency_quote": quote, "account_currency": account},
+    )
+
+
 # --------------------------------------------------------------------------- declared assumptions
 
 ASSUMED_SOURCE = "LEGACY_ASSUMED_FX_DEFAULT"
@@ -313,16 +368,36 @@ ASSUMED_SOURCE = "LEGACY_ASSUMED_FX_DEFAULT"
 # consolidated here instead: one place, explicitly labelled, and visible in every
 # report through `instrument_metadata_source`. The parity gate refuses to run on
 # an assumed spec, so nothing that claims backtest/live parity can rest on one.
+# The tick value is not among them: it is derived from price (see
+# `derive_tick_value`), which needs a reference price for USD-base pairs and is
+# impossible for crosses.
 _JPY_QUOTE_DIGITS = 3
 _FX_DIGITS = 5
+ASSUMED_FX_CONTRACT_SIZE = 100_000.0
 
 
-def assumed_fx_spec(symbol: str) -> InstrumentSpec:
-    """A clearly-labelled placeholder spec. Never valid for parity or acceptance."""
-
-    canonical = _key(symbol)
+def _assumed_currencies(canonical: str) -> tuple[str, str]:
     quote = canonical[3:6] if len(canonical) >= 6 else ""
     base = canonical[0:3] if len(canonical) >= 6 else canonical
+    return base, quote
+
+
+def assumed_fx_point(symbol: str) -> float:
+    """The placeholder price grid alone, for callers that never value money."""
+
+    _, quote = _assumed_currencies(_key(symbol))
+    return 10.0 ** -(_JPY_QUOTE_DIGITS if quote == "JPY" else _FX_DIGITS)
+
+
+def assumed_fx_spec(symbol: str, *, reference_price: float | None = None) -> InstrumentSpec:
+    """A clearly-labelled placeholder spec. Never valid for parity or acceptance.
+
+    `reference_price` is the pair's own price, required for a USD-base pair
+    (USDJPY) whose tick value moves with it. A cross raises `InstrumentError`.
+    """
+
+    canonical = _key(symbol)
+    base, quote = _assumed_currencies(canonical)
     digits = _JPY_QUOTE_DIGITS if quote == "JPY" else _FX_DIGITS
     point = 10.0 ** -digits
     return InstrumentSpec(
@@ -332,8 +407,14 @@ def assumed_fx_spec(symbol: str) -> InstrumentSpec:
         digits=digits,
         point=point,
         tick_size=point,
-        tick_value=1.0,
-        contract_size=100_000.0,
+        tick_value=derive_tick_value(
+            currency_base=base or "XXX",
+            currency_quote=quote or "XXX",
+            tick_size=point,
+            contract_size=ASSUMED_FX_CONTRACT_SIZE,
+            price=reference_price,
+        ),
+        contract_size=ASSUMED_FX_CONTRACT_SIZE,
         min_volume=0.01,
         max_volume=100.0,
         volume_step=0.01,
@@ -355,12 +436,15 @@ def resolve_registry(
     data_dir: str | Path | None = None,
     symbols: Iterable[str] = (),
     allow_assumptions: bool = True,
+    reference_prices: Mapping[str, float] | None = None,
 ) -> tuple[InstrumentRegistry, str]:
     """Resolve instrument metadata and say where it came from.
 
     Order: an explicit registry, then the dataset sidecar, then -- only when
     `allow_assumptions` is set -- the declared placeholder specs. With
-    `allow_assumptions=False` a missing sidecar raises instead.
+    `allow_assumptions=False` a missing sidecar raises instead. A placeholder
+    for a USD-base pair takes its tick value from `reference_prices`; without
+    one, or for a cross, it raises rather than guessing.
     """
 
     if registry is not None:
@@ -377,4 +461,7 @@ def resolve_registry(
             source="instrument_registry",
             detail={"data_dir": str(data_dir) if data_dir else "", "symbols": sorted(str(item) for item in symbols)},
         )
-    return InstrumentRegistry.from_specs(assumed_fx_spec(symbol) for symbol in symbols), ASSUMED_SOURCE
+    prices = {_key(symbol): price for symbol, price in (reference_prices or {}).items()}
+    return InstrumentRegistry.from_specs(
+        assumed_fx_spec(symbol, reference_price=prices.get(_key(symbol))) for symbol in symbols
+    ), ASSUMED_SOURCE

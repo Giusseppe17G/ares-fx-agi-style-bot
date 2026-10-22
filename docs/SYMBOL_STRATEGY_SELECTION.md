@@ -21,7 +21,7 @@ Symbols are classified as:
 
 Initial thresholds:
 
-- `KEEP` requires at least 30 trades, `expectancy_r > 0`, and `profit_factor > 1.10`.
+- `KEEP` requires at least 30 trades, `expectancy_r > 0`, `profit_factor > 1.10`, and a Holm-adjusted p-value of at most 0.05 across every row of the same call (one-sided t-test of mean R). A row that passes the other conditions but not significance becomes `WATCHLIST` with that reason; a missing p-value can never be `KEEP`. See `docs/EDGE_EVALUATION.md`, `docs/EDGE_FILTERING.md` and `docs/decisions/2026-10-22-deflated-promotion-gate.md`.
 - `WATCHLIST` requires at least 20 trades with expectancy near zero and profit factor between 0.95 and 1.10.
 - `REJECT` is used when expectancy is clearly negative or `profit_factor < 0.90`.
 
@@ -57,7 +57,7 @@ If only counts are available, strategies are marked `WATCHLIST_COUNTS_ONLY` inst
 
 Phase 21 uses the same evidence to build `BALANCED_FILTERED`:
 
-- symbols with positive edge become `KEEP`
+- symbols with a positive and Holm-significant edge become `KEEP` (a missing `holm_adjusted_p_value` column fails closed to `WATCHLIST`)
 - clearly negative symbols become `DISABLE`
 - strategies with low profit factor become `DISABLE_IN_BALANCED`
 - rollover and negative sessions become blocked

@@ -68,8 +68,8 @@ def load_historical_csv_contract(path: str | Path, *, symbol: str = "", timefram
     if "tick_volume" not in frame.columns and "volume" in frame.columns:
         frame["tick_volume"] = frame["volume"]
     if "spread" not in frame.columns:
-        frame["spread"] = 0
-        warnings.append("CSV_SPREAD_MISSING_ASSUMED_ZERO")
+        # PROJECT_SPEC 12.3: an absent spread is missing cost, never zero cost.
+        return HistoricalCSVLoadResult(frame, _diagnostics(csv_path, "SPREAD_DATA_MISSING", symbol=symbol, timeframe=timeframe, columns_before=columns_before, columns_after=tuple(frame.columns), missing_columns=("spread",)))
     if "real_volume" not in frame.columns:
         frame["real_volume"] = 0
     numeric_error = _coerce_numeric(frame, numeric_columns)
@@ -82,7 +82,7 @@ def load_historical_csv_contract(path: str | Path, *, symbol: str = "", timefram
         warnings.append("CSV_UNSORTED_FIXED")
     for column in REQUIRED_CONTRACT_COLUMNS:
         if column not in frame.columns:
-            frame[column] = 0 if column in {"spread", "real_volume"} else ""
+            frame[column] = 0 if column == "real_volume" else ""
     frame = frame.loc[:, list(REQUIRED_CONTRACT_COLUMNS) + [column for column in frame.columns if column not in REQUIRED_CONTRACT_COLUMNS]]
     diagnostics = _diagnostics(
         csv_path,

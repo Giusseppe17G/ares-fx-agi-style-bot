@@ -1,0 +1,257 @@
+{
+  "plan": {
+    "acceptance": {
+      "max_currency_share": 0.5,
+      "max_development_drawdown": 0.12,
+      "max_development_pbo": 0.3,
+      "max_holdout_drawdown": 0.12,
+      "max_holm_p_value": 0.05,
+      "max_promotion_pbo": 0.1,
+      "max_random_quota": 0.05,
+      "max_shift_quota": 0.05,
+      "max_spa_p_value": 0.05,
+      "min_development_dsr": 0.95,
+      "min_development_hac_t": 2.0,
+      "min_development_sharpe": 0.3,
+      "min_holdout_hac_t": 2.0,
+      "min_holdout_sharpe": 0.0,
+      "min_holdout_stressed_sharpe": 0.0,
+      "min_stressed_sharpe": 0.0
+    },
+    "cost_stress_factor": 2.0,
+    "costs": {
+      "financing_bps_per_year": 75.0,
+      "one_way_bps": {
+        "AUD": 1.2,
+        "CAD": 1.2,
+        "CHF": 1.5,
+        "EUR": 1.0,
+        "GBP": 1.2,
+        "JPY": 1.0,
+        "NOK": 3.0,
+        "NZD": 2.0,
+        "SEK": 3.0
+      }
+    },
+    "currencies": [
+      "EUR",
+      "JPY",
+      "GBP",
+      "CHF",
+      "CAD",
+      "AUD",
+      "NZD",
+      "SEK",
+      "NOK"
+    ],
+    "data": {
+      "price_sha256": "68349ef41ecc0cf35fa00ba0d9d63ec93b45a5182c37d2bb9a368fcd654bfeaa",
+      "price_source": "fred_h10_daily",
+      "rates_sha256": "9dff9bbb970b244574a8b8cd841abf4257e924f5c3e413f318eb13afe7620303"
+    },
+    "development": [
+      "1999-01-01",
+      "2016-12-31"
+    ],
+    "engine_sha256": "62e730be23f3e76df2a44ec74c3f0f18b4f6af4fc5d6bdc1eddc3e2179859f60",
+    "environment": {
+      "numpy": "2.4.4",
+      "pandas": "3.0.2",
+      "python": "3.14.4"
+    },
+    "holdout": [
+      "2017-01-01",
+      "2026-10-09"
+    ],
+    "hypotheses": [
+      {
+        "carry_accrual": false,
+        "description": "Each currency vs USD is long when its 12-month return is positive and short otherwise (Moskowitz, Ooi & Pedersen 2012). Spot returns only: the carry earned or paid by the position is not credited, the swap mark-up is charged.",
+        "hypothesis_id": "H1_TSMOM_12M",
+        "primary": {
+          "execution_lag_days": 1,
+          "flip": false,
+          "lookbacks": [
+            252
+          ],
+          "max_gross_leverage": 3.0,
+          "random_flip_probability": 0.5,
+          "rebalance_days": 21,
+          "seed": 0,
+          "shift_days": 0,
+          "signal": "tsmom",
+          "target_annual_vol": 0.1,
+          "vol_span": 60,
+          "xs_top": 3
+        },
+        "timing_claim": true,
+        "variants": [
+          {
+            "execution_lag_days": 1,
+            "flip": false,
+            "lookbacks": [
+              126
+            ],
+            "max_gross_leverage": 3.0,
+            "random_flip_probability": 0.5,
+            "rebalance_days": 21,
+            "seed": 0,
+            "shift_days": 0,
+            "signal": "tsmom",
+            "target_annual_vol": 0.1,
+            "vol_span": 60,
+            "xs_top": 3
+          },
+          {
+            "execution_lag_days": 1,
+            "flip": false,
+            "lookbacks": [
+              63
+            ],
+            "max_gross_leverage": 3.0,
+            "random_flip_probability": 0.5,
+            "rebalance_days": 21,
+            "seed": 0,
+            "shift_days": 0,
+            "signal": "tsmom",
+            "target_annual_vol": 0.1,
+            "vol_span": 60,
+            "xs_top": 3
+          },
+          {
+            "execution_lag_days": 1,
+            "flip": false,
+            "lookbacks": [
+              63,
+              126,
+              252
+            ],
+            "max_gross_leverage": 3.0,
+            "random_flip_probability": 0.5,
+            "rebalance_days": 21,
+            "seed": 0,
+            "shift_days": 0,
+            "signal": "tsmom",
+            "target_annual_vol": 0.1,
+            "vol_span": 60,
+            "xs_top": 3
+          }
+        ]
+      },
+      {
+        "carry_accrual": true,
+        "description": "Equal mix of the 12-month trend sign and the sign of the previous month's 3-month rate differential vs USD; returns include the rate differential accrued daily.",
+        "hypothesis_id": "H2_BLEND_TSMOM_CARRY",
+        "primary": {
+          "execution_lag_days": 1,
+          "flip": false,
+          "lookbacks": [
+            252
+          ],
+          "max_gross_leverage": 3.0,
+          "random_flip_probability": 0.5,
+          "rebalance_days": 21,
+          "seed": 0,
+          "shift_days": 0,
+          "signal": "blend",
+          "target_annual_vol": 0.1,
+          "vol_span": 60,
+          "xs_top": 3
+        },
+        "timing_claim": true,
+        "variants": [
+          {
+            "execution_lag_days": 1,
+            "flip": false,
+            "lookbacks": [
+              126
+            ],
+            "max_gross_leverage": 3.0,
+            "random_flip_probability": 0.5,
+            "rebalance_days": 21,
+            "seed": 0,
+            "shift_days": 0,
+            "signal": "blend",
+            "target_annual_vol": 0.1,
+            "vol_span": 60,
+            "xs_top": 3
+          }
+        ]
+      },
+      {
+        "carry_accrual": true,
+        "description": "Long each currency whose previous-month 3-month rate exceeds the USD rate, short otherwise (Lustig, Roussanov & Verdelhan 2011; Koijen et al. 2018); returns include the carry.",
+        "hypothesis_id": "H3_TS_CARRY",
+        "primary": {
+          "execution_lag_days": 1,
+          "flip": false,
+          "lookbacks": [
+            252
+          ],
+          "max_gross_leverage": 3.0,
+          "random_flip_probability": 0.5,
+          "rebalance_days": 21,
+          "seed": 0,
+          "shift_days": 0,
+          "signal": "tscarry",
+          "target_annual_vol": 0.1,
+          "vol_span": 60,
+          "xs_top": 3
+        },
+        "timing_claim": false,
+        "variants": []
+      }
+    ],
+    "limits": {
+      "daily_loss_halt": 0.03,
+      "floating_loss_halt": 0.05,
+      "max_net_usd_risk": 0.03,
+      "max_open_risk": 0.05,
+      "max_positions": 10,
+      "risk_per_position": 0.005,
+      "stop_sigmas": 2.5,
+      "take_profit_multiple": 3.0
+    },
+    "name": "daily_fx_slow_premia_v1",
+    "notes": [
+      "Prices: FRED H.10 noon New York rates, github.com/datasets/exchange-rates commit c023dd8b8f87, data/daily.csv; every series is currency per USD and is inverted.",
+      "Rates: OECD monthly 3-month interbank rates (nautilus_trader commit 5b1b5b8c5ad9, test_data/short-term-interest.csv). A month's average is used only during the next month. JPY starts in 2002-04 and JPY and SEK end in 2020-05 (the others in 2020-06), so H2 and H3 start in 2002-05 and can only be scored to 2020-06-30.",
+      "H1 is spot only: it is not credited the rate differential its positions earn or pay.",
+      "Under the plan defaults the take-profit and the loss halts rarely or never engage: entries, stops and take-profits re-anchor at every rebalance because positions are resized there.",
+      "Risk invariants of the bot: 0.5% risk to the stop per position, 5% open risk, 3% net USD risk, 10 positions, 3% daily and 5% floating loss halts; catastrophe stop at 2.5 monthly sigmas and take-profit at 3x the stop distance, checked on daily closes.",
+      "Hypotheses chosen knowing published full-sample results; only forward paper data is truly clean.",
+      "No verdict authorises execution; execution stays removed (release-lock ADR)."
+    ],
+    "pbo_blocks": 16,
+    "random_replicas": 200,
+    "spa_bootstraps": 2000,
+    "stress_windows": {
+      "2008-10_crisis": [
+        "2008-10-01",
+        "2008-10-31"
+      ],
+      "2009-03_to_2010-06_recovery": [
+        "2009-03-01",
+        "2010-06-30"
+      ],
+      "2015-01_chf_floor": [
+        "2015-01-01",
+        "2015-01-31"
+      ],
+      "2020-03_covid": [
+        "2020-03-01",
+        "2020-03-31"
+      ],
+      "2022_usd_rally": [
+        "2022-01-01",
+        "2022-12-31"
+      ],
+      "2024-08_yen_unwind": [
+        "2024-07-15",
+        "2024-08-31"
+      ]
+    },
+    "study_version": "daily_fx_study_v2"
+  },
+  "plan_hash": "82e80e9d8acdb6d071744aaea9f67bde9855aefa45ababefc088564b438557b9"
+}

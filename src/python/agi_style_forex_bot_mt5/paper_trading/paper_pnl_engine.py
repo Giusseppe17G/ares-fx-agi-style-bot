@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Mapping
+
+from ..core.instruments import ASSUMED_FX_CONTRACT_SIZE, derive_tick_value
+from ..core.operational_state.errors import InstrumentError
 
 
 PNL_FORMULA_VERSION = "paper_pnl_scaled_v1"
 
 
 def calculate_raw_pnl(trade: Mapping[str, Any], symbol_contract: Mapping[str, Any] | None = None) -> float:
-    """Return unscaled paper PnL from price movement and symbol contract assumptions."""
+    """Return unscaled paper PnL from price movement and symbol contract assumptions.
+
+    The tick value is the broker's when supplied. Otherwise it is derived from
+    price, and a pair it cannot be derived for raises `InstrumentError`.
+    """
 
     contract = symbol_contract or {}
     entry = _float(trade.get("entry_price"))
@@ -18,7 +26,7 @@ def calculate_raw_pnl(trade: Mapping[str, Any], symbol_contract: Mapping[str, An
     direction = str(trade.get("direction") or "").upper()
     lot = _float(trade.get("lot") or trade.get("volume") or trade.get("paper_size"))
     tick_size = max(_float(contract.get("tick_size") or contract.get("trade_tick_size") or trade.get("tick_size"), _fallback_tick_size(str(trade.get("symbol", "")))), 1e-12)
-    tick_value = _float(contract.get("tick_value") or contract.get("trade_tick_value") or trade.get("tick_value"), 1.0)
+    tick_value = _tick_value(trade, contract, tick_size=tick_size, price=exit_price)
     commission = _float(trade.get("commission_assumed"))
     move = exit_price - entry
     if direction == "SELL":
@@ -119,6 +127,33 @@ def pnl_basis(trade: Mapping[str, Any]) -> str:
     if "scaled_paper_pnl" in trade or "raw_pnl" in trade:
         return "SCALED_PAPER_PNL"
     return "LEGACY_UNSCALED_PNL"
+
+
+def _tick_value(trade: Mapping[str, Any], contract: Mapping[str, Any], *, tick_size: float, price: float) -> float:
+    """Broker tick value, else derived from price; never an assumed 1.0.
+
+    The old fallback valued one USDJPY tick at 1 USD instead of about 0.67.
+    A derived USD-base value converts at `price`, the exit (or current) price.
+    A reported but unusable value raises instead of being replaced.
+    """
+
+    reported = _present(contract.get("tick_value"), contract.get("trade_tick_value"), trade.get("tick_value"))
+    if reported is not None:
+        value = _float(reported, math.nan)
+        if isinstance(reported, bool) or not math.isfinite(value) or value <= 0:
+            raise InstrumentError("reported tick value must be a finite positive number", source="paper_pnl_engine")
+        return value
+    symbol = str(trade.get("symbol") or "").upper()
+    contract_size = _present(contract.get("contract_size"), contract.get("trade_contract_size"), trade.get("contract_size"))
+    return derive_tick_value(
+        currency_base=symbol[0:3], currency_quote=symbol[3:6], tick_size=tick_size,
+        contract_size=ASSUMED_FX_CONTRACT_SIZE if contract_size is None else _float(contract_size, math.nan),
+        price=price,
+    )
+
+
+def _present(*values: Any) -> Any:
+    return next((value for value in values if value is not None and value != ""), None)
 
 
 def _fallback_tick_size(symbol: str) -> float:

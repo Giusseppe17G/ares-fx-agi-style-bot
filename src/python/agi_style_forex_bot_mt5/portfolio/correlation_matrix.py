@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import csv
+import math
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+from ..data_pipeline.timestamp_normalizer import normalize_timestamps
+
+
+# Fewer timestamp-aligned returns than this give no correlation (fail closed).
+MIN_ALIGNED_RETURNS = 30
 
 
 def compute_correlation_matrix(data_dir: str | Path, *, timeframe: str = "M5", window: int = 300) -> dict[str, Any]:
@@ -20,21 +27,33 @@ def compute_correlation_matrix(data_dir: str | Path, *, timeframe: str = "M5", w
             continue
         if "close" not in frame.columns:
             continue
-        closes[symbol] = pd.Series(frame["close"].astype(float).tail(window).pct_change().dropna().reset_index(drop=True))
+        # Index closes by bar time; a file without parseable times cannot be aligned.
+        stamped = normalize_timestamps(frame)
+        if stamped.diagnosis["status"] == "FAILED":
+            closes[symbol] = pd.Series(dtype=float)
+            continue
+        closes[symbol] = pd.Series(stamped.frame["close"].astype(float).to_numpy(), index=stamped.frame["timestamp_utc"]).tail(window)
     if len(closes) < 2:
-        return {"matrix": {}, "highly_correlated_pairs": [], "clusters": [], "classification": "WATCHLIST", "execution_attempted": False}
-    data = pd.DataFrame(closes).dropna()
-    corr = data.corr().fillna(0.0)
-    matrix = {row: {col: float(corr.loc[row, col]) for col in corr.columns} for row in corr.index}
+        return {"matrix": {}, "highly_correlated_pairs": [], "insufficient_overlap_pairs": [], "clusters": [], "classification": "WATCHLIST", "execution_attempted": False}
+    symbols = sorted(closes)
+    matrix: dict[str, dict[str, float | None]] = {symbol: {} for symbol in symbols}
     pairs = []
-    for left in corr.columns:
-        for right in corr.columns:
-            if left >= right:
+    insufficient = []
+    for left in symbols:
+        for right in symbols:
+            if left > right:
+                matrix[left][right] = matrix[right][left]
                 continue
-            value = float(corr.loc[left, right])
-            if abs(value) > 0.85:
+            value, aligned = _aligned_correlation(closes[left], closes[right])
+            matrix[left][right] = value
+            if left == right:
+                continue
+            if value is None:
+                insufficient.append({"symbol_a": left, "symbol_b": right, "aligned_returns": aligned})
+            elif abs(value) > 0.85:
                 pairs.append({"symbol_a": left, "symbol_b": right, "correlation": value})
-    return {"matrix": matrix, "highly_correlated_pairs": pairs, "clusters": _clusters(pairs), "classification": "OK" if not pairs else "WATCHLIST", "execution_attempted": False}
+    classification = "OK" if not pairs and not insufficient else "WATCHLIST"
+    return {"matrix": matrix, "highly_correlated_pairs": pairs, "insufficient_overlap_pairs": insufficient, "clusters": _clusters(pairs), "classification": classification, "min_aligned_returns": MIN_ALIGNED_RETURNS, "execution_attempted": False}
 
 
 def build_correlation_report(*, data_dir: str | Path, output_dir: str | Path, timeframe: str = "M5", window: int = 300) -> dict[str, Any]:
@@ -58,6 +77,18 @@ def build_correlation_report(*, data_dir: str | Path, output_dir: str | Path, ti
     }
 
 
+def _aligned_correlation(left: pd.Series, right: pd.Series) -> tuple[float | None, int]:
+    """Pearson correlation of returns on shared bar times only, or None."""
+
+    joined = pd.concat([left, right], axis=1, join="inner").sort_index()
+    # Returns are taken after the join so both legs span the same interval.
+    returns = joined.pct_change(fill_method=None).dropna()
+    if len(returns) < MIN_ALIGNED_RETURNS:
+        return None, int(len(returns))
+    value = float(returns.corr().iloc[0, 1])
+    return (value if math.isfinite(value) else None), int(len(returns))
+
+
 def _clusters(pairs: list[dict[str, Any]]) -> list[list[str]]:
     clusters: list[set[str]] = []
     for pair in pairs:
@@ -73,13 +104,14 @@ def _clusters(pairs: list[dict[str, Any]]) -> list[list[str]]:
     return [sorted(cluster) for cluster in clusters]
 
 
-def _write_matrix(path: Path, matrix: dict[str, dict[str, float]]) -> None:
+def _write_matrix(path: Path, matrix: dict[str, dict[str, float | None]]) -> None:
     symbols = sorted(matrix)
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["symbol", *symbols])
         for symbol in symbols:
-            writer.writerow([symbol, *[matrix[symbol].get(other, 0.0) for other in symbols]])
+            # A null (or absent) correlation is written as an empty cell, never 0.0.
+            writer.writerow([symbol, *[matrix[symbol].get(other) for other in symbols]])
 
 
 def _write_rows(path: Path, rows: list[dict[str, Any]]) -> None:

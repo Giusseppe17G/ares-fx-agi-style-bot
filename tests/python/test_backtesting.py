@@ -312,6 +312,7 @@ def test_backtest_cli_accepts_mode(monkeypatch, tmp_path: Path, capsys) -> None:
                 "expectancy_r": 0,
                 "sharpe": None,
                 "sortino": None,
+                "t_stat": None,
                 "reports_created": [],
                 "execution_attempted": False,
             }
@@ -468,8 +469,9 @@ def test_monte_carlo_report_is_reproducible_and_has_ruin_probability(tmp_path: P
 def test_stress_tester_worsens_with_higher_spread_and_removes_top_trades(tmp_path: Path) -> None:
     trades = [_trade(200, signal_id="best"), _trade(50), _trade(-20), _trade(40)]
     rows = StressTester().comprehensive(trades)
-    spread_x1 = next(row for row in rows if row.scenario == "spread_multiplier" and row.parameters["spread_multiplier"] == 1.0)
-    spread_x3 = next(row for row in rows if row.scenario == "spread_multiplier" and row.parameters["spread_multiplier"] == 3.0)
+    # The spread stress now scales the whole round trip and is named cost_multiplier.
+    spread_x1 = next(row for row in rows if row.scenario == "cost_multiplier" and row.parameters["cost_multiplier"] == 1.0)
+    spread_x3 = next(row for row in rows if row.scenario == "cost_multiplier" and row.parameters["cost_multiplier"] == 3.0)
     top5 = next(row for row in rows if row.scenario == "remove_best_percent" and row.parameters["removed_pct"] == 5)
     report = run_stress_report(trades=trades, report_dir=tmp_path)
 

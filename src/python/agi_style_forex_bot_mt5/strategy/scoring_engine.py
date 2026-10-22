@@ -7,8 +7,12 @@ build execution requests or bypass risk/execution gates.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
+import math
+import numbers
 from typing import Any
+
+import numpy as np
 
 from ..contracts import MarketSnapshot, Regime, SignalAction, StrategySignal
 
@@ -292,9 +296,47 @@ def _liquidity_component(features: FeatureMap, direction: str) -> float:
     return 60.0
 
 
+# Strategy Promotion Gate thresholds (PROJECT_SPEC.md 12.1). Demo mode needs the
+# 12.1 OOS criteria, the APPROVED_FOR_SHADOW_OBSERVATION minimums of
+# docs/STRATEGY_PROMOTION_GATE.md, its Phase 8 forward-shadow evidence and the
+# deflated statistics of docs/decisions/2026-10-22-deflated-promotion-gate.md.
+# Where thresholds overlap every check runs, so the strictest one applies.
+SHADOW_APPROVAL_CLASSIFICATION = "APPROVED_FOR_SHADOW_OBSERVATION"
+SHADOW_APPROVAL_MIN_TRADES = 300
+SHADOW_APPROVAL_MIN_PROFIT_FACTOR = 1.25
+SHADOW_APPROVAL_MAX_DRAWDOWN_PCT = 12.0
+FORWARD_SHADOW_MIN_DAYS = 14
+FORWARD_SHADOW_MIN_TRADES = 200
+FORWARD_SHADOW_MIN_PROFIT_FACTOR = 1.15
+PSR_ZERO_MIN = 0.95
+MIN_TRACK_RECORD_CONFIDENCE = 0.95
+# PSR, MinTRL and the Newey-West t are asymptotic, so a short sequence can pass
+# them by luck. The floor holds in addition to n >= MinTRL; at 60 observations
+# the simulated zero-edge cases in the decision record stay at or below 5% for
+# i.i.d. returns and lag-1 autocorrelation up to 0.3.
+MIN_RETURN_OBSERVATIONS = 60
+DEFLATED_SHARPE_MIN = 0.95
+NEWEY_WEST_T_MIN = 3.0
+NEWEY_WEST_T_MIN_SINGLE_PREREGISTERED = 2.0
+# The looser t applies only to a supplied return sequence whose lag-1
+# autocorrelation is at most this: strongly autocorrelated daily returns (for
+# example positions held several days) pass t >= 2.0 more than 5% of the time
+# without an edge, and caller-only statistics cannot be checked for it.
+PREREGISTERED_MAX_LAG1_AUTOCORRELATION = 0.2
+PBO_MAX = 0.10
+
+_TRUE_TEXT = frozenset({"1", "true", "yes", "on"})
+
+
 @dataclass(frozen=True)
 class PromotionEvidence:
-    """Evidence required by the Strategy Promotion Gate."""
+    """Evidence required by the Strategy Promotion Gate.
+
+    Every field defaults to a value that fails its check, so evidence that is
+    not supplied keeps demo mode rejected. The fields after
+    ``shadow_audit_complete`` were added by
+    docs/decisions/2026-10-22-deflated-promotion-gate.md.
+    """
 
     historical_trades: int = 0
     statistical_justification: str = ""
@@ -309,6 +351,37 @@ class PromotionEvidence:
     shadow_signals: int = 0
     shadow_days: int = 0
     shadow_audit_complete: bool = False
+    # (a) APPROVED_FOR_SHADOW_OBSERVATION minimums. historical_trades,
+    # oos_profit_factor and oos_max_drawdown_pct above are checked again
+    # against the stricter shadow-approval thresholds.
+    shadow_approval_classification: str = ""
+    oos_expectancy_r: float = 0.0
+    # (b) Phase 8 forward-shadow evidence. shadow_days above is its duration;
+    # forward_controls_passed attests the qualitative Phase 8 items (drawdown
+    # controlled, no severe cost or performance drift, spread compatible,
+    # storage stable, order_send never called).
+    forward_paper_trades: int = 0
+    forward_profit_factor: float = 0.0
+    forward_expectancy_r: float = 0.0
+    forward_controls_passed: bool = False
+    # Deflated statistics: computed by the gate from a per-trade or per-day
+    # return sequence, supplied by a caller that computed them with
+    # research/edge_statistics.py, or both (the less favourable value wins).
+    # A supplied return_sequence shorter than MIN_RETURN_OBSERVATIONS is
+    # unusable, and the observations behind the statistics (the sequence length
+    # or sharpe_observations, whichever is smaller) must reach both that floor
+    # and MinTRL. trials counts every configuration tried, including the
+    # selected one; trial_sharpes must likewise include the selected one.
+    return_sequence: tuple[float, ...] = ()
+    trials: int = 0
+    trial_sharpes: tuple[float, ...] = ()
+    single_preregistered_hypothesis: bool = False
+    psr_zero: float | None = None
+    min_track_record_length: float | None = None
+    sharpe_observations: int = 0
+    deflated_sharpe: float | None = None
+    newey_west_t: float | None = None
+    pbo: float | None = None
 
 
 @dataclass(frozen=True)
@@ -320,6 +393,7 @@ class PromotionDecision:
     effective_mode: str
     reasons: tuple[str, ...]
     checks: Mapping[str, bool] = field(default_factory=dict)
+    statistics: Mapping[str, Any] = field(default_factory=dict)
 
 
 def evaluate_promotion_gate(
@@ -330,7 +404,12 @@ def evaluate_promotion_gate(
     """Apply the Strategy Promotion Gate from PROJECT_SPEC.md section 12.1.
 
     Shadow mode is allowed for audit collection. Demo mode is blocked unless all
-    required evidence is present and passes.
+    required evidence is present and passes: the 12.1 OOS criteria, the
+    shadow-approval minimums, the Phase 8 forward-shadow evidence and the
+    deflated statistics (at least MIN_RETURN_OBSERVATIONS observations, PSR,
+    MinTRL, DSR given the trials tried, Newey-West t, PBO). Missing, malformed,
+    non-finite or too-short evidence fails its check. An
+    approval never sends anything: broker execution stays removed.
     """
 
     mode = requested_mode.strip().lower()
@@ -352,22 +431,45 @@ def evaluate_promotion_gate(
         )
 
     data = _coerce_evidence(evidence)
+    historical_trades = _whole_number(data.historical_trades)
+    justification = data.statistical_justification if isinstance(data.statistical_justification, str) else ""
+    oos_profit_factor = _real(data.oos_profit_factor)
+    oos_drawdown = _real(data.oos_max_drawdown_pct)
+    drawdown_limit = _real(data.max_drawdown_limit_pct)
+    shadow_days = _real(data.shadow_days)
+    statistical_checks, statistics = _deflated_checks(data)
     checks = {
-        "sample_size": data.historical_trades >= 200 or bool(data.statistical_justification),
-        "profit_factor": data.oos_profit_factor > 1.15,
-        "expected_payoff": data.oos_expected_payoff > 0,
-        "drawdown": (
-            data.max_drawdown_limit_pct > 0
-            and data.oos_max_drawdown_pct < data.max_drawdown_limit_pct
-        ),
-        "profit_concentration": data.max_profit_concentration_pct <= 50.0,
-        "spread_slippage_sensitivity": data.spread_slippage_sensitivity_passed,
-        "walk_forward": (not data.optimization_used) or data.walk_forward_passed,
+        # PROJECT_SPEC.md 12.1 OOS criteria, thresholds unchanged.
+        "sample_size": _at_least(historical_trades, 200) or bool(justification),
+        "profit_factor": _above(oos_profit_factor, 1.15),
+        "expected_payoff": _above(_real(data.oos_expected_payoff), 0.0),
+        "drawdown": _above(drawdown_limit, 0.0) and _below(oos_drawdown, drawdown_limit),
+        "profit_concentration": _at_most(_real(data.max_profit_concentration_pct), 50.0),
+        "spread_slippage_sensitivity": _flag(data.spread_slippage_sensitivity_passed),
+        "walk_forward": _declared_false(data.optimization_used) or _flag(data.walk_forward_passed),
         "shadow_forward": (
-            data.shadow_audit_complete
-            and data.shadow_signals > 0
-            and data.shadow_days > 0
+            _flag(data.shadow_audit_complete)
+            and _above(_whole_number(data.shadow_signals), 0)
+            and _above(shadow_days, 0)
         ),
+        # (a) APPROVED_FOR_SHADOW_OBSERVATION minimums.
+        "shadow_approval_classification": _text(data.shadow_approval_classification) == SHADOW_APPROVAL_CLASSIFICATION,
+        "shadow_approval_sample_size": (
+            _at_least(historical_trades, SHADOW_APPROVAL_MIN_TRADES) or bool(justification.strip())
+        ),
+        "shadow_approval_profit_factor": _above(oos_profit_factor, SHADOW_APPROVAL_MIN_PROFIT_FACTOR),
+        "shadow_approval_drawdown": (
+            _at_least(oos_drawdown, 0.0) and _below(oos_drawdown, SHADOW_APPROVAL_MAX_DRAWDOWN_PCT)
+        ),
+        "shadow_approval_expectancy_r": _above(_real(data.oos_expectancy_r), 0.0),
+        # (b) Phase 8 forward shadow: two weeks AND 200 paper trades.
+        "forward_shadow_duration": _at_least(shadow_days, FORWARD_SHADOW_MIN_DAYS),
+        "forward_shadow_trades": _at_least(_whole_number(data.forward_paper_trades), FORWARD_SHADOW_MIN_TRADES),
+        "forward_profit_factor": _above(_real(data.forward_profit_factor), FORWARD_SHADOW_MIN_PROFIT_FACTOR),
+        "forward_expectancy_r": _above(_real(data.forward_expectancy_r), 0.0),
+        "forward_controls": _flag(data.forward_controls_passed),
+        # Deflated statistics.
+        **statistical_checks,
     }
     failed = tuple(name for name, passed in checks.items() if not passed)
     if failed:
@@ -377,6 +479,7 @@ def evaluate_promotion_gate(
             effective_mode="shadow",
             reasons=tuple(f"promotion gate failed: {name}" for name in failed),
             checks=checks,
+            statistics=statistics,
         )
     return PromotionDecision(
         requested_mode=requested_mode,
@@ -384,28 +487,288 @@ def evaluate_promotion_gate(
         effective_mode="demo",
         reasons=("strategy promotion gate passed for demo mode",),
         checks=checks,
+        statistics=statistics,
     )
 
 
 def _coerce_evidence(evidence: PromotionEvidence | Mapping[str, Any] | None) -> PromotionEvidence:
+    """Map evidence onto PromotionEvidence; values are parsed fail-closed at check time."""
+
     if isinstance(evidence, PromotionEvidence):
         return evidence
-    if not evidence:
+    if not isinstance(evidence, Mapping) or not evidence:
         return PromotionEvidence()
     return PromotionEvidence(
-        historical_trades=int(evidence.get("historical_trades", 0)),
-        statistical_justification=str(evidence.get("statistical_justification", "")),
-        oos_profit_factor=float(evidence.get("oos_profit_factor", 0.0)),
-        oos_expected_payoff=float(evidence.get("oos_expected_payoff", 0.0)),
-        oos_max_drawdown_pct=float(evidence.get("oos_max_drawdown_pct", 100.0)),
-        max_drawdown_limit_pct=float(evidence.get("max_drawdown_limit_pct", 0.0)),
-        max_profit_concentration_pct=float(evidence.get("max_profit_concentration_pct", 100.0)),
-        spread_slippage_sensitivity_passed=bool(
-            evidence.get("spread_slippage_sensitivity_passed", False)
-        ),
-        walk_forward_passed=bool(evidence.get("walk_forward_passed", False)),
-        optimization_used=bool(evidence.get("optimization_used", False)),
-        shadow_signals=int(evidence.get("shadow_signals", 0)),
-        shadow_days=int(evidence.get("shadow_days", 0)),
-        shadow_audit_complete=bool(evidence.get("shadow_audit_complete", False)),
+        **{item.name: evidence[item.name] for item in fields(PromotionEvidence) if item.name in evidence}
     )
+
+
+def _deflated_checks(data: PromotionEvidence) -> tuple[dict[str, bool], dict[str, Any]]:
+    """Observation floor, PSR(0), MinTRL, DSR, Newey-West t and PBO checks plus their audit values."""
+
+    # Imported here: the research package imports the backtester, which imports
+    # this strategy package.
+    from ..research import edge_statistics
+
+    trials = _whole_number(data.trials)
+    trials_declared = trials is not None and trials >= 1
+    sequence, sequence_ok = _finite_series(data.return_sequence)
+    # A supplied sequence below the floor is unusable evidence: it invalidates
+    # the deflated block even when valid caller statistics are also given.
+    sequence_long_enough = sequence.size == 0 or sequence.size >= MIN_RETURN_OBSERVATIONS
+    trial_sharpes, trial_sharpes_ok = _finite_series(data.trial_sharpes)
+    effective_trials = max(trials if trials_declared else 0, int(trial_sharpes.size))
+    caller, caller_ok = _caller_statistics(data)
+
+    computed: dict[str, Any] = {}
+    computed_ok = True
+    if sequence_ok and sequence.size:
+        try:
+            computed = _sequence_statistics(edge_statistics, sequence, trial_sharpes, effective_trials)
+        except (ValueError, ZeroDivisionError, OverflowError):
+            computed, computed_ok = {}, False
+    caller_supplied = any(caller[name] is not None for name in ("psr_zero", "min_track_record_length", "deflated_sharpe", "newey_west_t"))
+    valid = (
+        sequence_ok
+        and sequence_long_enough
+        and trial_sharpes_ok
+        and caller_ok
+        and computed_ok
+        and (bool(computed) or caller_supplied)
+    )
+
+    # The less favourable of the computed and the supplied value wins.
+    psr_zero = _least_favourable(min, computed.get("psr_zero"), caller["psr_zero"])
+    deflated = _least_favourable(min, computed.get("deflated_sharpe"), caller["deflated_sharpe"])
+    newey_west = _least_favourable(min, computed.get("newey_west_t"), caller["newey_west_t"])
+    min_trl = _least_favourable(max, computed.get("min_track_record_length"), caller["min_track_record_length"])
+    observations = _least_favourable(min, computed.get("observations"), caller["observations"])
+    lag1 = computed.get("lag1_autocorrelation")
+    single_preregistered = (
+        data.single_preregistered_hypothesis is True
+        and effective_trials == 1
+        and lag1 is not None
+        and math.isfinite(lag1)
+        and lag1 <= PREREGISTERED_MAX_LAG1_AUTOCORRELATION
+    )
+    t_threshold = NEWEY_WEST_T_MIN_SINGLE_PREREGISTERED if single_preregistered else NEWEY_WEST_T_MIN
+    pbo = _real(data.pbo)
+
+    checks = {
+        "trials_declared": trials_declared,
+        "deflated_inputs_valid": valid,
+        "minimum_observations": valid and _at_least(observations, MIN_RETURN_OBSERVATIONS),
+        "psr_zero": valid and _at_least(psr_zero, PSR_ZERO_MIN),
+        "min_track_record_length": (
+            valid
+            and observations is not None
+            and min_trl is not None
+            and math.isfinite(min_trl)
+            and observations >= min_trl
+        ),
+        "deflated_sharpe": valid and trials_declared and _at_least(deflated, DEFLATED_SHARPE_MIN),
+        "newey_west_t": valid and _at_least(newey_west, t_threshold),
+        "pbo": pbo is not None and 0.0 <= pbo <= PBO_MAX,
+    }
+    source = "+".join(name for name, present in (("return_sequence", bool(computed)), ("caller", caller_supplied)) if present)
+    statistics = {
+        "source": source or "none",
+        "observations": observations,
+        "observations_min": MIN_RETURN_OBSERVATIONS,
+        "return_sequence_length": int(sequence.size),
+        "sharpe": computed.get("sharpe"),
+        "skew": computed.get("skew"),
+        "kurtosis": computed.get("kurtosis"),
+        "psr_zero": psr_zero,
+        "psr_zero_min": PSR_ZERO_MIN,
+        "min_track_record_length": min_trl,
+        "min_track_record_confidence": MIN_TRACK_RECORD_CONFIDENCE,
+        "deflated_sharpe": deflated,
+        "deflated_sharpe_min": DEFLATED_SHARPE_MIN,
+        "dsr_benchmark_sharpe": computed.get("dsr_benchmark_sharpe"),
+        "dsr_benchmark_variance": computed.get("dsr_benchmark_variance"),
+        "trials": effective_trials,
+        "trial_sharpes_supplied": int(trial_sharpes.size),
+        "single_preregistered_hypothesis": single_preregistered,
+        "single_preregistered_requested": data.single_preregistered_hypothesis is True,
+        "lag1_autocorrelation": lag1,
+        "lag1_autocorrelation_max": PREREGISTERED_MAX_LAG1_AUTOCORRELATION,
+        "newey_west_t": newey_west,
+        "newey_west_t_threshold": t_threshold,
+        "pbo": pbo,
+        "pbo_max": PBO_MAX,
+    }
+    return checks, {key: _json_number(value) for key, value in statistics.items()}
+
+
+def _sequence_statistics(edge_statistics: Any, sequence: np.ndarray, trial_sharpes: np.ndarray, trials: int) -> dict[str, Any]:
+    """Deflated statistics of one return sequence (raises ValueError when unusable)."""
+
+    observations = int(sequence.size)
+    sharpe = edge_statistics.sharpe_ratio(sequence)
+    skew, kurtosis = edge_statistics.moments(sequence)
+    result: dict[str, Any] = {
+        "observations": observations,
+        "sharpe": sharpe,
+        "skew": skew,
+        "kurtosis": kurtosis,
+        "psr_zero": edge_statistics.probabilistic_sharpe_ratio(sharpe, 0.0, observations, skew, kurtosis),
+        "min_track_record_length": edge_statistics.min_track_record_length(
+            sharpe, 0.0, skew, kurtosis, MIN_TRACK_RECORD_CONFIDENCE
+        ),
+        "newey_west_t": edge_statistics.newey_west_t_stat(sequence),
+        "lag1_autocorrelation": _lag1_autocorrelation(sequence),
+    }
+    if trials >= 1:
+        # Under the null every trial has zero true Sharpe and its estimate has
+        # variance 1/(n-1); the supplied trial Sharpes can only raise that.
+        null_variance = 1.0 / (observations - 1)
+        trial_variance = float(np.var(trial_sharpes, ddof=1)) if trial_sharpes.size > 1 else 0.0
+        variance = max(null_variance, trial_variance)
+        benchmark = edge_statistics.expected_max_sharpe(trials, variance)
+        result["dsr_benchmark_variance"] = variance
+        result["dsr_benchmark_sharpe"] = benchmark
+        result["deflated_sharpe"] = edge_statistics.probabilistic_sharpe_ratio(
+            sharpe, benchmark, observations, skew, kurtosis
+        )
+    return result
+
+
+def _lag1_autocorrelation(sequence: np.ndarray) -> float:
+    """Sample lag-1 autocorrelation (the sequence has non-zero variance here)."""
+
+    centred = sequence - sequence.mean()
+    return float(np.dot(centred[1:], centred[:-1]) / np.dot(centred, centred))
+
+
+def _caller_statistics(data: PromotionEvidence) -> tuple[dict[str, Any], bool]:
+    """Caller-computed statistics; anything supplied but malformed invalidates them all."""
+
+    values: dict[str, Any] = {}
+    valid = True
+    for name, low, high in (
+        ("psr_zero", 0.0, 1.0),
+        ("deflated_sharpe", 0.0, 1.0),
+        ("newey_west_t", -math.inf, math.inf),
+        ("min_track_record_length", 0.0, math.inf),
+    ):
+        raw = getattr(data, name)
+        number = None if raw is None else _real(raw)
+        if raw is not None and (number is None or not low <= number <= high or (name == "newey_west_t" and not math.isfinite(number))):
+            valid = False
+            number = None
+        if name == "min_track_record_length" and number is not None and number <= 0.0:
+            valid = False
+            number = None
+        values[name] = number
+    raw_observations = data.sharpe_observations
+    observations = _whole_number(raw_observations)
+    if raw_observations is None or observations == 0:
+        values["observations"] = None
+    elif observations is None or observations < 0:
+        valid = False
+        values["observations"] = None
+    else:
+        values["observations"] = observations
+    return values, valid
+
+
+def _finite_series(value: Any) -> tuple[np.ndarray, bool]:
+    """A one-dimensional finite float array; strings, mappings and scalars are invalid."""
+
+    empty = np.empty(0, dtype=float)
+    if value is None:
+        return empty, True
+    if isinstance(value, (str, bytes, Mapping)):
+        return empty, False
+    try:
+        array = np.asarray(value, dtype=float)
+    except (TypeError, ValueError):
+        return empty, False
+    if array.ndim != 1 or not np.isfinite(array).all():
+        return empty, False
+    return array, True
+
+
+def _least_favourable(pick: Any, *values: float | None) -> float | None:
+    present = [value for value in values if value is not None]
+    return pick(present) if present else None
+
+
+def _json_number(value: Any) -> Any:
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return value
+    if isinstance(value, numbers.Integral):
+        return int(value)
+    if isinstance(value, numbers.Real):
+        number = float(value)
+        return number if math.isfinite(number) else None
+    return value
+
+
+def _real(value: Any) -> float | None:
+    """A real number (infinity allowed); None for NaN, booleans and non-numbers."""
+
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, numbers.Real):
+        number = float(value)
+    elif isinstance(value, str):
+        try:
+            number = float(value.strip())
+        except ValueError:
+            return None
+    else:
+        return None
+    return None if math.isnan(number) else number
+
+
+def _whole_number(value: Any) -> int | None:
+    number = _real(value)
+    if number is None or not math.isfinite(number) or not number.is_integer():
+        return None
+    return int(number)
+
+
+def _flag(value: Any) -> bool:
+    """True only for an explicit pass: True, 1 or a true-like text."""
+
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in _TRUE_TEXT
+    if isinstance(value, numbers.Integral):
+        return int(value) == 1
+    if getattr(getattr(value, "dtype", None), "kind", "") == "b":
+        return bool(value)
+    return False
+
+
+def _declared_false(value: Any) -> bool:
+    """True only for an explicit boolean False; anything else counts as set."""
+
+    if isinstance(value, bool):
+        return value is False
+    if getattr(getattr(value, "dtype", None), "kind", "") == "b":
+        return not bool(value)
+    return False
+
+
+def _text(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _above(value: float | None, threshold: float) -> bool:
+    return value is not None and value > threshold
+
+
+def _at_least(value: float | None, threshold: float) -> bool:
+    return value is not None and value >= threshold
+
+
+def _below(value: float | None, threshold: float | None) -> bool:
+    return value is not None and threshold is not None and value < threshold
+
+
+def _at_most(value: float | None, threshold: float) -> bool:
+    return value is not None and value <= threshold

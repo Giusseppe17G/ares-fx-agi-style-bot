@@ -1022,12 +1022,16 @@ def load_latest_run_summary(runs_root: str | Path = "data/runs") -> dict[str, An
         payload["symbols_disable"] = filtered.get("symbols_disable", [])
         payload["strategies_keep"] = filtered.get("strategies_keep", payload.get("strategies_keep", []))
         payload["strategies_disable"] = filtered.get("strategies_disable", payload.get("strategies_disable", []))
-        symbols = ",".join(payload.get("symbols_keep") or payload.get("data_valid_symbols") or ["EURUSD", "GBPUSD", "USDJPY"])
+        kept = payload.get("symbols_keep") or []
+        # A filtered run only makes sense on symbols the filter kept: with none
+        # significant, suggest nothing rather than widening to every symbol.
         payload["recommended_filtered_run_command"] = (
             "py -m agi_style_forex_bot_mt5.cli --mode real-data-research "
-            f"--symbols {symbols} --bars 20000 --output-root data\\runs --signal-profile BALANCED_FILTERED "
+            f"--symbols {','.join(kept)} --bars 20000 --output-root data\\runs --signal-profile BALANCED_FILTERED "
             "--profile-config data\\reports\\edge_filtering\\balanced_filtered.ini --quick"
-        )
+        ) if kept else ""
+        if not kept:
+            payload["recommended_filtered_run_note"] = "no symbol passed the filter's significance test; no filtered run is suggested"
         if not apply_filters:
             payload["recommended_next_action"] = (
                 "Run profile-comparison-run with BALANCED and ACTIVE research-only; do not use BALANCED_FILTERED because no actionable filter was created."

@@ -29,6 +29,7 @@ from .backtester import (
     BacktestMetrics,
     BacktestSettings,
     CostModel,
+    assumed_instrument_for_bars,
     build_equity_curve,
     calculate_metrics,
     generate_strategy_candidates,
@@ -36,7 +37,6 @@ from .backtester import (
 )
 from ..data_pipeline import resolve_historical_data
 from ..config import BotConfig
-from ..core.instruments import assumed_fx_spec
 
 
 BacktestCallback = Callable[[pd.DataFrame, Mapping[str, Any]], BacktestOutcome]
@@ -522,7 +522,8 @@ def _run_param_backtest(frame: pd.DataFrame, symbol: str, params: Mapping[str, A
         trailing_distance_points=float(params.get("trailing_distance_points", 80)),
         max_bars_in_trade=int(params.get("max_bars_in_trade", 96)),
     )
-    instrument = assumed_fx_spec(symbol)
+    # The window's first (warmup) close prices a USD-base tick value; crosses fail closed.
+    instrument = assumed_instrument_for_bars(symbol, frame)
     settings = replace(settings, cost_model=settings.cost_model.with_instrument(instrument))
     candidates = generate_strategy_candidates(
         frame, symbol=symbol, timeframe="M5", config=BotConfig(),
@@ -625,8 +626,10 @@ def _scoped_outcome(outcome: BacktestOutcome, frame: pd.DataFrame) -> BacktestOu
         exposed |= evaluation.timestamp.between(pd.Timestamp(trade.entry_time), pd.Timestamp(trade.exit_time))
     metrics = calculate_metrics(valid, initial_balance=balance, equity_curve=equity,
                                 total_bars=len(evaluation), exposed_bars=int(exposed.sum()))
+    # The unscoped marks include warmup and excluded trades; they are not evidence here.
     return replace(outcome, settings=replace(outcome.settings, initial_balance=balance),
-                   trades=tuple(valid), rejected_candidates=tuple(rejected), metrics=metrics, equity_curve=equity)
+                   trades=tuple(valid), rejected_candidates=tuple(rejected), metrics=metrics, equity_curve=equity,
+                   mark_to_market_curve=None)
 
 
 def _temporal_audit(train, validation, test, train_outcome, validation_outcome, test_outcome) -> dict[str, Any]:

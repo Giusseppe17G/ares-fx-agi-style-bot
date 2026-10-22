@@ -58,6 +58,9 @@ terminal connection, broker orders or Telegram messages used.
 This is a bounded hardening step toward phase 82B, not full parity completion.
 Pending: shared risk/ML/ranker/portfolio/dynamic-risk/paper-limit stateful path;
 profile/stability alignment; point-in-time model artifacts; broker snapshot;
-full replay; mark-to-market equity and gap/exit-cost audit. The historical
-spread-CSV helper assumes a caller-supplied as-of sample; it does not establish
-temporal provenance itself. Synthetic regressions do not prove a trading edge.
+full replay; bid-quote signal snapshots. Mark-to-market equity and the
+gap/exit-cost audit were done in engine 0.4.0, see
+[the bid-bar record](2026-10-17-bid-bar-gap-and-exit-spread-convention.md) and
+PROJECT_SPEC 12.3. The historical spread-CSV helper assumes a caller-supplied
+as-of sample; it does not establish temporal provenance itself. Synthetic
+regressions do not prove a trading edge.

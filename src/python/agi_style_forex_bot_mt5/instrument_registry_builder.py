@@ -20,6 +20,29 @@ class SymbolInfoClient(Protocol):
     def symbol_info(self, symbol: str) -> Any: ...
 
 
+def validate_symbol_map(symbols: Mapping[str, str]) -> dict[str, str]:
+    """Return the explicit canonical-to-broker aliases or raise before any client call.
+
+    Canonical keys are six letters (upper-cased); broker names are explicit
+    instrument names. Duplicates in either direction are rejected. Shared by
+    every read-only ``symbol_info`` capture so they accept the same maps.
+    """
+
+    if not isinstance(symbols, Mapping) or not symbols:
+        raise InstrumentError("a nonempty canonical-to-broker symbol mapping is required", source="instrument_registry_builder")
+    aliases: dict[str, str] = {}
+    for canonical, broker in symbols.items():
+        if not isinstance(canonical, str) or not re.fullmatch(r"[A-Za-z]{6}", canonical):
+            raise InstrumentError("canonical Forex symbol must contain six letters", source="instrument_registry_builder")
+        if not isinstance(broker, str) or not re.fullmatch(r"[A-Za-z0-9_.#+/-]{1,64}", broker):
+            raise InstrumentError("broker symbol must be an explicit supported instrument name", source="instrument_registry_builder")
+        key = canonical.upper()
+        if key in aliases or broker in aliases.values():
+            raise InstrumentError("duplicate canonical or broker symbol mapping", source="instrument_registry_builder")
+        aliases[key] = broker
+    return aliases
+
+
 def build_instrument_registry_snapshot(
     *,
     client: SymbolInfoClient,
@@ -35,18 +58,7 @@ def build_instrument_registry_snapshot(
 
     if not isinstance(captured_at_utc, datetime) or captured_at_utc.utcoffset() is None:
         raise InstrumentError("captured_at_utc must be a timezone-aware datetime", source="instrument_registry_builder")
-    if not isinstance(symbols, Mapping) or not symbols:
-        raise InstrumentError("a nonempty canonical-to-broker symbol mapping is required", source="instrument_registry_builder")
-    aliases: dict[str, str] = {}
-    for canonical, broker in symbols.items():
-        if not isinstance(canonical, str) or not re.fullmatch(r"[A-Za-z]{6}", canonical):
-            raise InstrumentError("canonical Forex symbol must contain six letters", source="instrument_registry_builder")
-        if not isinstance(broker, str) or not re.fullmatch(r"[A-Za-z0-9_.#+/-]{1,64}", broker):
-            raise InstrumentError("broker symbol must be an explicit supported instrument name", source="instrument_registry_builder")
-        key = canonical.upper()
-        if key in aliases or broker in aliases.values():
-            raise InstrumentError("duplicate canonical or broker symbol mapping", source="instrument_registry_builder")
-        aliases[key] = broker
+    aliases = validate_symbol_map(symbols)
     specs: list[InstrumentSpec] = []
     for canonical, broker in sorted(aliases.items()):
         try:

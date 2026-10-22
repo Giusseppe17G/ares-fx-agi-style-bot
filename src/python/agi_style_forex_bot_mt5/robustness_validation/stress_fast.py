@@ -24,6 +24,9 @@ def run_stress_fast(trades: pd.DataFrame) -> tuple[dict[str, Any], pd.DataFrame]
             "most_sensitive_cost": "NO_TRADES",
             "execution_attempted": False,
         }, pd.DataFrame()
+    # Known limitation (PROJECT_SPEC.md 17.4): the cost shocks below are fixed
+    # penalties in trade_values units, not each trade's own round trip; per-trade
+    # cost evidence comes from cost_sensitivity.
     scenarios = {
         "spread_x1_25": values - 0.0125,
         "spread_x1_5": values - 0.025,

@@ -16,10 +16,12 @@ actual. Para el detalle tecnico ver `PROJECT_SPEC.md` (seccion 17.3),
   activarla. `DEMO_ONLY=True` y `LIVE_TRADING_APPROVED=False` no se pueden
   cambiar: la configuracion rechaza otros valores.
 - **No esta listo para dinero real ni para operar en demo.** La estrategia
-  actual no supera a entradas aleatorias en los datos disponibles
-  (`docs/research/trend-pullback-predeclared-v1-baselines.md`). El objetivo de
-  esta guia es ponerlo a observar en papel con una cuenta demo y reunir la
-  evidencia que exige el Strategy Promotion Gate.
+  intradia actual no supera a entradas aleatorias en los datos disponibles
+  (`docs/research/trend-pullback-predeclared-v1-baselines.md`), y las primas
+  lentas diarias (tendencia de 12 meses, carry y su mezcla) tampoco pasan un
+  estudio predeclarado dentro de los limites de riesgo del bot (seccion 10).
+  El objetivo de esta guia es ponerlo a observar en papel con una cuenta demo
+  y reunir la evidencia que exige el Strategy Promotion Gate.
 
 ## 1. Requisitos
 
@@ -268,8 +270,9 @@ New-Item -ItemType Directory -Force data\runtime | Out-Null
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode build-instrument-registry --broker-symbol-map data\runtime\symbol_map.json --instrument-registry-output "data\runtime\instrument_registry-$(Get-Date -Format yyyyMMdd-HHmmss).json"
 ```
 
-3. Comisiones y swap: anotalos a mano desde "Especificacion" del simbolo en MT5,
-   con fecha y fuente (el snapshot no incluye swap).
+3. Comisiones: anotalas a mano desde "Especificacion" del simbolo en MT5, con
+   fecha y fuente. El swap se registra con el comando de la seccion 11 (el
+   snapshot de instrumentos no lo incluye).
 4. La observacion forward-shadow de al menos dos semanas o 200 operaciones de
    papel (lo que tarde mas), con sus carpetas `data\sqlite` y `data\logs`.
 
@@ -291,14 +294,110 @@ pwsh -NoProfile -File .\scripts\run_native_math_harness.ps1
 El segundo inicia una copia portable del terminal en modo matematico del
 Strategy Tester, sin cuenta. Detalle en `docs/testing/native-math-harness.md`.
 
+## 10. Estudio diario de primas lentas (investigacion, opcional)
+
+Resultado del 2026-10-17: tendencia de 12 meses, carry y su mezcla sobre
+EUR, JPY, GBP, CHF, CAD, AUD, NZD, SEK y NOK contra USD, simulados dia a dia
+dentro de los limites del bot (0,5% de riesgo por posicion, 5% de riesgo
+abierto, 10 posiciones, SL y TP siempre) con un plan congelado antes de ver
+resultados. Las tres hipotesis quedan **rechazadas** en el periodo de
+desarrollo 1999-2016 (mejor t de Newey-West 0,62 frente al minimo de 2,0) y
+el periodo reservado 2017-2026 no se evaluo: sigue disponible para una idea
+nueva, que debe predeclararse antes de mirarlo. Detalle y cifras:
+`docs/research/daily-fx-slow-premia-predeclared-v1.md`.
+
+Para reproducir el desarrollo hacen falta los mismos archivos de datos (la
+copia de FRED H.10 de github.com/datasets/exchange-rates en el commit
+c023dd8b8f87 y el CSV de tipos OECD indicado en el documento; clona con
+`git clone -c core.autocrlf=false` para no alterar el sha256) y las mismas
+versiones de Python, numpy y pandas; si no coinciden, el runner se niega con
+codigo 2. El motor se corrigio despues de esa ejecucion, asi que el plan v1
+solo se reproduce con el codigo del commit b264293 (vuelve a `main` al
+terminar). El plan original y su ledger ya tienen el desarrollo registrado, asi
+que se reproduce sobre copias:
+
+```powershell
+git switch --detach b264293
+New-Item -ItemType Directory -Force data\runs\daily_fx_repro | Out-Null
+Copy-Item docs\research\daily_fx_slow_premia_v1\plan.json data\runs\daily_fx_repro\plan.json
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.runner development --prices data\historical\fred\daily.csv --rates data\historical\oecd\short-term-interest.csv --plan-file data\runs\daily_fx_repro\plan.json --ledger data\runs\daily_fx_repro\ledger.jsonl
+git switch main
+```
+
+Nada de esto lee el terminal ni envia ordenes.
+
+## 11. Registrar el swap del broker (solo lectura)
+
+Hasta ahora el coste de financiacion (swap) era un supuesto: el estudio diario
+cargaba un margen de 75 pb al ano. Este comando guarda los terminos de swap que
+publica tu broker para medir el coste real a lo largo del tiempo. Usa el mismo
+mapa de simbolos de la seccion 8, la misma `--config` (se guarda el
+`MT5_SERVER_TIME` declarado) y un nombre de salida nuevo con fecha y hora (nunca
+se sobrescribe uno existente y la carpeta debe existir):
+
+```powershell
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode capture-swap-snapshot --broker-symbol-map data\runtime\symbol_map.json --swap-snapshot-output "data\runtime\swap_snapshot-$(Get-Date -Format yyyyMMdd-HHmmss).json" --config C:\ares-config\bot.ini
+```
+
+Solo llama a `initialize`, `symbol_info` y `shutdown`: no lee la cuenta ni
+envia ordenes. Por cada simbolo guarda `swap_long`, `swap_short`, el modo de
+swap (`swap_mode` y su nombre, por ejemplo `POINTS`), el dia del triple swap,
+las monedas, el tamano del contrato, `point`, `digits` y el spread actual en
+puntos, ademas de la hora UTC de captura y un `payload_sha256`. Revisa el JSON
+de salida:
+
+- `status` = `CAPTURED`: se registraron todos los simbolos.
+- `PARTIAL`: alguno no; `unavailable` dice cual y por que (por ejemplo
+  `SYMBOL_INFO_MISSING` si el nombre no coincide con el de tu broker, o
+  `SWAP_MODE_UNKNOWN`). Los demas si quedan registrados.
+- `UNAVAILABLE`: no se pudo registrar ninguno. El archivo se escribe igual
+  (es evidencia de lo que respondio el broker), pero el comando sale con codigo
+  3; revisa el mapa de simbolos y la sesion de MT5.
+- `swap_terms_hash` cubre solo los terminos de los simbolos registrados
+  (`CAPTURED`): no cambia con la hora, con el spread ni con el motivo por el que
+  otro simbolo no se registro. Repite la captura, por ejemplo una vez por
+  semana, y compara ese hash entre snapshots que registraron los mismos
+  simbolos (por ejemplo dos `CAPTURED`) para saber cuando el broker cambio el
+  swap. Si en uno falta un simbolo, el hash cambia porque cubre otro conjunto:
+  compara entonces simbolo por simbolo.
+
+Codigo 2: argumentos invalidos o destino existente o no escribible (se comprueba
+antes de abrir MT5, salvo la escritura final). Codigo 3: MT5 no disponible, o
+ningun simbolo registrado (`status` = `UNAVAILABLE`, con el archivo escrito).
+
+Para convertir un swap en puntos en un porcentaje anual aproximado del nocional
+pasa el precio actual de cada par (no se inventa ninguno). Solo se convierte el
+modo `POINTS` de pares con USD; los cruces, los otros modos y los pares sin
+precio salen como `UNAVAILABLE` con su motivo. El precio se comprueba: si su
+escala no encaja con los `digits` del simbolo (por ejemplo 1.08 para USDJPY o
+150 para EURUSD) sale `PRICE_SCALE_IMPLAUSIBLE`, y si el swap anual de un largo
+o de un corto supera el 50% del nocional sale `ANNUAL_CARRY_IMPLAUSIBLE`, en
+vez de un numero absurdo. Cambia el nombre del archivo por el que creaste:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import json, sys; from agi_style_forex_bot_mt5.broker_swap_snapshot import read_swap_snapshot, snapshot_carry; print(json.dumps(snapshot_carry(read_swap_snapshot(sys.argv[1]), {'EURUSD': 1.08, 'USDJPY': 150.0}), indent=2))" data\runtime\swap_snapshot-20261022-213000.json
+```
+
+`long_annual_percent_of_notional` y `short_annual_percent_of_notional` son el
+swap anual de un largo y de un corto (negativo = lo pagas). `OBSERVED` se
+refiere solo a los terminos de swap del broker: el precio es el que tu pasaste
+(`price_source` = `caller`, `price_observed` = `false`), asi que un precio
+desactualizado mueve el porcentaje en la misma proporcion, y un precio con un
+decimal mal puesto (10.8 en vez de 1.08 para EURUSD) no siempre se detecta y
+divide el resultado por diez: comprueba el precio antes de usar la cifra.
+`implied_symmetric_markup_bps_per_year` es el margen del broker si lo aplica por
+igual a largos y cortos, comparable con los 75 pb supuestos. Es una
+aproximacion: ignora los festivos con rollover extra y los cambios de terminos
+durante el ano. Nada de esto cambia todavia los backtests ni las decisiones.
+
 ## Codigos de salida
 
 | Codigo | Significado |
 | --- | --- |
 | 0 | Completado (o forward-shadow parado a peticion); el JSON de salida tiene el detalle. |
 | 1 | Error no controlado; la traza indica la causa. |
-| 2 | Argumentos o configuracion invalidos (por ejemplo `DEMO_ONLY=False`, una clave repetida o una ruta de `--config` que no existe), destino del snapshot ya existente, forward-shadow ya en marcha sobre esa base o, en los scripts `run_forward_shadow.ps1` (y el watchdog), `status.ps1` y `stop_forward_shadow.ps1`, falta de `.venv`. |
-| 3 | MT5 no disponible (paquete ausente, terminal cerrado o sin sesion) en `mt5-data`, `mt5-diagnose`, `export-history` y `build-instrument-registry`, o en `forward-shadow` con `-MaxCycles` sin ningun ciclo completado (sin `-MaxCycles` reintenta indefinidamente). |
+| 2 | Argumentos o configuracion invalidos (por ejemplo `DEMO_ONLY=False`, una clave repetida o una ruta de `--config` que no existe), destino del snapshot ya existente (o no escribible en `capture-swap-snapshot`), forward-shadow ya en marcha sobre esa base o, en los scripts `run_forward_shadow.ps1` (y el watchdog), `status.ps1` y `stop_forward_shadow.ps1`, falta de `.venv`. |
+| 3 | MT5 no disponible (paquete ausente, terminal cerrado o sin sesion) en `mt5-data`, `mt5-diagnose`, `export-history`, `build-instrument-registry` y `capture-swap-snapshot`; `capture-swap-snapshot` sin ningun simbolo registrado (`status` = `UNAVAILABLE`; el archivo se escribe igual); o `forward-shadow` con `-MaxCycles` sin ningun ciclo completado (sin `-MaxCycles` reintenta indefinidamente). |
 | 4 | forward-shadow: ciclo de papel bloqueado de forma permanente en esa base (seccion 5). |
 | 5 | forward-shadow: cotizaciones de MT5 sin integridad (`MT5_SERVER_TIME` o reloj del PC); nada se modifico. |
 

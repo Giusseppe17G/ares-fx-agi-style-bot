@@ -33,12 +33,53 @@ from ..core.clock import FrozenClock
 from ..core.run_manifest import RunManifest
 from ..core.instruments.snapshot import instrument_metadata_hash
 from ..core.operational_state.errors import ExecutionSimulationError
-from ..core.instruments import ASSUMED_SOURCE, InstrumentRegistry, InstrumentSpec, assumed_fx_spec, resolve_registry
+from ..core.instruments import ASSUMED_SOURCE, InstrumentRegistry, InstrumentSpec, assumed_fx_spec, is_assumed, resolve_registry
+from ..execution_simulation.gap_model import GapModel
 from ..strategy import evaluate_ensemble
 from ..strategy.strategy_ensemble import EnsembleConfig, STRATEGY_VERSION
 
 
-ENGINE_VERSION = "0.3.2"
+# 0.4.0: bid bars, ask-side SELL exits, gap fills, exit-bar spread, and the
+# per-trade statistic reported as t_stat beside a daily mark-to-market Sharpe.
+# 0.4.1: a break-even/trailing move proposed at a bar close is refused unless
+# it is strictly on the protective side of that close (bid for BUY, ask for
+# SELL); the previous stop stays and the trade carries stop_move_flags. SL/TP
+# already crossed at entry are rejected, daily metrics need a minimum sample
+# (skew/kurtosis included) and every None daily metric carries a flag.
+ENGINE_VERSION = "0.4.1"
+STOP_MOVE_REJECTED_INVALID_SIDE = "stop_move_rejected_invalid_side"
+# Daily metrics sample every weekday, flat days and holidays included, so the
+# sampling frequency is also the annualisation factor.
+WEEKDAYS_PER_YEAR = 365.25 / 7 * 5
+# Minimum daily returns before a daily metric is computed at all; below them
+# the metric is None and daily_metrics_flags says why. About one month of
+# weekdays for Sharpe; one year for CAGR/Calmar, which would otherwise
+# extrapolate compounding. A computed value is still not evidence by itself.
+MIN_DAILY_RETURNS_SHARPE = 20
+# Skew and kurtosis describe the same returns as the Sharpe (PSR takes all
+# three), so they share its sample. At 20 returns their standard errors are
+# still about 0.5 and 1.0: descriptive only.
+MIN_DAILY_RETURNS_MOMENTS = MIN_DAILY_RETURNS_SHARPE
+MIN_DAILY_RETURNS_ANNUALISED = math.ceil(WEEKDAYS_PER_YEAR)
+MARK_TO_MARKET_UNAVAILABLE = "MARK_TO_MARKET_UNAVAILABLE"
+INSUFFICIENT_DAILY_SAMPLE_SHARPE = "INSUFFICIENT_DAILY_SAMPLE_SHARPE"
+INSUFFICIENT_DAILY_SAMPLE_MOMENTS = "INSUFFICIENT_DAILY_SAMPLE_MOMENTS"
+INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR = "INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR"
+DAILY_RETURNS_ZERO_VARIANCE = "DAILY_RETURNS_ZERO_VARIANCE"
+DAILY_RETURNS_NOT_FINITE = "DAILY_RETURNS_NOT_FINITE"
+CAGR_OVERFLOW = "CAGR_OVERFLOW"
+CALMAR_ZERO_DRAWDOWN = "CALMAR_ZERO_DRAWDOWN"
+# Which daily metrics each flag explains as None; every None has one.
+DAILY_METRIC_FLAG_SCOPE: Mapping[str, tuple[str, ...]] = {
+    MARK_TO_MARKET_UNAVAILABLE: ("sharpe", "skew", "kurtosis", "cagr_pct", "calmar"),
+    INSUFFICIENT_DAILY_SAMPLE_SHARPE: ("sharpe",),
+    INSUFFICIENT_DAILY_SAMPLE_MOMENTS: ("skew", "kurtosis"),
+    INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR: ("cagr_pct", "calmar"),
+    DAILY_RETURNS_ZERO_VARIANCE: ("sharpe", "skew", "kurtosis"),
+    DAILY_RETURNS_NOT_FINITE: ("sharpe", "skew", "kurtosis"),
+    CAGR_OVERFLOW: ("cagr_pct", "calmar"),
+    CALMAR_ZERO_DRAWDOWN: ("calmar",),
+}
 
 
 @dataclass(frozen=True)
@@ -180,8 +221,21 @@ class BacktestMetrics:
     profit_factor: float
     max_drawdown_pct: float
     daily_max_drawdown_pct: float
+    # Annualised, from weekday mark-to-market equity; None without marks or
+    # below MIN_DAILY_RETURNS_SHARPE daily returns.
     sharpe: float | None
     sortino: float | None
+    # Mean/std of per-trade returns times sqrt(n): grows with the sample.
+    t_stat: float | None
+    skew: float | None
+    # Non-excess (normal = 3), as research.edge_statistics.moments.
+    kurtosis: float | None
+    # None below MIN_DAILY_RETURNS_ANNUALISED daily returns.
+    cagr_pct: float | None
+    calmar: float | None
+    # Daily returns behind the daily metrics (0 without marks) and why any is None.
+    daily_returns_count: int
+    daily_metrics_flags: tuple[str, ...]
     expectancy: float
     expected_payoff: float
     average_r: float
@@ -222,6 +276,13 @@ class BacktestMetrics:
             "expected_payoff": self.expected_payoff,
             "sharpe": self.sharpe,
             "sortino": self.sortino,
+            "t_stat": self.t_stat,
+            "skew": self.skew,
+            "kurtosis": self.kurtosis,
+            "cagr_pct": self.cagr_pct,
+            "calmar": self.calmar,
+            "daily_returns_count": self.daily_returns_count,
+            "daily_metrics_flags_json": json.dumps(list(self.daily_metrics_flags)),
             "recovery_factor": self.recovery_factor,
             "notes": "Python OHLC research backtest; not an MT5 execution report.",
             "avg_win": self.avg_win,
@@ -255,6 +316,8 @@ class BacktestOutcome:
     trades: tuple[TradeResult, ...]
     rejected_candidates: tuple[dict[str, Any], ...]
     equity_curve: pd.DataFrame
+    # Realized equity plus open positions marked at each bar close.
+    mark_to_market_curve: pd.DataFrame | None = None
 
     def trades_frame(self) -> pd.DataFrame:
         rows: list[dict[str, Any]] = []
@@ -340,6 +403,8 @@ class Backtester:
         trades: list[TradeResult] = []
         rejected: list[dict[str, Any]] = []
         exposure_indices: set[int] = set()
+        realized = np.zeros(len(bars), dtype=float)
+        unrealized = np.zeros(len(bars), dtype=float)
         for candidate in normalized_candidates:
             stable_reason = dict(candidate.metadata).get("stable_rejection_reason")
             if stable_reason:
@@ -353,7 +418,7 @@ class Backtester:
                 )
                 continue
             try:
-                trade, used_indices = self._simulate_candidate(bars, candidate)
+                trade, used_indices, marks = self._simulate_candidate(bars, candidate)
             except ValueError as exc:
                 rejected.append(
                     {
@@ -367,17 +432,26 @@ class Backtester:
             if trade is not None:
                 trades.append(trade)
                 exposure_indices.update(used_indices)
+                # Unrepresentable money stays non-finite; daily metrics then report None.
+                with np.errstate(invalid="ignore", over="ignore"):
+                    realized[max(used_indices)] += trade.profit
+                    for idx, value in marks.items():
+                        unrealized[idx] += value
         equity_curve = build_equity_curve(
             trades,
             initial_balance=self.settings.initial_balance,
             candles=bars,
         )
+        with np.errstate(invalid="ignore", over="ignore"):
+            marked_equity = self.settings.initial_balance + np.cumsum(realized) + unrealized
+        mark_to_market_curve = pd.DataFrame({"timestamp": bars["timestamp"], "equity": marked_equity})
         metrics = calculate_metrics(
             trades,
             initial_balance=self.settings.initial_balance,
             equity_curve=equity_curve,
             total_bars=len(bars),
             exposed_bars=len(exposure_indices),
+            mark_to_market=mark_to_market_curve,
         )
         return BacktestOutcome(
             settings=self.settings,
@@ -385,11 +459,12 @@ class Backtester:
             trades=tuple(trades),
             rejected_candidates=tuple(rejected),
             equity_curve=equity_curve,
+            mark_to_market_curve=mark_to_market_curve,
         )
 
     def _simulate_candidate(
         self, bars: pd.DataFrame, candidate: TradeCandidate
-    ) -> tuple[TradeResult | None, set[int]]:
+    ) -> tuple[TradeResult | None, set[int], dict[int, float]]:
         if not math.isfinite(candidate.lot) or candidate.lot <= 0:
             raise ValueError("candidate lot must be positive")
         if not all(math.isfinite(value) and value > 0 for value in (candidate.sl_price, candidate.tp_price)):
@@ -425,6 +500,7 @@ class Backtester:
             raise ValueError("spread exceeds configured maximum")
 
         direction = _direction_value(candidate.direction)
+        # Bars, and a legacy entry_price, are bid quotes: a BUY opens on the ask.
         base_entry = float(candidate.entry_price if candidate.entry_price is not None else entry_bar.open)
         entry_price = _apply_entry_cost(
             base_entry,
@@ -434,8 +510,16 @@ class Backtester:
             point=self.settings.cost_model.point,
             tick_size=self.settings.cost_model.tick_size,
             max_spread_points=self.settings.cost_model.max_spread_points,
+            quote="bid",
         )
         _validate_directional_prices(direction, entry_price, candidate.sl_price, candidate.tp_price)
+        # Protection triggers on the closing side, a BUY's on the bid and a
+        # SELL's on the ask: a level already crossed there is invalid, never an
+        # instant stop.
+        closing_quote = Decimal(str(base_entry))
+        if direction == Direction.SELL.value:
+            closing_quote += Decimal(str(spread_points)) * Decimal(str(self.settings.cost_model.point))
+        _validate_protection_side(direction, float(closing_quote), candidate.sl_price, candidate.tp_price)
 
         initial_sl = float(candidate.sl_price)
         current_sl = initial_sl
@@ -451,69 +535,88 @@ class Backtester:
 
         mae = 0.0
         mfe = 0.0
-        exit_base_price = float(bars.iloc[max_idx].close)
-        exit_reason = "END_OF_DATA"
-        exit_idx = max_idx
         used_indices: set[int] = set()
+        marks: dict[int, float] = {}
+        commission = self.settings.cost_model.commission_per_lot_round_turn * candidate.lot
+        point = Decimal(str(self.settings.cost_model.point))
+        # Missing held-bar spread is never read as zero: the closing side
+        # assumes the widest spread the entry gate admits.
+        assumed_spread = max(spread_points, self.settings.cost_model.max_spread_points)
+        assumed_spread_bars = 0
+        gap_model = GapModel()
+        decision = None
+        stop_moves_rejected = 0
 
         for idx in range(start_idx, max_idx + 1):
             row = bars.iloc[idx]
             used_indices.add(idx)
-            high = float(row.high)
-            low = float(row.low)
+            bar_spread = spread_points
+            if idx != start_idx:
+                try:
+                    bar_spread = _bar_spread_points(row, self.settings.cost_model.spread_points)
+                except ValueError:
+                    bar_spread = assumed_spread
+                    assumed_spread_bars += 1
+            # Bars are bid quotes. A BUY closes on the bid and a SELL on the ask,
+            # so SELL protection triggers on bar prices plus this bar's spread.
+            offset = Decimal(0) if direction == Direction.BUY.value else Decimal(str(bar_spread)) * point
+            open_, high, low, close = (Decimal(str(float(row[name]))) + offset
+                                       for name in ("open", "high", "low", "close"))
             if direction == Direction.BUY.value:
-                mae = min(mae, float(Decimal(str(low)) - entry_decimal))
-                mfe = max(mfe, float(Decimal(str(high)) - entry_decimal))
-                if low <= current_sl:
-                    exit_base_price = current_sl
-                    exit_reason = "SL"
-                    exit_idx = idx
-                    break
-                if high >= tp_price:
-                    exit_base_price = tp_price
-                    exit_reason = "TP"
-                    exit_idx = idx
-                    break
-                current_sl = self._maybe_move_stop(
-                    direction=direction,
-                    current_sl=current_sl,
-                    entry_price=entry_price,
-                    favorable_excursion=mfe,
-                    risk_distance=risk_distance,
-                    bar_extreme=high,
-                )
+                mae = min(mae, float(low - entry_decimal))
+                mfe = max(mfe, float(high - entry_decimal))
             else:
-                mae = min(mae, float(entry_decimal - Decimal(str(high))))
-                mfe = max(mfe, float(entry_decimal - Decimal(str(low))))
-                if high >= current_sl:
-                    exit_base_price = current_sl
-                    exit_reason = "SL"
-                    exit_idx = idx
-                    break
-                if low <= tp_price:
-                    exit_base_price = tp_price
-                    exit_reason = "TP"
-                    exit_idx = idx
-                    break
-                current_sl = self._maybe_move_stop(
-                    direction=direction,
-                    current_sl=current_sl,
-                    entry_price=entry_price,
-                    favorable_excursion=mfe,
-                    risk_distance=risk_distance,
-                    bar_extreme=low,
+                mae = min(mae, float(entry_decimal - high))
+                mfe = max(mfe, float(entry_decimal - low))
+            # The stop in force is strictly on the safe side of the entry quote or
+            # of the previous close, so an open beyond it is a real gap and fills
+            # at that worse open; a gap through the target fills at the target; a
+            # bar touching both is a stop.
+            decision = gap_model.resolve_bar_exit(
+                direction=direction, open_price=float(open_), high=float(high), low=float(low),
+                sl=current_sl, tp=tp_price,
+            )
+            if decision is not None:
+                break
+            if idx < max_idx:
+                marks[idx] = _profit_for_price_move(
+                    direction=direction, entry_price=entry_price, exit_price=float(close), lot=candidate.lot,
+                    tick_size=self.settings.cost_model.tick_size, tick_value=self.settings.cost_model.tick_value,
+                    commission=commission,
                 )
+            proposed_sl = self._maybe_move_stop(
+                direction=direction,
+                current_sl=current_sl,
+                entry_price=entry_price,
+                favorable_excursion=mfe,
+                risk_distance=risk_distance,
+                bar_extreme=float(high if direction == Direction.BUY.value else low),
+            )
+            # A bar-close EA sends the move at this close. MT5 refuses an SL at or
+            # beyond the quote it triggers on (invalid stops): the previous stop
+            # stays, so no exit can fill at a level the price never traded.
+            if proposed_sl == current_sl or _stop_on_protective_side(direction, float(close), proposed_sl):
+                current_sl = proposed_sl
+            else:
+                stop_moves_rejected += 1
 
+        exit_idx = idx
+        if decision is None:
+            exit_base_price, exit_reason, exit_flags = float(close), "END_OF_DATA", ()
+        else:
+            exit_base_price, exit_flags = float(decision.exit_price), tuple(decision.flags)
+            exit_reason = "SL" if decision.exit_reason == "GAP_THROUGH_SL" else decision.exit_reason
         exit_price = _apply_exit_cost(
             exit_base_price,
             direction=direction,
-            spread_points=spread_points,
+            spread_points=bar_spread,
             slippage_points=self.settings.cost_model.slippage_points,
             point=self.settings.cost_model.point,
             tick_size=self.settings.cost_model.tick_size,
-            max_spread_points=self.settings.cost_model.max_spread_points,
+            # The spread gate decides entries; it never refuses a protective exit.
+            max_spread_points=max(self.settings.cost_model.max_spread_points, bar_spread),
+            quote="closing_side",
         )
-        commission = self.settings.cost_model.commission_per_lot_round_turn * candidate.lot
         profit = _profit_for_price_move(
             direction=direction,
             entry_price=entry_price,
@@ -563,9 +666,14 @@ class Backtester:
                     "available_at_utc": timestamp.isoformat(),
                     "entry_timing": "FIRST_OPEN_AT_OR_AFTER_AVAILABILITY",
                 } if candidate.available_at_utc is not None else {}),
+                "exit_spread_points": bar_spread,
+                "exit_fill_flags": exit_flags,
+                "assumed_spread_bars": assumed_spread_bars,
+                "stop_move_flags": (STOP_MOVE_REJECTED_INVALID_SIDE,) if stop_moves_rejected else (),
+                "stop_moves_rejected": stop_moves_rejected,
             },
         )
-        return trade, used_indices
+        return trade, used_indices, marks
 
     def _maybe_move_stop(
         self,
@@ -628,6 +736,8 @@ def load_historical_csv(
             raise ValueError("historical CSV is empty")
         if status in {"CSV_MISSING_OHLC", "CSV_NUMERIC_CONVERSION_ERROR"}:
             raise ValueError(f"historical CSV missing columns or invalid numeric values: {status}")
+        if status == "SPREAD_DATA_MISSING":
+            raise ValueError("SPREAD_DATA_MISSING: historical CSV has no spread column; zero cost is not imputed")
         raise ValueError(status)
     duplicate_count = int(loaded.diagnostics.get("duplicates", 0) or 0)
     normalized = loaded.frame.rename(columns={"tick_volume": "volume", "spread": "spread_points"}).copy()
@@ -683,11 +793,11 @@ def run_strategy_backtest(
         trailing_distance_points=80,
         max_bars_in_trade=96,
     )
-    spec = instrument or assumed_fx_spec(symbol)
+    bars = _normalize_candles(candles)
+    spec = instrument or assumed_instrument_for_bars(symbol, bars)
     # One instrument source drives both candidate geometry and the cost model, so a
     # backtest can no longer size trades against different metadata than it prices them with.
     run_settings = replace(run_settings, cost_model=run_settings.cost_model.with_instrument(spec))
-    bars = _normalize_candles(candles)
     candidates = generate_strategy_candidates(
         bars,
         symbol=symbol,
@@ -697,6 +807,23 @@ def run_strategy_backtest(
         instrument=spec,
     )
     return Backtester(run_settings).run(bars, candidates)
+
+
+def assumed_instrument_for_bars(symbol: str, candles: pd.DataFrame) -> InstrumentSpec:
+    """Declared placeholder metadata priced at the run's first close.
+
+    A USD-base pair's tick value moves with its own price. The earliest close is
+    the value a `symbol_info` snapshot taken when the run started would report,
+    with no look-ahead. It is not re-derived per trade (no dynamic conversion is
+    modelled), and a cross still fails closed in `assumed_fx_spec`.
+    """
+
+    return assumed_fx_spec(symbol, reference_price=_first_close(candles))
+
+
+def _first_close(candles: pd.DataFrame) -> float | None:
+    bars = _normalize_candles(candles)
+    return float(bars["close"].iloc[0]) if len(bars) else None
 
 
 def generate_strategy_candidates(
@@ -919,14 +1046,19 @@ def run_backtest_for_symbols(
     )
     profile = _signal_profile_settings(cfg.signal_profile, cfg.profile_config)
     resolved_symbols = [item.strip().upper() for item in symbols if item.strip()]
+    # With assumptions allowed, `symbols` would only feed the placeholder
+    # fallback. The loop builds each placeholder from its own symbol's first
+    # close instead, so each history is read only when its turn comes and is
+    # released after it. Strict runs still name every symbol when they refuse.
     registry, instrument_metadata_source = resolve_registry(
         registry=instruments,
         data_dir=data_dir,
-        symbols=resolved_symbols,
+        symbols=() if allow_assumed_instruments else resolved_symbols,
         allow_assumptions=allow_assumed_instruments,
     )
     all_trades: list[pd.DataFrame] = []
     all_equity: list[pd.DataFrame] = []
+    all_marks: list[pd.DataFrame] = []
     all_rejections: list[dict[str, Any]] = []
     qualities: list[DataQualityReport] = []
     promotions: dict[str, PromotionGateResult] = {}
@@ -934,6 +1066,7 @@ def run_backtest_for_symbols(
     signals_generated = 0
     dataset_paths: list[Path] = []
     dataset_end = pd.Timestamp("1970-01-01T00:00:00Z")
+    assumed_specs: list[InstrumentSpec] = []
     for symbol in resolved_symbols:
         path = _find_history_csv(Path(data_dir), symbol, timeframe)
         dataset_paths.append(path)
@@ -941,7 +1074,14 @@ def run_backtest_for_symbols(
         dataset_end = max(dataset_end, pd.Timestamp(candles["timestamp"].max()) + pd.Timedelta(seconds=_timeframe_seconds(timeframe)))
         qualities.append(quality)
         data_valid_symbols.append(symbol)
-        spec = registry.get(symbol) if registry.has(symbol) else assumed_fx_spec(symbol)
+        # A symbol missing from a sidecar is assumed only where assumptions are
+        # allowed; strict runs fail closed in `registry.get`.
+        if registry.has(symbol) or not allow_assumed_instruments:
+            spec = registry.get(symbol)
+        else:
+            spec = assumed_instrument_for_bars(symbol, candles)
+        if is_assumed(spec):
+            assumed_specs.append(spec)
         outcome = run_strategy_backtest(candles, symbol=symbol, settings=run_settings, config=cfg, timeframe=timeframe, instrument=spec)
         signals_generated += len(outcome.trades) + len(outcome.rejected_candidates)
         all_rejections.extend(dict(item) | {"symbol": symbol} for item in outcome.rejected_candidates)
@@ -952,11 +1092,19 @@ def run_backtest_for_symbols(
         equity = outcome.equity_curve.copy()
         equity["symbol"] = symbol
         all_equity.append(equity)
+        if outcome.mark_to_market_curve is not None:
+            all_marks.append(outcome.mark_to_market_curve.assign(symbol=symbol))
         promotions[symbol] = classify_strategy_promotion(outcome.metrics, trades)
+    if instrument_metadata_source == ASSUMED_SOURCE:
+        # The manifest hashes the placeholders this run actually priced with; a
+        # repeated symbol still fails closed here, before any report is written.
+        registry = InstrumentRegistry.from_specs(assumed_specs)
 
     trades_frame = pd.concat(all_trades, ignore_index=True) if all_trades else _empty_trades_frame()
     equity_curve = _aggregate_equity_curves(all_equity, run_settings.initial_balance)
-    metrics = calculate_metrics(trades_frame.to_dict("records"), initial_balance=run_settings.initial_balance, equity_curve=equity_curve)
+    marks = _aggregate_equity_curves(all_marks, run_settings.initial_balance) if all_marks else None
+    metrics = calculate_metrics(trades_frame.to_dict("records"), initial_balance=run_settings.initial_balance,
+                                equity_curve=equity_curve, mark_to_market=marks)
     by_symbol = _group_metrics(trades_frame, "symbol")
     by_regime = _group_metrics(trades_frame, "regime")
     by_session = _group_metrics(trades_frame, "session")
@@ -975,7 +1123,7 @@ def run_backtest_for_symbols(
         "full_risk_pipeline_applied": False,
         "operationally_eligible": False,
         "instrument_metadata_source": instrument_metadata_source,
-        "instrument_metadata_assumed": instrument_metadata_source == ASSUMED_SOURCE,
+        "instrument_metadata_assumed": instrument_metadata_source == ASSUMED_SOURCE or bool(assumed_specs),
         "signal_profile_used": profile["name"],
         "thresholds_used": dict(profile),
         "profile_hash": profile["profile_hash"],
@@ -1002,6 +1150,13 @@ def run_backtest_for_symbols(
         "expectancy_r": metrics.average_r,
         "sharpe": metrics.sharpe,
         "sortino": metrics.sortino,
+        "t_stat": metrics.t_stat,
+        "skew": metrics.skew,
+        "kurtosis": metrics.kurtosis,
+        "cagr_pct": metrics.cagr_pct,
+        "calmar": metrics.calmar,
+        "daily_returns_count": metrics.daily_returns_count,
+        "daily_metrics_flags": list(metrics.daily_metrics_flags),
         "classification": "WARNING_SIGNALS_NO_TRADES" if signals_generated > 0 and metrics.trades_total == 0 else classification,
         "execution_attempted": False,
         "reports_created": [],
@@ -1102,8 +1257,14 @@ def calculate_metrics(
     equity_curve: pd.DataFrame | None = None,
     total_bars: int | None = None,
     exposed_bars: int | None = None,
+    mark_to_market: pd.DataFrame | None = None,
 ) -> BacktestMetrics:
-    """Calculate project-required metrics from closed trades."""
+    """Calculate project-required metrics from closed trades.
+
+    Sharpe, skew, kurtosis, CAGR and Calmar need mark-to-market equity
+    (timestamp, equity) and are None without it; closed trades alone would
+    hide open-position risk.
+    """
 
     normalized = _ordered_trade_mappings(trades)
     profits = np.array([float(trade["profit"]) for trade in normalized], dtype=float)
@@ -1134,8 +1295,10 @@ def calculate_metrics(
     max_dd_pct, drawdown_pct = _max_drawdown_pct(equity)
     daily_max_dd_pct = _daily_max_drawdown_pct(equity_curve, initial_balance)
     trade_returns = _trade_returns(profits, initial_balance)
-    sharpe = _sharpe(trade_returns)
+    t_stat = _trade_t_stat(trade_returns)
     sortino = _sortino(trade_returns)
+    daily_equity = _daily_mark_to_market_equity(mark_to_market) if mark_to_market is not None else None
+    daily_metrics = _daily_equity_metrics(daily_equity, initial_balance)
     max_dd_amount = float((equity.cummax() - equity).max()) if len(equity) else 0.0
     recovery_factor = net_profit / max_dd_amount if max_dd_amount > 0 else None
     monthly_returns, trades_per_month = _monthly_stats(normalized, initial_balance)
@@ -1165,8 +1328,9 @@ def calculate_metrics(
         profit_factor=profit_factor,
         max_drawdown_pct=max_dd_pct,
         daily_max_drawdown_pct=daily_max_dd_pct,
-        sharpe=sharpe,
         sortino=sortino,
+        t_stat=t_stat,
+        **daily_metrics,
         expectancy=expectancy,
         expected_payoff=expectancy,
         average_r=average_r,
@@ -1283,11 +1447,14 @@ def _apply_entry_cost(
     point: float,
     tick_size: float | None = None,
     max_spread_points: float = 25.0,
+    quote: str = "mid",
 ) -> float:
     """Entry price under the shared execution model.
 
     Delegates to `execution_simulation.FillModel` via SharedFillModel, the same
     model paper trading uses, including its price precision and spread gate.
+    `quote` says what base_price is: "mid" (legacy private callers) or "bid"
+    (bar prices, as the Backtester passes them).
     """
 
     return _shared_fill_price(
@@ -1299,6 +1466,7 @@ def _apply_entry_cost(
         tick_size=tick_size,
         is_entry=True,
         max_spread_points=max_spread_points,
+        quote=quote,
     )
 
 
@@ -1312,8 +1480,12 @@ def _shared_fill_price(
     is_entry: bool,
     tick_size: float | None = None,
     max_spread_points: float = 25.0,
+    quote: str = "mid",
 ) -> float:
-    snapshot = _replay_snapshot(base_price, spread_points=spread_points, point=point, tick_size=tick_size)
+    if quote not in {"mid", "bid", "closing_side"} or (is_entry and quote == "closing_side"):
+        raise ValueError("unsupported replay quote convention")
+    snapshot = _replay_snapshot(base_price, spread_points=spread_points, point=point, tick_size=tick_size,
+                                quote="mid" if quote == "mid" else "bid")
     model = SharedFillModel(max_spread_points=max_spread_points, slippage_points=slippage_points)
     # Reapply the same limit as the run's gate, without inflating it.
     # Preserve the observed spread exactly, including zero.
@@ -1321,7 +1493,10 @@ def _shared_fill_price(
     if is_entry:
         result = model.entry(direction=direction, snapshot=snapshot, replay=True, context=context)
     else:
-        result = model.exit(direction=direction, snapshot=snapshot, replay=True, context=context)
+        # A closing-side base is already the bid (BUY) or ask (SELL) exit level;
+        # the snapshot then only carries the spread evidence for the gate.
+        result = model.exit(direction=direction, snapshot=snapshot, replay=True, context=context,
+                            base_price=base_price if quote == "closing_side" else None)
     if not result.accepted or result.fill_price is None:
         raise ExecutionSimulationError(
             f"replay fill rejected: {result.reject_reason or result.reject_code}",
@@ -1332,23 +1507,29 @@ def _shared_fill_price(
 
 
 def _replay_snapshot(base_price: float, *, spread_points: float, point: float,
-                     tick_size: float | None = None) -> MarketSnapshot:
+                     tick_size: float | None = None, quote: str = "mid") -> MarketSnapshot:
     """Price-only replay, never a live tick or a source of volume limits.
 
     Legacy private price callers may omit tick_size; Backtester always passes
     the explicit instrument geometry from CostModel. lot=0 requests only a
     price estimate from SharedFillModel, so placeholder volume fields do not
     validate candidate sizing. Instrument-aware callers must validate sizing.
+    quote="mid" centres the spread on base_price; quote="bid" puts the ask a
+    full spread above a bid base_price, as for bid bars.
     """
 
     half = spread_points * point / 2.0
+    if quote == "bid":
+        bid, ask = base_price, base_price + spread_points * point
+    else:
+        bid, ask = max(point, base_price - half), base_price + half
     digits = max(0, int(round(-math.log10(point)))) if point > 0 else 5
     return MarketSnapshot(
         symbol="REPLAY",
         timeframe="REPLAY",
         timestamp_utc=datetime(1970, 1, 1, tzinfo=timezone.utc),
-        bid=max(point, base_price - half),
-        ask=base_price + half,
+        bid=bid,
+        ask=ask,
         spread_points=spread_points,
         digits=digits,
         point=point,
@@ -1371,12 +1552,16 @@ def _apply_exit_cost(
     point: float,
     tick_size: float | None = None,
     max_spread_points: float = 25.0,
+    quote: str = "mid",
 ) -> float:
+    """Exit price; quote="closing_side" takes base_price as the executable level."""
+
     return _shared_fill_price(
         base_price, direction=direction, spread_points=spread_points,
         slippage_points=slippage_points, point=point, is_entry=False,
         tick_size=tick_size,
         max_spread_points=max_spread_points,
+        quote=quote,
     )
 
 
@@ -1385,6 +1570,23 @@ def _validate_directional_prices(direction: str, entry: float, sl: float, tp: fl
         raise ValueError("BUY candidate requires sl < entry < tp")
     if direction == Direction.SELL.value and not (tp < entry < sl):
         raise ValueError("SELL candidate requires tp < entry < sl")
+
+
+def _validate_protection_side(direction: str, closing_quote: float, sl: float, tp: float) -> None:
+    """Levels must straddle the quote they trigger on: bid for a BUY, ask for a SELL."""
+    if direction == Direction.BUY.value and not (sl < closing_quote < tp):
+        raise ValueError("BUY candidate requires sl < bid < tp at entry")
+    if direction == Direction.SELL.value and not (tp < closing_quote < sl):
+        raise ValueError("SELL candidate requires tp < ask < sl at entry")
+
+
+def _stop_on_protective_side(direction: str, closing_quote: float, stop: float) -> bool:
+    """Whether MT5 would accept this SL now: strictly below the bid (BUY) or above the ask (SELL).
+
+    The OHLC engine models no broker stops level (its replay snapshot uses 0),
+    so the bound is the closing-side quote itself.
+    """
+    return stop < closing_quote if direction == Direction.BUY.value else stop > closing_quote
 
 
 def _profit_for_price_move(
@@ -1471,13 +1673,103 @@ def _trade_returns(profits: np.ndarray, initial_balance: float) -> np.ndarray:
     return np.array(returns, dtype=float)
 
 
-def _sharpe(returns: np.ndarray) -> float | None:
+def _trade_t_stat(returns: np.ndarray) -> float | None:
+    """t-statistic of the mean trade return; not a Sharpe ratio (it grows with n)."""
     if len(returns) < 2:
         return None
     std = float(returns.std(ddof=1))
     if std == 0:
         return None
     return float(returns.mean() / std * math.sqrt(len(returns)))
+
+
+def _daily_mark_to_market_equity(curve: pd.DataFrame) -> pd.Series | None:
+    """End-of-day mark-to-market equity on every weekday of the observed span.
+
+    Weekend observations roll into the following Monday. A weekday without a
+    close or a move repeats the previous equity, so it counts as a zero return.
+    """
+    if curve is None or curve.empty:
+        return None
+    frame = curve[["timestamp", "equity"]].copy()
+    frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
+    frame["equity"] = frame["equity"].astype(float)
+    if frame["timestamp"].isna().any():
+        raise ValueError("mark-to-market equity requires valid timestamps")
+    if not np.isfinite(frame["equity"]).all():
+        return None  # no daily statistic from unrepresentable equity
+    frame = frame.sort_values("timestamp", kind="stable")
+    days = frame["timestamp"].dt.tz_localize(None).dt.normalize()
+    weekday = days.dt.weekday.to_numpy()
+    days = days + pd.to_timedelta(np.where(weekday == 5, 2, np.where(weekday == 6, 1, 0)), unit="D")
+    closes = frame["equity"].groupby(days.to_numpy()).last()
+    return closes.reindex(pd.bdate_range(closes.index.min(), closes.index.max())).ffill()
+
+
+def _daily_equity_metrics(daily_equity: pd.Series | None, initial_balance: float) -> dict[str, Any]:
+    """Annualised Sharpe, skew, non-excess kurtosis, CAGR % and Calmar.
+
+    Same formulas as research.edge_statistics, which cannot be imported here:
+    the research package imports this module. Every None metric has a reason
+    in daily_metrics_flags (see DAILY_METRIC_FLAG_SCOPE): no marks, a sample
+    below MIN_DAILY_RETURNS_SHARPE / _MOMENTS / _ANNUALISED, zero variance,
+    unrepresentable returns or growth, or a Calmar without drawdown.
+    """
+    result: dict[str, Any] = {"sharpe": None, "skew": None, "kurtosis": None, "cagr_pct": None,
+                              "calmar": None, "daily_returns_count": 0, "daily_metrics_flags": ()}
+    if daily_equity is None or not len(daily_equity) or initial_balance <= 0:
+        return result | {"daily_metrics_flags": (MARK_TO_MARKET_UNAVAILABLE,)}
+    equity = np.concatenate(([float(initial_balance)], daily_equity.to_numpy(dtype=float)))
+    # Once equity is exhausted every later day is a total loss. Overflow is
+    # kept as inf (or nan once centred) and reported below, never computed
+    # into a ratio.
+    with np.errstate(over="ignore", invalid="ignore"):
+        returns = np.divide(equity[1:], equity[:-1], out=np.zeros(len(equity) - 1), where=equity[:-1] > 0) - 1.0
+        centred = returns - returns.mean()
+        second, third, fourth = (float(np.mean(centred**power)) for power in (2, 3, 4))
+    flags: list[str] = []
+    result["daily_returns_count"] = len(returns)
+    # The three ratios describe one sample (PSR takes all of them), so they
+    # share one test: a finite fourth moment also bounds scale**3 and scale**4.
+    representable = all(math.isfinite(moment) for moment in (second, third, fourth))
+    if len(returns) < MIN_DAILY_RETURNS_SHARPE:
+        flags.append(INSUFFICIENT_DAILY_SAMPLE_SHARPE)
+    elif not representable:
+        flags.append(DAILY_RETURNS_NOT_FINITE)
+    elif not second > 0:
+        flags.append(DAILY_RETURNS_ZERO_VARIANCE)
+    else:
+        result["sharpe"] = float(returns.mean() / returns.std(ddof=1) * math.sqrt(WEEKDAYS_PER_YEAR))
+    if len(returns) < MIN_DAILY_RETURNS_MOMENTS:
+        flags.append(INSUFFICIENT_DAILY_SAMPLE_MOMENTS)
+    elif not representable:
+        flags.append(DAILY_RETURNS_NOT_FINITE)
+    elif not second > 0:
+        flags.append(DAILY_RETURNS_ZERO_VARIANCE)
+    else:
+        scale = math.sqrt(second)
+        result["skew"] = third / scale**3
+        result["kurtosis"] = fourth / scale**4
+    if len(returns) < MIN_DAILY_RETURNS_ANNUALISED:
+        flags.append(INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR)
+    else:
+        with np.errstate(over="ignore"):
+            growth = float(equity[-1] / equity[0])
+        try:
+            cagr: float | None = growth ** (WEEKDAYS_PER_YEAR / len(returns)) - 1.0 if growth > 0 else -1.0
+        except OverflowError:
+            cagr = None
+        if cagr is None or not math.isfinite(cagr):
+            flags.append(CAGR_OVERFLOW)  # not representable as a finite annual rate
+        else:
+            peaks = np.maximum.accumulate(equity)
+            max_drawdown = float(np.max((peaks - equity) / peaks))
+            result["cagr_pct"] = cagr * 100.0
+            if max_drawdown > 0:
+                result["calmar"] = cagr / max_drawdown
+            else:
+                flags.append(CALMAR_ZERO_DRAWDOWN)
+    return result | {"daily_metrics_flags": tuple(dict.fromkeys(flags))}
 
 
 def _sortino(returns: np.ndarray) -> float | None:
@@ -1601,11 +1893,12 @@ def _snapshot_from_row(
     stops_level=10, freeze_level=5) are gone from this function.
     """
 
-    spec = instrument or assumed_fx_spec(symbol)
+    close = float(row["close"])
+    # Without an instrument, the bar's own close prices a USD-base tick value.
+    spec = instrument or assumed_fx_spec(symbol, reference_price=close)
     spread_points = float(row.get("spread_points", config.max_spread_points_default))
     if math.isnan(spread_points):
         spread_points = config.max_spread_points_default
-    close = float(row["close"])
     half_spread = spread_points * spec.point / 2.0
     return MarketSnapshot(
         symbol=symbol,

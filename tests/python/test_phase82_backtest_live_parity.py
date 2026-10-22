@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -156,7 +157,8 @@ def test_resolution_order_and_strict_mode(tmp_path: Path) -> None:
 
 def test_assumed_specs_are_labelled_so_reports_can_refuse_them() -> None:
     assert is_assumed(assumed_fx_spec("EURUSD")) is True
-    assert assumed_fx_spec("USDJPY").digits == 3
+    # A USDJPY placeholder needs its price: its tick value is 100 JPY per lot, not 1 USD.
+    assert assumed_fx_spec("USDJPY", reference_price=150.0).digits == 3
     assert assumed_fx_spec("EURUSD").digits == 5
 
 
@@ -223,17 +225,49 @@ def test_backtest_and_paper_price_the_same_fill(direction: str, spread_points: f
 
     spec = spec_from_mapping("EURUSD", EURUSD_VALUES)
     snapshot = _snapshot(1.10000, spread_points, spec)
-    paper = PaperFillModel(max_spread_points=25.0, slippage_points=1.0)
+    # The snapshot's own clock: on the wall clock every paper fill is TICK_STALE
+    # and nothing would be compared.
+    paper = PaperFillModel(max_spread_points=25.0, slippage_points=1.0, clock=CLOCK)
     paper_entry = paper.entry_result(direction=direction, snapshot=snapshot)
     backtest_entry = _apply_entry_cost(1.10000, direction=direction, spread_points=spread_points, slippage_points=1.0, point=spec.point)
 
-    if paper_entry.accepted:
-        assert round(backtest_entry, spec.digits) == paper_entry.fill_price
+    assert paper_entry.accepted
+    assert round(backtest_entry, spec.digits) == paper_entry.fill_price
 
     backtest_exit = _apply_exit_cost(1.10000, direction=direction, spread_points=spread_points, slippage_points=1.0, point=spec.point)
     paper_exit = paper.exit_result(direction=direction, snapshot=snapshot)
-    if paper_exit.accepted:
-        assert round(backtest_exit, spec.digits) == paper_exit.fill_price
+    assert paper_exit.accepted
+    assert round(backtest_exit, spec.digits) == paper_exit.fill_price
+
+
+@pytest.mark.parametrize("direction", ["BUY", "SELL"])
+@pytest.mark.parametrize("spread_points", [0.0, 4.0, 10.0, 20.0])
+def test_backtest_bid_bar_fills_match_paper_on_the_same_quote(direction: str, spread_points: float) -> None:
+    """Engine 0.4.0 path: a bid-bar entry (quote="bid") and a closing-side exit
+    (quote="closing_side") price exactly as paper does on bid=bar, ask=bar+spread."""
+
+    from agi_style_forex_bot_mt5.paper_trading.paper_fill_model import PaperFillModel
+
+    spec = spec_from_mapping("EURUSD", EURUSD_VALUES)
+    bid = 1.10000
+    snapshot = replace(_snapshot(bid, spread_points, spec), bid=bid, ask=round(bid + spread_points * spec.point, spec.digits))
+    paper = PaperFillModel(max_spread_points=25.0, slippage_points=1.0, clock=CLOCK)
+    costs = {"direction": direction, "spread_points": spread_points, "slippage_points": 1.0,
+             "point": spec.point, "tick_size": spec.tick_size, "max_spread_points": 25.0}
+
+    paper_entry = paper.entry_result(direction=direction, snapshot=snapshot)
+    assert paper_entry.accepted
+    assert _apply_entry_cost(bid, quote="bid", **costs) == paper_entry.fill_price
+
+    # Market exit on the closing side, and an exit at a protective level beyond it.
+    closing = snapshot.bid if direction == "BUY" else snapshot.ask
+    paper_exit = paper.exit_result(direction=direction, snapshot=snapshot)
+    assert paper_exit.accepted
+    assert _apply_exit_cost(closing, quote="closing_side", **costs) == paper_exit.fill_price
+    stop = 1.09900 if direction == "BUY" else 1.10100
+    paper_stop = paper.exit_result(direction=direction, snapshot=snapshot, base_price=stop)
+    assert paper_stop.accepted
+    assert _apply_exit_cost(stop, quote="closing_side", **costs) == paper_stop.fill_price
 
 
 def test_shared_fill_model_rejects_and_reports_structured_errors() -> None:

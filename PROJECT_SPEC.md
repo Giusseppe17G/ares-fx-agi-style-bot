@@ -430,8 +430,27 @@ Campos:
 - `trades_total`: int.
 - `win_rate_pct`: double.
 - `expected_payoff`: double.
-- `sharpe`: double opcional.
+- `sharpe`: double opcional; anualizado desde equity mark-to-market diaria de
+  todos los dias laborables, incluidos los planos. Null sin marcas o con menos
+  de 20 retornos diarios (`INSUFFICIENT_DAILY_SAMPLE_SHARPE`).
 - `sortino`: double opcional.
+- `t_stat`: double opcional; media/desviacion de retornos por trade por raiz(n).
+  Hasta el motor 0.3.2 este valor se publicaba como `sharpe`.
+- `skew`, `kurtosis` (no excedente, normal = 3), `cagr_pct`, `calmar`: double
+  opcionales de la misma serie diaria que `sharpe`. `skew` y `kurtosis` son
+  null con menos de 20 retornos diarios, la misma muestra que `sharpe`
+  (`INSUFFICIENT_DAILY_SAMPLE_MOMENTS`); con 20 su error estandar sigue siendo
+  cerca de 0.5 y 1.0, son descriptivos. `cagr_pct` y `calmar` son null con
+  menos de 261 retornos diarios, un ano de dias laborables
+  (`INSUFFICIENT_DAILY_SAMPLE_CAGR_CALMAR`).
+- `daily_returns_count`: int; retornos diarios usados (0 sin marcas).
+- `daily_metrics_flags_json`: string JSON; toda metrica diaria null tiene un
+  motivo: `MARK_TO_MARKET_UNAVAILABLE`, los umbrales anteriores,
+  `DAILY_RETURNS_ZERO_VARIANCE` o `DAILY_RETURNS_NOT_FINITE` (retornos o sus
+  momentos no representables como double finito; sharpe, skew, kurtosis),
+  `CAGR_OVERFLOW` (crecimiento no representable como tasa anual finita;
+  cagr_pct y calmar) o `CALMAR_ZERO_DRAWDOWN`. Un valor calculado sobre el
+  umbral sigue sin ser evidencia por si solo.
 - `recovery_factor`: double opcional.
 - `notes`: string.
 - `avg_win`: double.
@@ -626,10 +645,56 @@ backtest o justificacion escrita, PF > 1.25, DD < 12%, expectancy R > 0), (b) la
 evidencia forward shadow de su Phase 8 (al menos dos semanas o 200 paper trades,
 lo que tarde mas, con PF forward > 1.15) y (c) los criterios OOS de esta
 seccion. Si los umbrales se solapan, aplica el mas estricto; los 200/1.15 de
-aqui nunca relajan los minimos de shadow. Deuda tecnica: hoy
-`strategy/scoring_engine.py:evaluate_promotion_gate` solo comprueba el
-subconjunto de esta seccion; antes de cualquier release ejecutable debe exigir
-(a) y (b). No es explotable mientras `EXECUTION_NOT_RELEASED` bloquee todo envio.
+aqui nunca relajan los minimos de shadow.
+
+Ademas exige estadisticas deflactadas (decision
+`docs/decisions/2026-10-22-deflated-promotion-gate.md`): al menos 60
+observaciones (una `return_sequence` mas corta es inutilizable e invalida todo
+el bloque, aunque lleguen valores validos del llamador; las observaciones
+usadas, la menor entre la longitud de la secuencia y `sharpe_observations`,
+deben llegar a 60 y ademas a MinTRL), PSR(0) >= 0.95 con
+observaciones >= MinTRL al 95%, `trials` declarado (>= 1; ausente o < 1 falla;
+cuenta todas las configuraciones probadas, incluida la seleccionada)
+y Deflated Sharpe >= 0.95 dado ese numero de trials, t de Newey-West >= 3.0
+(>= 2.0 solo si `single_preregistered_hypothesis` es `True` y hubo un unico
+trial) y PBO <= 0.10 (PBO ausente falla).
+
+La deuda tecnica anterior queda pagada: `strategy/scoring_engine.py:evaluate_promotion_gate`
+exige en modo demo los criterios de esta seccion, (a), (b) y las estadisticas
+deflactadas. Contrato:
+
+- `PromotionEvidence` conserva todos sus campos y valores por defecto y anade
+  campos cuyo valor por defecto falla: `shadow_approval_classification`,
+  `oos_expectancy_r`, `forward_paper_trades`, `forward_profit_factor`,
+  `forward_expectancy_r`, `forward_controls_passed`, `return_sequence`
+  (retornos por trade o por dia), `trials`, `trial_sharpes`,
+  `single_preregistered_hypothesis`, `psr_zero`, `min_track_record_length`,
+  `sharpe_observations`, `deflated_sharpe`, `newey_west_t` y `pbo`.
+  `shadow_days` es la duracion del forward shadow (>= 14 dias) y se exigen
+  ademas >= 200 paper trades. Si llegan la secuencia y valores calculados por
+  el llamador, gana el menos favorable. Evidencia ausente, mal formada, no
+  finita o fuera de rango falla su check.
+- `PromotionDecision` anade `statistics` (valores usados, serializables a JSON
+  sin NaN ni infinito); el ensemble los incluye en el payload de auditoria de
+  modo demo. El modo shadow sigue aprobado para auditoria igual que antes y con
+  el mismo payload.
+- Compatibilidad: un llamador que no pasa la nueva evidencia obtiene demo
+  `REJECTED` (modo efectivo shadow), la direccion fail-closed; evidencia que
+  solo cumplia el subconjunto anterior, o con menos de 60 observaciones, deja
+  de aprobar. Ninguna aprobacion ejecuta nada mientras `EXECUTION_NOT_RELEASED`
+  bloquee todo envio.
+
+Los selectores de edge (`edge_evaluation/strategy_selector.py` y
+`edge_evaluation/symbol_selector.py`) solo marcan `KEEP` si ademas la p
+ajustada por Holm (test t unilateral de R medio, familia = todas las filas de
+la llamada) es <= 0.05; si no, la fila queda `WATCHLIST` con el motivo y la p
+ajustada en la columna `holm_adjusted_p_value`. `COUNTS_ONLY` no cambia. Los
+filtros de `BALANCED_FILTERED` (`edge_filtering/symbol_filter.py` y
+`edge_filtering/strategy_filter.py`) solo marcan `KEEP` si ademas esa
+`holm_adjusted_p_value` leida de `by_symbol.csv` o `by_strategy.csv` es un
+valor finito en [0, 0.05]; columna ausente, valor vacio, invalido o mayor
+falla cerrado a `WATCHLIST`. Compatibilidad: reportes de edge sin esa columna
+ya no producen `KEEP` en el filtro; hay que regenerarlos con `edge-evaluation`.
 
 ### 12.2 Reproducibilidad Y Datos
 
@@ -695,8 +760,47 @@ Metricas minimas:
   full_pipeline_verified y stage_parity_pct. PARITY_INCOMPLETE identifica la
   verificacion parcial. Consumidores que aceptaban PARITY_OK como aprobacion
   integral deben fallar cerrados. ADAPTER_REQUIRED no es implementacion compartida.
+- Motor 0.4.0: las barras son bid. BUY abre en ask y cierra en bid; SELL abre
+  en bid y cierra en ask, por lo que su SL/TP se evalua sobre precios + spread
+  de cada barra. Un gap a traves del SL llena en la apertura, peor que el SL;
+  a traves del TP, en el TP. La salida usa el spread de su propia barra; el gate
+  de spread solo decide entradas y un spread ausente en la posicion asume el
+  maximo admitido, nunca cero. El antiguo `sharpe` por trade pasa a `t_stat`.
+  Reportes de motores anteriores deben reevaluarse antes de usarse como
+  evidencia, sin sobrescribirlos.
+- Motor 0.4.0, niveles: SL y TP deben quedar estrictamente a ambos lados del
+  precio que los dispara al entrar (BUY: bid de entrada; SELL: ask = bid +
+  spread de la barra); si no, el candidato se rechaza con un motivo estable y no
+  se simula un stop instantaneo.
+- Motor 0.4.1, stops movidos (EA al cierre de barra): BE/trailing proponen un
+  nuevo stop al cierre de cada barra (BUY/SELL: BE en entrada +/- lock;
+  trailing en extremo favorable de la barra -/+ distancia) en una sola
+  modificacion. Solo
+  se acepta si queda estrictamente del lado protector de la cotizacion de
+  cierre que lo dispara (BUY: por debajo del bid de cierre; SELL: por encima del
+  ask de cierre); el motor OHLC no modela stops level ni freeze level del
+  broker (0). Si no, MT5 la rechazaria por stops invalidos: se conserva el stop
+  anterior completo (una propuesta BE+trailing rechazada no se reduce a su
+  parte BE) y el trade registra
+  `stop_move_flags = ["stop_move_rejected_invalid_side"]` y
+  `stop_moves_rejected`. Un stop aceptado rige desde la barra siguiente. Asi el
+  stop vigente siempre queda del lado seguro del cierre anterior: una apertura
+  mas alla de el es un gap real y llena en la apertura, peor que el stop
+  (`gap_through_sl`). Ninguna salida por stop llena en un nivel que el precio
+  no negocio (se elimina `moved_stop_crossed_in_prior_bar`) y una salida
+  END_OF_DATA nunca reporta un stop final ya cruzado por el cierre. Reportes
+  0.4.0 con BE o trailing activos deben reejecutarse en 0.4.1.
+- Instantaneas de senal: `generate_strategy_candidates` (y el evaluador
+  predeclarado de trend pullback) siguen centrando el spread en el cierre
+  (bid = cierre - spread/2, ask = cierre + spread/2). Solo derivan niveles SL/TP
+  y features; fills, disparos y R-multiples usan la convencion bid anterior y el
+  precio real de entrada. Frente a un forward sobre la misma barra bid, ambos
+  niveles quedan medio spread mas abajo. Se conserva para no cambiar los niveles
+  de candidatos de estudios ya registrados; migrar a bid = cierre y
+  ask = cierre + spread requiere nueva version de motor y reevaluacion.
 - Esto no habilita ejecucion demo/real ni sustituye Risk Gate. Decision y limites:
-  docs/decisions/2026-10-05-causal-backtests-and-honest-parity.md.
+  docs/decisions/2026-10-05-causal-backtests-and-honest-parity.md y
+  docs/decisions/2026-10-17-bid-bar-gap-and-exit-spread-convention.md.
 
 ## 13. Estructura De Repositorio
 
@@ -863,6 +967,38 @@ no autoriza ejecucion demo ni real y no sustituye el Strategy Promotion Gate.
   autentico ni validez historica. Tick value/moneda/condiciones historicas siguen
   requiriendo evidencia. CLI `build-instrument-registry` requiere mapa JSON y
   destino nuevo, solo initialize/symbol_info/shutdown; nunca account u ordenes.
+- Sin `trade_tick_value` del broker, el tick value USD solo se deriva del precio
+  (`derive_tick_value`): `tick_size*contract_size` con cotizada USD, dividido por
+  el precio del par con base USD (USDJPY); cruces o precio ausente fallan con
+  `InstrumentError`. `assumed_fx_spec` acepta `reference_price` (backtests: primer
+  cierre); no existe tick value supuesto de 1.0. Compatibilidad: llamadas sin
+  precio para USDJPY/USDCHF/USDCAD o con cruces ahora fallan cerradas.
+- Swap del broker (2026-10-22, solo lectura): CLI `capture-swap-snapshot` con
+  `--broker-symbol-map` y `--swap-snapshot-output` registra por simbolo solo
+  `swap_long`, `swap_short`, `swap_mode` (entero + nombre ENUM_SYMBOL_SWAP_MODE),
+  `swap_rollover3days` (entero + dia), monedas base/profit/margin,
+  `trade_contract_size`, `point`, `digits` y `spread_points`, con
+  `captured_at_utc`, el `MT5_SERVER_TIME` declarado, `swap_terms_hash` (solo
+  los terminos de los simbolos capturados, sin `status`, motivo ni spread) y
+  `payload_sha256` (sha256 del JSON canonico; integridad, no origen autentico).
+  Mismo patron que `build-instrument-registry`: argumentos validados antes de
+  importar MT5, solo initialize/symbol_info/shutdown (`initialize()` debe
+  devolver exactamente `True`), sin datos de cuenta, sin sobrescribir ni crear
+  carpetas, envelope sellado; 2 argumentos/destino, 3 sin MT5. Un simbolo sin
+  `symbol_info`, con campo invalido o modo desconocido queda `UNAVAILABLE` con
+  codigo de motivo cerrado y el snapshot es `PARTIAL` (`UNAVAILABLE` si no se
+  capturo ninguno: el archivo se escribe igual, pero el codigo de salida es 3).
+  `annualised_swap_carry` convierte solo `SWAP_MODE_POINTS` a % anual del
+  nocional (precio del llamador, valor USD como `derive_tick_value`, 365
+  cargos/ano); otros modos, cruces, triple swap en fin de semana, precio
+  invalido, precio con escala implausible para `digits` (`price/point` fuera de
+  `[10**4, 10**7)`, `PRICE_SCALE_IMPLAUSIBLE`) o carry anual mayor que 50% del
+  nocional (`ANNUAL_CARRY_IMPLAUSIBLE`) fallan cerrados. Resultado `OBSERVED`
+  (cubre los terminos de swap del broker, no el precio del llamador:
+  `observed_scope=BROKER_SWAP_TERMS`, `price_observed=False`),
+  `carry_assumed=False`. Compatibilidad: modo nuevo y aditivo; el formato y los
+  hashes de `InstrumentRegistrySnapshot` no cambian. No alimenta backtests ni
+  decisiones todavia (`docs/decisions/2026-10-22-broker-swap-snapshot.md`).
 - `RunManifest` version1.1 agrega hashes de fuentes Python/MQL/scripts y metadata
   o snapshot de instrumentos a la identidad. IDs cambian respecto1.0; campos
   anteriores permanecen. Backtest batch incluye config efectiva, settings y
@@ -1097,8 +1233,11 @@ persiste y valora el libro. No obtiene cotizaciones faltantes por su cuenta.
   `forward-shadow` devuelve 4 con lifecycle bloqueado, 5 tras una parada por
   integridad y 3 sin MT5 conectado ni ciclos completados (salvo `--max-cycles 0`,
   que es una comprobacion de arranque y devuelve 0); `mt5-data`, `mt5-diagnose`,
-  `export-history` y `build-instrument-registry` devuelven 3 sin MT5 (paquete
-  ausente o terminal no conectado). El JSON de stdout conserva los detalles.
+  `export-history`, `build-instrument-registry` y `capture-swap-snapshot`
+  devuelven 3 sin MT5 (paquete ausente o terminal no conectado);
+  `capture-swap-snapshot` tambien devuelve 3 si no registro ningun simbolo
+  (`status=UNAVAILABLE`), aunque escribe el archivo. El JSON de stdout conserva
+  los detalles.
 - Los rechazos normales de estrategia no impiden evaluar el siguiente candidato
   con exposicion actualizada. Se conservan gates de recuperacion, microforward,
   estabilidad, riesgo y limites paper. Solo una pausa propia por drawdown diario
@@ -1152,6 +1291,41 @@ y falsea drawdown y rachas. Tampoco se atribuye un calendario observado a ella.
   de mejores trades usa posiciones de la secuencia, no identidad de objetos.
   Las clasificaciones legacy de costes y concentracion quedan acotadas al
   diagnostico; no sustituyen el Strategy Promotion Gate.
+- Stress de costes multiplica por k el round trip completo de cada trade en sus
+  propias unidades: spread registrado mas un suelo aditivo de 10 puntos
+  (`STRESS_SPREAD_FLOOR_POINTS`), slippage en ambos lados y comision. Un spread
+  registrado de cero sigue estresado. El escenario gate `spread_multiplier` de
+  `StressTester.comprehensive` pasa a `cost_multiplier`. En
+  `spread_slippage_sensitivity` el parametro y la clave `spread_multiplier`
+  conservan su nombre, pero ahora escalan el spread registrado mas el suelo.
+- `cost_sensitivity` penaliza cada trade con max((k-1) x su round trip,
+  penalizacion fija legacy de k: 0.0125/0.025/0.05/0.10 en unidades de
+  `trade_values`), asi que nunca estresa menos que antes: un trade de stop amplio
+  cuyo round trip es menor conserva la penalizacion legacy. Como el gate 2x de
+  `stress_tester`, profit factor < 1 o expectancy <= 0 a 2x costes (break-even
+  <= 2.0) clasifica `NEEDS_COST_RECALIBRATION`, nunca `COST_SENSITIVITY_OK`.
+  Reporta `*_cost_x2`, `break_even_cost_multiplier`, `cost_model`,
+  `penalty_rule`, `gate_cost_multiplier`, `cost_units` (R o PROFIT) y
+  `spread_floor_points`. En cost_sensitivity.csv las columnas
+  `spread_multiplier` y `penalty_r` pasan a `cost_multiplier` y `mean_penalty`,
+  y se agrega `penalty_floor`.
+- Sin costes por trade validos `cost_sensitivity` es `NEEDS_MORE_ROBUSTNESS_DATA`
+  con fragilidad 100 y `reason`: `NO_TRADES`, `COST_INPUTS_MISSING_OR_INVALID` o
+  `PROFIT_AND_R_MULTIPLE_NOT_DISTINCT` (profit y r_multiple identicos, p. ej. una
+  columna ausente que el loader copia de la otra: unidades desconocidas).
+  `normalize_trade_frame` ya no rellena con 0 celdas vacias de spread, slippage
+  o comision; llegan como faltantes y fallan cerrado tambien por
+  `run_robustness_fast`. Reportes previos pueden subestimar costes y deben
+  reevaluarse antes de usarse como evidencia.
+- Limitacion conocida: `stress_fast` sigue restando penalizaciones fijas en
+  unidades de `trade_values` para spread, slippage y comision, no el round trip
+  real de cada trade. Es diagnostico; la evidencia de costes por trade es
+  `cost_sensitivity`.
+- La matriz de correlacion alinea retornos por timestamp (inner join) y no por
+  posicion de fila. Con menos de 30 retornos alineados (`min_aligned_returns`),
+  sin timestamps o con varianza nula la correlacion es null, incluida la
+  diagonal; el par figura en `insufficient_overlap_pairs` y la clasificacion no
+  es `OK`. correlation_matrix.csv escribe null como celda vacia.
 - Reportes v2 conservan entradas normalizadas y hashes de datos/configuracion,
   RunManifest, commit, fuentes, runtime y seed. Configuracion identifica capital,
   umbral y supuestos de costes. Procedencia upstream permanece UNKNOWN salvo
