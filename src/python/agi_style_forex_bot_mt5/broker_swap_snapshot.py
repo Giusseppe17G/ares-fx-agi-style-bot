@@ -19,8 +19,10 @@ invalid field is recorded as ``UNAVAILABLE`` with a closed reason code (never
 the client's own text, which may hold credentials or paths); the other symbols
 are still captured and the snapshot status becomes ``PARTIAL`` (``UNAVAILABLE``
 when nothing was captured). The payload carries the capture instant in UTC,
-the declared ``MT5_SERVER_TIME`` convention, a ``swap_terms_hash`` that ignores
-capture time and spread (it changes only when the recorded terms change), and
+the declared ``MT5_SERVER_TIME`` convention, a ``swap_terms_hash`` over the
+terms of the captured symbols only (it ignores capture time, server-time
+declaration, spread, status and unavailability reasons, so for the same set of
+captured symbols it changes only when the broker's terms change), and
 ``payload_sha256``: the sha256 of the canonical JSON of every other field. The
 hashes prove integrity, not authentic origin.
 
@@ -28,8 +30,11 @@ hashes prove integrity, not authentic origin.
 approximate annual percent of notional from the broker's own point and
 contract size and a caller-supplied price, valued in USD like
 ``core.instruments.derive_tick_value``. Its output is labelled ``OBSERVED``:
-no swap rate or mark-up is assumed. Every mode it cannot convert, a cross
-without a USD leg, a weekend triple-swap day and an invalid price fail closed.
+no swap rate or mark-up is assumed. ``OBSERVED`` covers the broker's swap
+terms, not the caller's price (``price_observed`` is False). Every mode it
+cannot convert, a cross without a USD leg, a weekend triple-swap day, an
+invalid price, a price on an implausible scale for the symbol's digits and an
+annual carry beyond ``MAX_ABS_ANNUAL_CARRY_PERCENT`` fail closed.
 """
 
 from __future__ import annotations
@@ -104,6 +109,8 @@ _CAPTURED_KEYS = (
     "trade_contract_size", "point", "digits", "spread_points",
 )
 _UNAVAILABLE_KEYS = ("canonical_symbol", "broker_symbol", "status", "reason")
+# Captured-record fields left out of swap_terms_hash: not broker swap terms.
+_NOT_TERMS = frozenset({"status", "spread_points"})
 _PAYLOAD_KEYS = frozenset({
     "schema_version", "source", "captured_at_utc", "mt5_server_time", "status", "instrument_count",
     "captured_count", "unavailable_count", "symbols", "instruments", "enum_constants_checked",
@@ -120,6 +127,16 @@ UNAVAILABLE_REASONS = frozenset(
 )
 
 DAYS_PER_YEAR = 365  # one charge per calendar day on average: 5 rollovers, one of them triple
+# Plausibility of the caller's price for the symbol's digits: FX quotes carry
+# five to seven significant figures, so price / point lies in [10**4, 10**7)
+# (EURUSD 1.10 at 5 digits is 110,000 points, USDJPY 150 at 3 digits 150,000).
+# A price typed for another pair (USDJPY 1.08, EURUSD 150) falls outside.
+MIN_PRICE_POINTS = 10**4
+MAX_PRICE_POINTS = 10**7
+# Sane bound on |annual carry| in percent of notional. Interest differentials of
+# USD pairs stay far below it outside hyperinflation currencies; anything above
+# is far more likely a wrong price or a corrupt term than a real swap.
+MAX_ABS_ANNUAL_CARRY_PERCENT = 50.0
 _CARRY_CURRENCY = "USD"
 _MAX_DIGITS = 323  # beyond this 10**-digits is not a positive double
 _MISSING = object()
@@ -320,9 +337,10 @@ def _assemble(records: Mapping[str, Mapping[str, Any]], captured_at_utc: str, se
     captured = sum(1 for record in instruments.values() if record["status"] == CAPTURED)
     unavailable = len(instruments) - captured
     status = CAPTURED if unavailable == 0 else (UNAVAILABLE if captured == 0 else PARTIAL)
-    # Capture time and spread move every run; the terms hash changes only with the terms.
-    terms = {canonical: {key: value for key, value in record.items() if key != "spread_points"}
-             for canonical, record in instruments.items()}
+    # Only captured records' terms: capture time, spread, status and the reason a
+    # symbol was unavailable never move it (payload_sha256 still seals them).
+    terms = {canonical: {key: value for key, value in record.items() if key not in _NOT_TERMS}
+             for canonical, record in instruments.items() if record["status"] == CAPTURED}
     content = SafetyEnvelope().seal({
         "schema_version": SWAP_SNAPSHOT_SCHEMA_VERSION,
         "source": SWAP_SNAPSHOT_SOURCE,
@@ -487,7 +505,16 @@ def annualised_swap_carry(record: Mapping[str, Any], *, price: float) -> dict[st
     Approximation limits: holiday extra rollovers, intra-year term changes and
     price drift are ignored; the price is the caller's. No rate or mark-up is
     assumed, so the result is labelled ``OBSERVED`` with ``carry_assumed``
-    False: it is measured from the broker's own swap terms.
+    False. ``OBSERVED`` covers the broker's swap terms only, never the price:
+    the output says so with ``observed_scope=BROKER_SWAP_TERMS``,
+    ``price_source=caller`` and ``price_observed=False``.
+
+    The price is checked, not trusted: ``price / point`` must lie in
+    ``[MIN_PRICE_POINTS, MAX_PRICE_POINTS)`` for the symbol's digits
+    (``PRICE_SCALE_IMPLAUSIBLE`` otherwise, e.g. a USDJPY price of 1.08 or a
+    EURUSD price of 150), and a long or short annual carry whose magnitude
+    exceeds ``MAX_ABS_ANNUAL_CARRY_PERCENT`` is refused
+    (``ANNUAL_CARRY_IMPLAUSIBLE``) rather than reported.
     """
 
     if not isinstance(record, Mapping):
@@ -519,6 +546,10 @@ def annualised_swap_carry(record: Mapping[str, Any], *, price: float) -> dict[st
     if _CARRY_CURRENCY not in (base, quote) or base == quote:
         raise _carry_error(f"{base}{quote}: no {_CARRY_CURRENCY} conversion rate for a cross; carry is not converted",
                            "CROSS_WITHOUT_USD_RATE")
+    price_points = value / rebuilt["point"]
+    if not MIN_PRICE_POINTS <= price_points < MAX_PRICE_POINTS:
+        raise _carry_error(f"price {value} is not on a plausible scale for a {rebuilt['digits']}-digit quote",
+                           "PRICE_SCALE_IMPLAUSIBLE")
     contract_size = rebuilt["trade_contract_size"]
     usd_per_point = derive_tick_value(currency_base=base, currency_quote=quote, tick_size=rebuilt["point"],
                                       contract_size=contract_size, price=value, account_currency=_CARRY_CURRENCY)
@@ -531,12 +562,14 @@ def annualised_swap_carry(record: Mapping[str, Any], *, price: float) -> dict[st
         "carry_status": OBSERVED,
         "carry_assumed": False,
         "carry_source": SWAP_SNAPSHOT_SOURCE,
+        "observed_scope": "BROKER_SWAP_TERMS",
         "canonical_symbol": rebuilt["canonical_symbol"],
         "broker_symbol": rebuilt["broker_symbol"],
         "swap_mode_name": rebuilt["swap_mode_name"],
         "swap_rollover3days_name": rebuilt["swap_rollover3days_name"],
         "price": value,
         "price_source": "caller",
+        "price_observed": False,
         "carry_currency": _CARRY_CURRENCY,
         "days_per_year": DAYS_PER_YEAR,
         "usd_per_point_per_lot": usd_per_point,
@@ -549,6 +582,9 @@ def annualised_swap_carry(record: Mapping[str, Any], *, price: float) -> dict[st
     }
     if not all(math.isfinite(item) for item in result.values() if isinstance(item, float)):
         raise _carry_error("carry is not a finite number", "CARRY_NOT_FINITE")
+    if max(abs(long_percent), abs(short_percent)) > MAX_ABS_ANNUAL_CARRY_PERCENT:
+        raise _carry_error(f"annual carry beyond {MAX_ABS_ANNUAL_CARRY_PERCENT}% of notional is not plausible",
+                           "ANNUAL_CARRY_IMPLAUSIBLE")
     return result
 
 
@@ -592,6 +628,9 @@ def snapshot_carry(payload: Mapping[str, Any], prices: Mapping[str, float]) -> d
 __all__ = [
     "DAYS_PER_YEAR",
     "DAY_OF_WEEK_NAMES",
+    "MAX_ABS_ANNUAL_CARRY_PERCENT",
+    "MAX_PRICE_POINTS",
+    "MIN_PRICE_POINTS",
     "SWAP_CARRY_SCHEMA_VERSION",
     "SWAP_MODE_NAMES",
     "SWAP_SNAPSHOT_SCHEMA_VERSION",

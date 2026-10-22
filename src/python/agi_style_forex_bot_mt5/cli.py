@@ -636,7 +636,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(swap_refusal("OUTPUT_NOT_WRITABLE", "cannot publish swap snapshot; destination must be new and writable"))
                 return EXIT_INVALID_ARGUMENTS
             print(_json_dumps(summary))
-            return 0
+            # The file is written as evidence, but a capture with no symbol is no
+            # success for anything that checks only the exit code.
+            return EXIT_MT5_UNAVAILABLE if summary["status"] == "UNAVAILABLE" else 0
 
         if args.mode == "db-migrate":
             summary = run_db_migrations(sqlite_path=args.sqlite, backup_dir=args.backup_dir)

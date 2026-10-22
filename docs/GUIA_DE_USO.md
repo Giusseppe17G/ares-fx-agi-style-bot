@@ -346,26 +346,39 @@ de salida:
 - `PARTIAL`: alguno no; `unavailable` dice cual y por que (por ejemplo
   `SYMBOL_INFO_MISSING` si el nombre no coincide con el de tu broker, o
   `SWAP_MODE_UNKNOWN`). Los demas si quedan registrados.
-- `UNAVAILABLE`: no se pudo registrar ninguno.
-- `swap_terms_hash` solo cambia cuando cambian los terminos (no con la hora ni
-  con el spread). Repite la captura, por ejemplo una vez por semana, y compara
-  ese hash para saber cuando el broker cambio el swap.
+- `UNAVAILABLE`: no se pudo registrar ninguno. El archivo se escribe igual
+  (es evidencia de lo que respondio el broker), pero el comando sale con codigo
+  3; revisa el mapa de simbolos y la sesion de MT5.
+- `swap_terms_hash` cubre solo los terminos de los simbolos registrados
+  (`CAPTURED`): no cambia con la hora, con el spread ni con el motivo por el que
+  otro simbolo no se registro. Repite la captura, por ejemplo una vez por
+  semana, y compara ese hash entre snapshots que registraron los mismos
+  simbolos (por ejemplo dos `CAPTURED`) para saber cuando el broker cambio el
+  swap. Si en uno falta un simbolo, el hash cambia porque cubre otro conjunto:
+  compara entonces simbolo por simbolo.
 
 Codigo 2: argumentos invalidos o destino existente o no escribible (se comprueba
-antes de abrir MT5, salvo la escritura final). Codigo 3: MT5 no disponible.
+antes de abrir MT5, salvo la escritura final). Codigo 3: MT5 no disponible, o
+ningun simbolo registrado (`status` = `UNAVAILABLE`, con el archivo escrito).
 
 Para convertir un swap en puntos en un porcentaje anual aproximado del nocional
 pasa el precio actual de cada par (no se inventa ninguno). Solo se convierte el
 modo `POINTS` de pares con USD; los cruces, los otros modos y los pares sin
-precio salen como `UNAVAILABLE` con su motivo. Cambia el nombre del archivo por
-el que creaste:
+precio salen como `UNAVAILABLE` con su motivo. El precio se comprueba: si su
+escala no encaja con los `digits` del simbolo (por ejemplo 1.08 para USDJPY o
+150 para EURUSD) sale `PRICE_SCALE_IMPLAUSIBLE`, y si el swap anual de un largo
+o de un corto supera el 50% del nocional sale `ANNUAL_CARRY_IMPLAUSIBLE`, en
+vez de un numero absurdo. Cambia el nombre del archivo por el que creaste:
 
 ```powershell
 .\.venv\Scripts\python.exe -c "import json, sys; from agi_style_forex_bot_mt5.broker_swap_snapshot import read_swap_snapshot, snapshot_carry; print(json.dumps(snapshot_carry(read_swap_snapshot(sys.argv[1]), {'EURUSD': 1.08, 'USDJPY': 150.0}), indent=2))" data\runtime\swap_snapshot-20261022-213000.json
 ```
 
 `long_annual_percent_of_notional` y `short_annual_percent_of_notional` son el
-swap anual de un largo y de un corto (negativo = lo pagas).
+swap anual de un largo y de un corto (negativo = lo pagas). `OBSERVED` se
+refiere solo a los terminos de swap del broker: el precio es el que tu pasaste
+(`price_source` = `caller`, `price_observed` = `false`), asi que un precio
+plausible pero desactualizado mueve el porcentaje en la misma proporcion.
 `implied_symmetric_markup_bps_per_year` es el margen del broker si lo aplica por
 igual a largos y cortos, comparable con los 75 pb supuestos. Es una
 aproximacion: ignora los festivos con rollover extra y los cambios de terminos
@@ -378,7 +391,7 @@ durante el ano. Nada de esto cambia todavia los backtests ni las decisiones.
 | 0 | Completado (o forward-shadow parado a peticion); el JSON de salida tiene el detalle. |
 | 1 | Error no controlado; la traza indica la causa. |
 | 2 | Argumentos o configuracion invalidos (por ejemplo `DEMO_ONLY=False`, una clave repetida o una ruta de `--config` que no existe), destino del snapshot ya existente (o no escribible en `capture-swap-snapshot`), forward-shadow ya en marcha sobre esa base o, en los scripts `run_forward_shadow.ps1` (y el watchdog), `status.ps1` y `stop_forward_shadow.ps1`, falta de `.venv`. |
-| 3 | MT5 no disponible (paquete ausente, terminal cerrado o sin sesion) en `mt5-data`, `mt5-diagnose`, `export-history`, `build-instrument-registry` y `capture-swap-snapshot`, o en `forward-shadow` con `-MaxCycles` sin ningun ciclo completado (sin `-MaxCycles` reintenta indefinidamente). |
+| 3 | MT5 no disponible (paquete ausente, terminal cerrado o sin sesion) en `mt5-data`, `mt5-diagnose`, `export-history`, `build-instrument-registry` y `capture-swap-snapshot`; `capture-swap-snapshot` sin ningun simbolo registrado (`status` = `UNAVAILABLE`; el archivo se escribe igual); o `forward-shadow` con `-MaxCycles` sin ningun ciclo completado (sin `-MaxCycles` reintenta indefinidamente). |
 | 4 | forward-shadow: ciclo de papel bloqueado de forma permanente en esa base (seccion 5). |
 | 5 | forward-shadow: cotizaciones de MT5 sin integridad (`MT5_SERVER_TIME` o reloj del PC); nada se modifico. |
 

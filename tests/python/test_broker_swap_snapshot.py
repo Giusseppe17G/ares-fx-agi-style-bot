@@ -15,6 +15,9 @@ import pytest
 from agi_style_forex_bot_mt5 import cli
 from agi_style_forex_bot_mt5.broker_swap_snapshot import (
     DAY_OF_WEEK_NAMES,
+    MAX_ABS_ANNUAL_CARRY_PERCENT,
+    MAX_PRICE_POINTS,
+    MIN_PRICE_POINTS,
     SWAP_MODE_NAMES,
     annualised_swap_carry,
     build_swap_snapshot,
@@ -77,6 +80,23 @@ def build(infos=None, symbols=None, captured_at_utc=CAPTURED, server_time="NY_CL
 
 def canonical(value):
     return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def sha256(value):
+    return hashlib.sha256(canonical(value).encode("utf-8")).hexdigest()
+
+
+def _rehash(payload):
+    """Recompute both hashes from their documented definitions, so only another check can reject."""
+    terms = {symbol: {key: value for key, value in record.items() if key not in ("status", "spread_points")}
+             for symbol, record in payload["instruments"].items() if record["status"] == "CAPTURED"}
+    payload["swap_terms_hash"] = sha256({"schema_version": payload["schema_version"], "instruments": terms})
+    payload["payload_sha256"] = sha256({key: value for key, value in payload.items() if key != "payload_sha256"})
+    return payload
+
+
+def _copy(payload):
+    return json.loads(json.dumps(payload))
 
 
 # --------------------------------------------------------------------------- capture
@@ -242,6 +262,32 @@ def test_terms_hash_ignores_capture_time_and_spread_but_not_swap_terms():
     assert base["payload_sha256"] != later["payload_sha256"]
     assert base["payload_sha256"] != wider["payload_sha256"]
     assert repriced["swap_terms_hash"] != base["swap_terms_hash"]
+    declared_utc, _ = build(server_time="UTC")
+    assert declared_utc["swap_terms_hash"] == base["swap_terms_hash"]
+
+
+@pytest.mark.parametrize("infos", [None, {"EURUSD.raw": None, "USDJPY.raw": dict(USDJPY)},
+                                   {"EURUSD.raw": None, "USDJPY.raw": RuntimeError("down")}])
+def test_both_hashes_follow_their_documented_definitions(infos):
+    payload, _ = build(infos)
+    assert _rehash(_copy(payload)) == payload
+
+
+def test_terms_hash_covers_only_captured_records_never_status_or_reason():
+    missing, _ = build({"EURUSD.raw": None, "USDJPY.raw": dict(USDJPY)})
+    failed, _ = build({"EURUSD.raw": RuntimeError("down"), "USDJPY.raw": dict(USDJPY)})
+    unknown_mode, _ = build({"EURUSD.raw": {**EURUSD, "swap_mode": 42}, "USDJPY.raw": dict(USDJPY)})
+    only_usdjpy, _ = build(symbols={"USDJPY": "USDJPY.raw"})
+    assert only_usdjpy["status"] == "CAPTURED" and missing["status"] == failed["status"] == "PARTIAL"
+    # The reason a symbol was unavailable, and its status, never move the terms hash ...
+    assert missing["swap_terms_hash"] == failed["swap_terms_hash"] == unknown_mode["swap_terms_hash"]
+    assert missing["swap_terms_hash"] == only_usdjpy["swap_terms_hash"]
+    # ... while the payload hash still seals them.
+    assert len({missing["payload_sha256"], failed["payload_sha256"], unknown_mode["payload_sha256"]}) == 3
+    # A change of the broker's terms on a captured symbol does move it.
+    repriced, _ = build({"EURUSD.raw": None, "USDJPY.raw": {**USDJPY, "swap_short": -33.0}})
+    rolled, _ = build({"EURUSD.raw": None, "USDJPY.raw": {**USDJPY, "swap_rollover3days": 5}})
+    assert repriced["swap_terms_hash"] != missing["swap_terms_hash"] != rolled["swap_terms_hash"]
 
 
 def test_write_publishes_exclusively_and_round_trips(tmp_path):
@@ -309,12 +355,17 @@ def test_tampered_or_incomplete_snapshots_are_rejected(path, value):
         verify_swap_snapshot(_tamper(json.loads(json.dumps(payload)), path, value))
 
 
-@pytest.mark.parametrize("reason", ["free text with password=PRIVATE", "FIELD_INVALID:Swap Long", ""])
+@pytest.mark.parametrize("reason", ["free text with password=PRIVATE", "FIELD_INVALID:Swap Long", "", None, 5])
 def test_unavailable_reasons_are_closed_codes(reason):
     payload, _ = build({"EURUSD.raw": None, "USDJPY.raw": dict(USDJPY)})
+    # Control: another known code with both hashes recomputed verifies, so the
+    # hashes cannot be what rejects the unknown reason below.
+    known = _copy(payload)
+    known["instruments"]["EURUSD"]["reason"] = "SYMBOL_INFO_FAILED"
+    assert verify_swap_snapshot(_rehash(known)) == known
     payload["instruments"]["EURUSD"]["reason"] = reason
-    with pytest.raises(InstrumentError):
-        verify_swap_snapshot(payload)
+    with pytest.raises(InstrumentError, match="not a known code"):
+        verify_swap_snapshot(_rehash(payload))
 
 
 def test_read_rejects_duplicate_keys_and_invalid_json(tmp_path):
@@ -415,6 +466,15 @@ def test_command_with_a_closed_terminal_raises_without_artifact(tmp_path):
     assert not (tmp_path / "swap.json").exists()
 
 
+@pytest.mark.parametrize("connected", [1, "yes", (True,)])
+def test_command_refuses_a_truthy_initialize_result_that_is_not_true(tmp_path, connected):
+    client = SwapTerminal(connected=connected)
+    with pytest.raises(RuntimeError, match="connection unavailable"):
+        capture_swap_snapshot(client=client, symbol_map_path=_map(tmp_path), output_path=tmp_path / "swap.json",
+                              mt5_server_time="UTC")
+    assert client.calls == ["initialize"] and not (tmp_path / "swap.json").exists()
+
+
 def test_command_shuts_down_after_a_write_failure(tmp_path, monkeypatch):
     import agi_style_forex_bot_mt5.broker_swap_snapshot as module
 
@@ -467,6 +527,22 @@ def test_cli_partial_capture_still_exits_zero_with_reasons(monkeypatch, tmp_path
                      "--swap-snapshot-output", str(tmp_path / "swap.json")])
     summary = _last_json(capsys)
     assert code == 0 and summary["status"] == "PARTIAL" and summary["unavailable"] == {"USDJPY": "SWAP_MODE_UNKNOWN"}
+
+
+def test_cli_capture_with_nothing_captured_writes_the_file_and_exits_3(monkeypatch, tmp_path, capsys):
+    module, terminal = _terminal_module({"EURUSD.raw": None, "USDJPY.raw": RuntimeError("password=PRIVATE")})
+    monkeypatch.setitem(sys.modules, "MetaTrader5", module)
+    output = tmp_path / "swap.json"
+    code = cli.main(["--mode", "capture-swap-snapshot", "--broker-symbol-map", str(_map(tmp_path)),
+                     "--swap-snapshot-output", str(output)])
+    summary = _last_json(capsys)
+    assert code == cli.EXIT_MT5_UNAVAILABLE == 3
+    assert summary["status"] == "UNAVAILABLE" and summary["captured_count"] == 0
+    assert summary["unavailable"] == {"EURUSD": "SYMBOL_INFO_MISSING", "USDJPY": "SYMBOL_INFO_FAILED"}
+    assert summary["execution_attempted"] is False and "PRIVATE" not in json.dumps(summary)
+    stored = read_swap_snapshot(output)
+    assert stored["status"] == "UNAVAILABLE" and stored["payload_sha256"] == summary["payload_sha256"]
+    assert terminal.calls[-1] == "shutdown"
 
 
 def test_cli_exit_codes(monkeypatch, tmp_path, capsys):
@@ -558,6 +634,9 @@ def test_points_swap_is_annualised_from_broker_terms_for_a_usd_quoted_pair():
     expected_markup = -(carry["long_annual_percent_of_notional"] + carry["short_annual_percent_of_notional"]) / 2 * 100
     assert carry["implied_symmetric_markup_bps_per_year"] == pytest.approx(expected_markup)
     assert carry["days_per_year"] == 365 and carry["price"] == 1.10
+    # OBSERVED covers the broker's swap terms only; the price is the caller's.
+    assert carry["observed_scope"] == "BROKER_SWAP_TERMS" and carry["price_source"] == "caller"
+    assert carry["price_observed"] is False
 
 
 def test_points_swap_is_annualised_for_a_usd_base_pair_with_its_own_price():
@@ -596,6 +675,51 @@ def test_a_cross_has_no_usd_conversion_and_fails_closed():
 def test_an_invalid_price_fails_closed(price):
     with pytest.raises(InstrumentError):
         annualised_swap_carry(_record(build()[0], "EURUSD"), price=price)
+
+
+def test_price_scale_and_carry_bounds_are_documented_constants():
+    assert (MIN_PRICE_POINTS, MAX_PRICE_POINTS, MAX_ABS_ANNUAL_CARRY_PERCENT) == (10**4, 10**7, 50.0)
+
+
+@pytest.mark.parametrize("symbol,price", [
+    ("USDJPY", 1.08),  # a EURUSD-like price for a 3-digit pair: 1,080 points
+    ("USDJPY", 9.9),
+    ("EURUSD", 150.0),  # a USDJPY-like price for a 5-digit pair: 15,000,000 points
+    ("EURUSD", 100.0),
+    ("EURUSD", 0.011),
+    ("EURUSD", 1e-300),
+])
+def test_a_price_on_an_implausible_scale_for_the_digits_is_refused(symbol, price):
+    with pytest.raises(InstrumentError) as caught:
+        annualised_swap_carry(_record(build()[0], symbol), price=price)
+    assert caught.value.detail["reason"] == "PRICE_SCALE_IMPLAUSIBLE"
+
+
+@pytest.mark.parametrize("symbol,price", [("USDJPY", 76.0), ("USDJPY", 30.0), ("EURUSD", 0.6), ("EURUSD", 99.0)])
+def test_a_price_within_the_scale_window_is_accepted(symbol, price):
+    assert annualised_swap_carry(_record(build()[0], symbol), price=price)["carry_status"] == "OBSERVED"
+
+
+@pytest.mark.parametrize("terms", [{"swap_long": -200.0}, {"swap_short": 200.0}, {"swap_long": 1e12}])
+def test_an_annual_carry_beyond_the_sane_bound_is_refused(terms):
+    # 200 points a day on EURUSD at 1.10 is about 66 % of notional a year.
+    payload, _ = build({"EURUSD.raw": {**EURUSD, **terms}}, {"EURUSD": "EURUSD.raw"})
+    with pytest.raises(InstrumentError) as caught:
+        annualised_swap_carry(_record(payload, "EURUSD"), price=1.10)
+    assert caught.value.detail["reason"] == "ANNUAL_CARRY_IMPLAUSIBLE"
+
+
+def test_a_high_carry_within_the_bound_is_still_reported():
+    payload, _ = build({"EURUSD.raw": {**EURUSD, "swap_long": -100.0, "swap_short": 100.0}}, {"EURUSD": "EURUSD.raw"})
+    carry = annualised_swap_carry(_record(payload, "EURUSD"), price=1.10)
+    assert carry["long_annual_percent_of_notional"] == pytest.approx(-100 * 0.00001 / 1.10 * 365 * 100)
+    assert abs(carry["short_annual_percent_of_notional"]) < MAX_ABS_ANNUAL_CARRY_PERCENT
+
+
+def test_snapshot_carry_refuses_swapped_prices_instead_of_reporting_them():
+    report = snapshot_carry(build()[0], {"EURUSD": 150.0, "USDJPY": 1.08})
+    assert report["carry"] == {"EURUSD": {"carry_status": "UNAVAILABLE", "reason": "PRICE_SCALE_IMPLAUSIBLE"},
+                               "USDJPY": {"carry_status": "UNAVAILABLE", "reason": "PRICE_SCALE_IMPLAUSIBLE"}}
 
 
 def test_unavailable_or_altered_records_are_not_converted():
