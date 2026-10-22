@@ -115,8 +115,9 @@ The final demo-executable gate is `PROJECT_SPEC.md` section 12.1. It is cumulati
 - Shadow approval: `shadow_approval_classification` must be `APPROVED_FOR_SHADOW_OBSERVATION`, with `300` backtest trades or a non-blank written justification, OOS profit factor above `1.25`, OOS drawdown below `12%` and OOS expectancy R above `0`.
 - Phase 8: at least `14` shadow days and `200` forward paper trades, forward profit factor above `1.15`, forward expectancy R above `0`, and `forward_controls_passed` attesting the qualitative items above.
 - Deflated statistics, from a per-trade or per-day return sequence or computed by the caller with `src/python/agi_style_forex_bot_mt5/research/edge_statistics.py`:
-  - PSR(0) of at least `0.95`, with observations at least the 95% Minimum Track Record Length.
-  - Deflated Sharpe of at least `0.95` given the declared number of `trials`; a missing trial count fails.
+  - At least `60` observations. A return sequence shorter than that is unusable and fails the whole statistical block, even next to valid caller statistics; below 60 a zero-edge sequence passes the asymptotic statistics more than 5% of the time.
+  - PSR(0) of at least `0.95`, with observations at least the 95% Minimum Track Record Length (so at least the larger of `60` and MinTRL).
+  - Deflated Sharpe of at least `0.95` given the declared number of `trials`, which counts every configuration tried including the selected one; a missing trial count fails.
   - Newey-West t of at least `3.0`, or `2.0` for a single pre-registered hypothesis tried once.
   - PBO of at most `0.10`; a missing PBO fails.
 

@@ -629,8 +629,13 @@ seccion. Si los umbrales se solapan, aplica el mas estricto; los 200/1.15 de
 aqui nunca relajan los minimos de shadow.
 
 Ademas exige estadisticas deflactadas (decision
-`docs/decisions/2026-10-22-deflated-promotion-gate.md`): PSR(0) >= 0.95 con
-observaciones >= MinTRL al 95%, `trials` declarado (>= 1; ausente o < 1 falla)
+`docs/decisions/2026-10-22-deflated-promotion-gate.md`): al menos 60
+observaciones (una `return_sequence` mas corta es inutilizable e invalida todo
+el bloque, aunque lleguen valores validos del llamador; las observaciones
+usadas, la menor entre la longitud de la secuencia y `sharpe_observations`,
+deben llegar a 60 y ademas a MinTRL), PSR(0) >= 0.95 con
+observaciones >= MinTRL al 95%, `trials` declarado (>= 1; ausente o < 1 falla;
+cuenta todas las configuraciones probadas, incluida la seleccionada)
 y Deflated Sharpe >= 0.95 dado ese numero de trials, t de Newey-West >= 3.0
 (>= 2.0 solo si `single_preregistered_hypothesis` es `True` y hubo un unico
 trial) y PBO <= 0.10 (PBO ausente falla).
@@ -656,14 +661,21 @@ deflactadas. Contrato:
   el mismo payload.
 - Compatibilidad: un llamador que no pasa la nueva evidencia obtiene demo
   `REJECTED` (modo efectivo shadow), la direccion fail-closed; evidencia que
-  solo cumplia el subconjunto anterior deja de aprobar. Ninguna aprobacion
-  ejecuta nada mientras `EXECUTION_NOT_RELEASED` bloquee todo envio.
+  solo cumplia el subconjunto anterior, o con menos de 60 observaciones, deja
+  de aprobar. Ninguna aprobacion ejecuta nada mientras `EXECUTION_NOT_RELEASED`
+  bloquee todo envio.
 
 Los selectores de edge (`edge_evaluation/strategy_selector.py` y
 `edge_evaluation/symbol_selector.py`) solo marcan `KEEP` si ademas la p
 ajustada por Holm (test t unilateral de R medio, familia = todas las filas de
 la llamada) es <= 0.05; si no, la fila queda `WATCHLIST` con el motivo y la p
-ajustada en la columna `holm_adjusted_p_value`. `COUNTS_ONLY` no cambia.
+ajustada en la columna `holm_adjusted_p_value`. `COUNTS_ONLY` no cambia. Los
+filtros de `BALANCED_FILTERED` (`edge_filtering/symbol_filter.py` y
+`edge_filtering/strategy_filter.py`) solo marcan `KEEP` si ademas esa
+`holm_adjusted_p_value` leida de `by_symbol.csv` o `by_strategy.csv` es un
+valor finito en [0, 0.05]; columna ausente, valor vacio, invalido o mayor
+falla cerrado a `WATCHLIST`. Compatibilidad: reportes de edge sin esa columna
+ya no producen `KEEP` en el filtro; hay que regenerarlos con `edge-evaluation`.
 
 ### 12.2 Reproducibilidad Y Datos
 

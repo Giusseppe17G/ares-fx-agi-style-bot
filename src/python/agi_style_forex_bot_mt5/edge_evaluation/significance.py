@@ -8,11 +8,17 @@ evaluated in the same selector call. Rows whose test cannot be computed
 (counts only, missing or zero dispersion, tiny samples) enter the family with
 p = 1: they make the adjustment stricter and never reach KEEP.
 
+Edge filtering reads the adjusted p-value back from the selectors'
+``by_symbol.csv`` and ``by_strategy.csv`` with ``recorded_significance``, so a
+filter KEEP needs the same significance; a missing or unusable value fails
+closed.
+
 Research only: nothing here builds, checks or sends an order.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import math
 from typing import Any
 
@@ -22,6 +28,7 @@ from ..research.edge_statistics import holm_adjusted
 
 SIGNIFICANCE_ALPHA = 0.05
 MIN_SIGNIFICANCE_TRADES = 3
+ADJUSTED_P_VALUE_COLUMN = "holm_adjusted_p_value"
 SIGNIFICANCE_COLUMNS = (
     "mean_r_t_stat",
     "mean_r_p_value",
@@ -77,6 +84,25 @@ def not_significant_reason(significance: dict[str, Any]) -> str:
         f"(one-sided adjusted p={significance['holm_adjusted_p_value']:.4g} > {SIGNIFICANCE_ALPHA:g} "
         f"across {significance['holm_family_size']} rows; {significance['significance_status']})"
     )
+
+
+def recorded_significance(row: Mapping[str, Any]) -> tuple[bool, str]:
+    """Whether a selector-written row is significant, failing closed.
+
+    For consumers of the selectors' reports (edge filtering). Only a finite
+    ``holm_adjusted_p_value`` in [0, SIGNIFICANCE_ALPHA] is significant; a
+    missing column or a blank, malformed, out-of-range or larger value is not.
+    The reason is empty when the row is significant.
+    """
+
+    if ADJUSTED_P_VALUE_COLUMN not in row:
+        return False, f"{ADJUSTED_P_VALUE_COLUMN} is missing; KEEP needs the edge selectors' Holm-adjusted p-value"
+    value = _number(row.get(ADJUSTED_P_VALUE_COLUMN))
+    if value is None or not 0.0 <= value <= 1.0:
+        return False, f"{ADJUSTED_P_VALUE_COLUMN} is blank or invalid; KEEP needs the edge selectors' Holm-adjusted p-value"
+    if value > SIGNIFICANCE_ALPHA:
+        return False, f"mean R not significant after Holm adjustment (adjusted p={value:.4g} > {SIGNIFICANCE_ALPHA:g})"
+    return True, ""
 
 
 def _row_test(record: dict[str, Any]) -> dict[str, Any]:

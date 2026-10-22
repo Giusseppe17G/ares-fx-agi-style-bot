@@ -78,16 +78,18 @@ NOT_FOR_DEMO_LIVE=true
 
 Symbols:
 
-- `KEEP`: at least 30 trades, `profit_factor >= 1.10`, and `expectancy_r > 0`.
-- `WATCHLIST`: enough activity but incomplete or near break-even metrics.
+- `KEEP`: at least 30 trades, `profit_factor >= 1.10`, `expectancy_r > 0`, and the symbol selector's `holm_adjusted_p_value` at most `0.05`.
+- `WATCHLIST`: enough activity but incomplete or near break-even metrics, or metrics that pass the `KEEP` rule without significance.
 - `DISABLE`: negative expectancy, weak profit factor, or excessive drawdown.
 
 Strategies:
 
-- `KEEP`: enough trades with positive edge metrics.
-- `WATCHLIST`: near break-even or missing metrics.
+- `KEEP`: enough trades with positive edge metrics and the strategy selector's `holm_adjusted_p_value` at most `0.05`.
+- `WATCHLIST`: near break-even or missing metrics, or positive edge metrics without significance.
 - `DISABLE_IN_BALANCED`: weak strategy with sufficient sample.
 - `RESEARCH_ONLY`: insufficient sample.
+
+Significance (decision record: `docs/decisions/2026-10-22-deflated-promotion-gate.md`): `holm_adjusted_p_value` is the one-sided test of mean R that edge evaluation writes to `by_symbol.csv` and `by_strategy.csv`, Holm-adjusted across every row of that report (see `docs/EDGE_EVALUATION.md`). Profit factor and expectancy alone are passed by about a third of zero-edge slices. A missing column, or a blank, invalid or larger value, fails closed to `WATCHLIST` with a reason in `filter_reason`; regenerate older edge reports with `edge-evaluation` before filtering. The other decisions are unchanged.
 
 Sessions and regimes:
 

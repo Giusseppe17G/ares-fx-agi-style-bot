@@ -114,6 +114,30 @@ def test_keep_requires_holm_adjusted_significance_across_the_call() -> None:
     assert "Holm" in row["reasons"]
 
 
+@pytest.mark.parametrize(("selector", "column"), [(select_strategies, "strategy_name"), (select_symbols, "symbol")])
+def test_holm_adjusted_p_between_five_and_ten_percent_is_not_keep(selector, column: str) -> None:
+    # One-sided p of about 0.0345 (t = 1.87, 39 df) is KEEP on its own. With one
+    # more row in the family Holm doubles it to about 0.069: above 0.05 but
+    # below 0.10, so only the 0.05 level keeps it out of KEEP.
+    strong = _row("candidate", trades=40, mean_r=0.2, std_r=_std_for_p(0.2, 40, 1.87), pf=1.3, column=column)
+    other = _row("other", trades=40, mean_r=-0.05, std_r=1.0, pf=0.9, column=column)
+
+    alone = selector(pd.DataFrame([strong]))
+    together = selector(pd.DataFrame([strong, other])).set_index(column)
+
+    assert 0.025 < alone["mean_r_p_value"].iloc[0] < 0.05
+    assert alone["decision"].iloc[0] == "KEEP"
+    adjusted = together.loc["candidate", "holm_adjusted_p_value"]
+    assert 0.05 < adjusted < 0.10
+    assert adjusted == pytest.approx(2 * alone["mean_r_p_value"].iloc[0])
+    assert together.loc["candidate", "decision"] == "WATCHLIST"
+    assert "Holm" in together.loc["candidate", "reasons"]
+
+
+def test_significance_alpha_is_five_percent() -> None:
+    assert SIGNIFICANCE_ALPHA == 0.05
+
+
 def test_symbol_selector_applies_the_same_rule() -> None:
     strong = _row("EURUSD", trades=40, mean_r=0.2, std_r=_std_for_p(0.2, 40, 2.12), pf=1.3, column="symbol")
     others = [_row(name, trades=40, mean_r=-0.05, std_r=1.0, pf=0.9, column="symbol") for name in ("GBPUSD", "USDJPY", "AUDUSD", "USDCAD")]

@@ -310,6 +310,12 @@ FORWARD_SHADOW_MIN_TRADES = 200
 FORWARD_SHADOW_MIN_PROFIT_FACTOR = 1.15
 PSR_ZERO_MIN = 0.95
 MIN_TRACK_RECORD_CONFIDENCE = 0.95
+# PSR, MinTRL and the Newey-West t are asymptotic. Below this many observations
+# a zero-edge sequence passes them more often than 5% (with positively
+# autocorrelated returns and the pre-registered t >= 2.0 at 30-40 observations,
+# for example); at 60 every simulated case stays at or below 5%. The floor holds
+# in addition to n >= MinTRL. See the decision record for the simulation.
+MIN_RETURN_OBSERVATIONS = 60
 DEFLATED_SHARPE_MIN = 0.95
 NEWEY_WEST_T_MIN = 3.0
 NEWEY_WEST_T_MIN_SINGLE_PREREGISTERED = 2.0
@@ -357,7 +363,11 @@ class PromotionEvidence:
     # Deflated statistics: computed by the gate from a per-trade or per-day
     # return sequence, supplied by a caller that computed them with
     # research/edge_statistics.py, or both (the less favourable value wins).
-    # trials counts every configuration tried before this one was selected.
+    # A supplied return_sequence shorter than MIN_RETURN_OBSERVATIONS is
+    # unusable, and the observations behind the statistics (the sequence length
+    # or sharpe_observations, whichever is smaller) must reach both that floor
+    # and MinTRL. trials counts every configuration tried, including the
+    # selected one; trial_sharpes must likewise include the selected one.
     return_sequence: tuple[float, ...] = ()
     trials: int = 0
     trial_sharpes: tuple[float, ...] = ()
@@ -392,8 +402,9 @@ def evaluate_promotion_gate(
     Shadow mode is allowed for audit collection. Demo mode is blocked unless all
     required evidence is present and passes: the 12.1 OOS criteria, the
     shadow-approval minimums, the Phase 8 forward-shadow evidence and the
-    deflated statistics (PSR, MinTRL, DSR given the trials tried, Newey-West t,
-    PBO). Missing, malformed or non-finite evidence fails its check. An
+    deflated statistics (at least MIN_RETURN_OBSERVATIONS observations, PSR,
+    MinTRL, DSR given the trials tried, Newey-West t, PBO). Missing, malformed,
+    non-finite or too-short evidence fails its check. An
     approval never sends anything: broker execution stays removed.
     """
 
@@ -489,7 +500,7 @@ def _coerce_evidence(evidence: PromotionEvidence | Mapping[str, Any] | None) -> 
 
 
 def _deflated_checks(data: PromotionEvidence) -> tuple[dict[str, bool], dict[str, Any]]:
-    """PSR(0), MinTRL, DSR, Newey-West t and PBO checks plus their audit values."""
+    """Observation floor, PSR(0), MinTRL, DSR, Newey-West t and PBO checks plus their audit values."""
 
     # Imported here: the research package imports the backtester, which imports
     # this strategy package.
@@ -498,6 +509,9 @@ def _deflated_checks(data: PromotionEvidence) -> tuple[dict[str, bool], dict[str
     trials = _whole_number(data.trials)
     trials_declared = trials is not None and trials >= 1
     sequence, sequence_ok = _finite_series(data.return_sequence)
+    # A supplied sequence below the floor is unusable evidence: it invalidates
+    # the deflated block even when valid caller statistics are also given.
+    sequence_long_enough = sequence.size == 0 or sequence.size >= MIN_RETURN_OBSERVATIONS
     trial_sharpes, trial_sharpes_ok = _finite_series(data.trial_sharpes)
     effective_trials = max(trials if trials_declared else 0, int(trial_sharpes.size))
     caller, caller_ok = _caller_statistics(data)
@@ -510,7 +524,14 @@ def _deflated_checks(data: PromotionEvidence) -> tuple[dict[str, bool], dict[str
         except (ValueError, ZeroDivisionError, OverflowError):
             computed, computed_ok = {}, False
     caller_supplied = any(caller[name] is not None for name in ("psr_zero", "min_track_record_length", "deflated_sharpe", "newey_west_t"))
-    valid = sequence_ok and trial_sharpes_ok and caller_ok and computed_ok and (bool(computed) or caller_supplied)
+    valid = (
+        sequence_ok
+        and sequence_long_enough
+        and trial_sharpes_ok
+        and caller_ok
+        and computed_ok
+        and (bool(computed) or caller_supplied)
+    )
 
     # The less favourable of the computed and the supplied value wins.
     psr_zero = _least_favourable(min, computed.get("psr_zero"), caller["psr_zero"])
@@ -525,6 +546,7 @@ def _deflated_checks(data: PromotionEvidence) -> tuple[dict[str, bool], dict[str
     checks = {
         "trials_declared": trials_declared,
         "deflated_inputs_valid": valid,
+        "minimum_observations": valid and _at_least(observations, MIN_RETURN_OBSERVATIONS),
         "psr_zero": valid and _at_least(psr_zero, PSR_ZERO_MIN),
         "min_track_record_length": (
             valid
@@ -541,6 +563,8 @@ def _deflated_checks(data: PromotionEvidence) -> tuple[dict[str, bool], dict[str
     statistics = {
         "source": source or "none",
         "observations": observations,
+        "observations_min": MIN_RETURN_OBSERVATIONS,
+        "return_sequence_length": int(sequence.size),
         "sharpe": computed.get("sharpe"),
         "skew": computed.get("skew"),
         "kurtosis": computed.get("kurtosis"),

@@ -6,9 +6,18 @@ from typing import Any
 
 import pandas as pd
 
+from ..edge_evaluation.significance import recorded_significance
+
 
 def filter_strategies(by_strategy: pd.DataFrame) -> pd.DataFrame:
-    """Classify strategies as KEEP, WATCHLIST, DISABLE_IN_BALANCED, or RESEARCH_ONLY."""
+    """Classify strategies as KEEP, WATCHLIST, DISABLE_IN_BALANCED, or RESEARCH_ONLY.
+
+    KEEP needs at least 30 trades, PF >= 1.10, positive mean R, a win rate of
+    at least 35% when reported, and the strategy selector's
+    ``holm_adjusted_p_value`` <= 0.05
+    (docs/decisions/2026-10-22-deflated-promotion-gate.md). A row that passes
+    only the metric rule, or has no usable adjusted p-value, is WATCHLIST.
+    """
 
     rows: list[dict[str, Any]] = []
     if by_strategy.empty:
@@ -24,8 +33,13 @@ def filter_strategies(by_strategy: pd.DataFrame) -> pd.DataFrame:
             decision = "INSUFFICIENT_METRICS" if trades <= 0 else "WATCHLIST_COUNTS_ONLY"
             reason = "missing profit factor or expectancy"
         elif trades >= 30 and pf >= 1.10 and expectancy > 0 and (winrate is None or winrate >= 35):
-            decision = "KEEP"
-            reason = "strategy has positive edge metrics"
+            significant, not_significant = recorded_significance(row.to_dict())
+            if significant:
+                decision = "KEEP"
+                reason = "strategy has positive edge metrics"
+            else:
+                decision = "WATCHLIST"
+                reason = f"strategy has positive edge metrics, but {not_significant}"
         elif trades >= 20 and pf >= 0.95 and expectancy >= -0.02:
             decision = "WATCHLIST"
             reason = "strategy is near break-even"

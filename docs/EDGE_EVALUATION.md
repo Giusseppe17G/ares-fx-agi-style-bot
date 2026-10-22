@@ -127,7 +127,7 @@ Profit factor above `1.10` with positive mean R on `30` trades is passed by a ze
 - `by_symbol.csv` and `by_strategy.csv` carry `mean_r_t_stat`, `mean_r_p_value`, `holm_adjusted_p_value`, `holm_family_size` and `significance_status`; every grouped metrics table carries `r_multiple_std`.
 - `COUNTS_ONLY` rows keep `WATCHLIST_COUNTS_ONLY`.
 
-Evaluating more symbols or strategies in one call makes `KEEP` harder, by design. Edge filtering (`edge-filtering`) still re-derives its own decisions from the metric columns and does not yet apply this test.
+Evaluating more symbols or strategies in one call makes `KEEP` harder, by design. Edge filtering (`edge-filtering`) re-derives its own decisions from these reports and applies the same requirement: its symbol and strategy `KEEP` also needs the `holm_adjusted_p_value` recorded here to be at most `0.05`, and a report without that column yields no filter `KEEP` (see `docs/EDGE_FILTERING.md`).
 
 ## Decisions
 

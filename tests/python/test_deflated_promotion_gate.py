@@ -2,8 +2,8 @@
 
 Decision: docs/decisions/2026-10-22-deflated-promotion-gate.md. Demo mode now
 needs the shadow-approval minimums, the Phase 8 forward-shadow evidence and
-deflated statistics (PSR/MinTRL, DSR given the trials tried, Newey-West t,
-PBO). Shadow mode is unchanged. Zero-edge universes built with fixed seeds
+deflated statistics (at least 60 observations, PSR/MinTRL, DSR given the
+trials tried, Newey-West t, PBO). Shadow mode is unchanged. Zero-edge universes built with fixed seeds
 must be rejected at least 95% of the time, while a planted strong edge with a
 single trial and complete forward evidence passes. Nothing here can execute:
 the broker release lock holds regardless of the gate.
@@ -18,8 +18,10 @@ import math
 import numpy as np
 import pytest
 
+from agi_style_forex_bot_mt5.research import edge_statistics
 from agi_style_forex_bot_mt5.research.edge_statistics import probability_of_backtest_overfitting
 from agi_style_forex_bot_mt5.strategy import PromotionEvidence, evaluate_promotion_gate
+from agi_style_forex_bot_mt5.strategy import scoring_engine
 
 # The checks the gate ran before this change, with their thresholds unchanged.
 LEGACY_CHECKS = (
@@ -32,7 +34,9 @@ LEGACY_CHECKS = (
     "walk_forward",
     "shadow_forward",
 )
-STATISTICAL_CHECKS = ("psr_zero", "min_track_record_length", "deflated_sharpe", "newey_west_t", "pbo")
+STATISTICAL_CHECKS = ("minimum_observations", "psr_zero", "min_track_record_length", "deflated_sharpe", "newey_west_t", "pbo")
+# The checks a usable return sequence or valid caller statistics must feed.
+SEQUENCE_CHECKS = ("minimum_observations", "psr_zero", "min_track_record_length", "deflated_sharpe", "newey_west_t")
 
 LEGACY_DEFAULTS = {
     "historical_trades": 0,
@@ -103,6 +107,23 @@ def _complete_evidence(returns: np.ndarray, **overrides: object) -> PromotionEvi
 
 def _planted_edge(seed: int = 20261022, count: int = 500, mean_r: float = 0.35) -> np.ndarray:
     return _trades(np.random.default_rng(seed), count, mean_r)
+
+
+def _strong_sequence(count: int) -> tuple[float, ...]:
+    """The first ``count`` of 60 trades with a strong planted edge (mean 1 R, Sharpe about 1).
+
+    Every statistic passes on the full 60, so only the observation floor can
+    reject a prefix of it.
+    """
+
+    return tuple(float(value) for value in _trades(np.random.default_rng(777), 60, 1.0)[:count])
+
+
+def _sequence_with_sharpe(sharpe: float, count: int = 200, seed: int = 31) -> np.ndarray:
+    """Fixed normal draws rescaled to an exact per-period Sharpe (mean / sd with ddof=1)."""
+
+    draws = np.random.default_rng(seed).standard_normal(count)
+    return (draws - draws.mean()) / draws.std(ddof=1) + sharpe
 
 
 def _demo(evidence: object):
@@ -225,6 +246,9 @@ def test_each_new_field_at_its_default_fails_its_check(field_name: str, failing_
         ({"oos_profit_factor": 1.2501}, "shadow_approval_profit_factor", True),
         ({"oos_max_drawdown_pct": 12.0, "max_drawdown_limit_pct": 20.0}, "shadow_approval_drawdown", False),
         ({"oos_max_drawdown_pct": 11.9, "max_drawdown_limit_pct": 20.0}, "shadow_approval_drawdown", True),
+        # A negative drawdown is malformed, not better than zero.
+        ({"oos_max_drawdown_pct": -1.0}, "shadow_approval_drawdown", False),
+        ({"oos_max_drawdown_pct": 0.0}, "shadow_approval_drawdown", True),
         ({"shadow_days": 13}, "forward_shadow_duration", False),
         ({"shadow_days": 14}, "forward_shadow_duration", True),
         ({"forward_paper_trades": 199}, "forward_shadow_trades", False),
@@ -291,6 +315,93 @@ def test_min_track_record_length_must_be_reached() -> None:
     assert decision.checks["min_track_record_length"] is False
 
 
+@pytest.mark.parametrize(
+    ("overrides", "check", "expected"),
+    [
+        ({"psr_zero": 0.949}, "psr_zero", False),
+        ({"psr_zero": 0.95}, "psr_zero", True),
+        ({"deflated_sharpe": 0.949}, "deflated_sharpe", False),
+        ({"deflated_sharpe": 0.95}, "deflated_sharpe", True),
+        ({"min_track_record_length": 401.0}, "min_track_record_length", False),
+        ({"min_track_record_length": 400.0}, "min_track_record_length", True),
+        ({"newey_west_t": 2.999}, "newey_west_t", False),
+        ({"newey_west_t": 3.0}, "newey_west_t", True),
+        ({"newey_west_t": 1.999, "single_preregistered_hypothesis": True}, "newey_west_t", False),
+        ({"newey_west_t": 2.0, "single_preregistered_hypothesis": True}, "newey_west_t", True),
+        ({"sharpe_observations": 59, "min_track_record_length": 20.0}, "minimum_observations", False),
+        ({"sharpe_observations": 60, "min_track_record_length": 20.0}, "minimum_observations", True),
+    ],
+)
+def test_caller_statistics_at_their_thresholds(overrides: dict, check: str, expected: bool) -> None:
+    # 400 observations; every other item passes, so the boundary decides.
+    decision = _demo(_caller_statistics(**{"newey_west_t": 3.2, **overrides}))
+
+    assert decision.checks[check] is expected
+    assert decision.approved is expected
+
+
+@pytest.mark.parametrize(
+    ("overrides", "check", "expected"),
+    [
+        ({"psr_zero": 0.949}, "psr_zero", False),
+        ({"psr_zero": 0.95}, "psr_zero", True),
+        ({"deflated_sharpe": 0.949}, "deflated_sharpe", False),
+        ({"deflated_sharpe": 0.95}, "deflated_sharpe", True),
+        # MinTRL one observation above the sequence's 500 observations.
+        ({"min_track_record_length": 501.0}, "min_track_record_length", False),
+        ({"min_track_record_length": 500.0}, "min_track_record_length", True),
+    ],
+)
+def test_supplied_values_at_a_threshold_decide_alongside_a_sequence(overrides: dict, check: str, expected: bool) -> None:
+    decision = _demo(_complete_evidence(_planted_edge(), **overrides))
+
+    assert decision.statistics["observations"] == 500
+    assert decision.checks[check] is expected
+    assert decision.approved is expected
+
+
+def test_computed_psr_and_min_track_record_length_use_95_percent_confidence() -> None:
+    # Sharpe 0.09 over 200 observations: PSR(0) about 0.90, so 95% confidence
+    # needs about 333 observations (80% confidence would need fewer than 100).
+    returns = _sequence_with_sharpe(0.09)
+    sharpe = edge_statistics.sharpe_ratio(returns)
+    skew, kurtosis = edge_statistics.moments(returns)
+
+    decision = _demo(_complete_evidence(returns))
+
+    stats = decision.statistics
+    assert 0.85 < stats["psr_zero"] < 0.95
+    assert stats["min_track_record_length"] == pytest.approx(
+        edge_statistics.min_track_record_length(sharpe, 0.0, skew, kurtosis, 0.95)
+    )
+    assert stats["observations"] == 200 < stats["min_track_record_length"]
+    assert decision.checks["psr_zero"] is False
+    assert decision.checks["min_track_record_length"] is False
+    assert decision.approved is False
+
+
+def test_computed_deflated_sharpe_below_its_threshold_rejects() -> None:
+    # Sharpe 0.25 over 200 observations: PSR(0) and the Newey-West t pass, but
+    # after 50 trials the deflated Sharpe is about 0.89.
+    decision = _demo(_complete_evidence(_sequence_with_sharpe(0.25), trials=50))
+
+    assert 0.80 < decision.statistics["deflated_sharpe"] < 0.95
+    assert decision.checks["psr_zero"] is True
+    assert decision.checks["newey_west_t"] is True
+    assert decision.checks["deflated_sharpe"] is False
+    assert decision.approved is False
+
+
+def test_documented_thresholds_are_pinned() -> None:
+    assert scoring_engine.PSR_ZERO_MIN == 0.95
+    assert scoring_engine.MIN_TRACK_RECORD_CONFIDENCE == 0.95
+    assert scoring_engine.DEFLATED_SHARPE_MIN == 0.95
+    assert scoring_engine.NEWEY_WEST_T_MIN == 3.0
+    assert scoring_engine.NEWEY_WEST_T_MIN_SINGLE_PREREGISTERED == 2.0
+    assert scoring_engine.PBO_MAX == 0.10
+    assert scoring_engine.MIN_RETURN_OBSERVATIONS == 60
+
+
 def test_the_less_favourable_source_wins() -> None:
     evidence = _complete_evidence(_planted_edge(), psr_zero=0.50, newey_west_t=1.0)
 
@@ -337,8 +448,118 @@ def test_unusable_return_sequence_fails_closed(sequence: tuple) -> None:
 
     assert decision.approved is False
     assert decision.checks["deflated_inputs_valid"] is False
-    for name in ("psr_zero", "min_track_record_length", "deflated_sharpe", "newey_west_t"):
+    for name in SEQUENCE_CHECKS:
         assert decision.checks[name] is False
+
+
+@pytest.mark.parametrize(
+    "sequence",
+    [
+        pytest.param((0.1, 0.2), id="too-short-to-compute"),
+        pytest.param(tuple([0.3, float("nan")] * 50), id="non-finite"),
+        pytest.param(("a",) * 100, id="not-numeric"),
+        pytest.param((1.0,) * 100, id="zero-variance"),
+        pytest.param(_strong_sequence(59), id="below-the-floor"),
+        pytest.param((1.0, 1.1, 1.2), id="three-values"),
+    ],
+)
+def test_unusable_return_sequence_invalidates_valid_caller_statistics(sequence: tuple) -> None:
+    # The caller statistics alone pass, so only the unusable sequence can reject.
+    assert _demo(_caller_statistics(newey_west_t=3.2)).approved is True
+
+    decision = _demo(_caller_statistics(newey_west_t=3.2, return_sequence=sequence))
+
+    assert decision.approved is False
+    assert decision.checks["deflated_inputs_valid"] is False
+    for name in SEQUENCE_CHECKS:
+        assert decision.checks[name] is False, name
+
+
+def test_unusable_trial_sharpes_invalidate_valid_caller_statistics() -> None:
+    assert _demo(_caller_statistics(newey_west_t=3.2, trials=3, trial_sharpes=(0.1, 0.15, 0.2))).approved is True
+
+    decision = _demo(_caller_statistics(newey_west_t=3.2, trials=3, trial_sharpes=(0.1, float("inf"), 0.2)))
+
+    assert decision.approved is False
+    assert decision.checks["deflated_inputs_valid"] is False
+
+
+def test_return_sequence_needs_the_minimum_observations() -> None:
+    at_floor = _demo(_complete_evidence(_strong_sequence(60)))
+    below = _demo(_complete_evidence(_strong_sequence(59)))
+
+    assert at_floor.approved is True, at_floor.reasons
+    assert at_floor.statistics["observations"] == 60
+    assert at_floor.statistics["observations_min"] == 60
+    # One observation short: every other statistic of the prefix still passes,
+    # but a sequence below the floor is unusable evidence.
+    assert below.approved is False
+    assert below.checks["minimum_observations"] is False
+    assert below.checks["deflated_inputs_valid"] is False
+    assert below.statistics["return_sequence_length"] == 59
+    assert below.statistics["psr_zero"] >= 0.95
+    assert below.statistics["newey_west_t"] >= 3.0
+    assert "promotion gate failed: minimum_observations" in below.reasons
+
+
+def test_caller_observations_need_the_minimum_too() -> None:
+    enough = _demo(_caller_statistics(newey_west_t=3.2, sharpe_observations=60, min_track_record_length=20.0))
+    short = _demo(_caller_statistics(newey_west_t=3.2, sharpe_observations=59, min_track_record_length=20.0))
+    missing = _demo(_caller_statistics(newey_west_t=3.2, sharpe_observations=0))
+
+    assert enough.approved is True, enough.reasons
+    # Valid caller statistics, n >= MinTRL, and still below the floor.
+    assert short.checks["deflated_inputs_valid"] is True
+    assert short.checks["min_track_record_length"] is True
+    assert short.checks["minimum_observations"] is False
+    assert short.approved is False
+    assert missing.checks["minimum_observations"] is False
+    assert missing.approved is False
+
+
+def _zero_edge_sequence(kind: str, rng: np.random.Generator, count: int) -> np.ndarray:
+    if kind == "normal":
+        return rng.standard_normal(count)
+    if kind == "student_t3":
+        return rng.standard_t(3, count)
+    if kind == "fixed_target":
+        return _trades(rng, count, 0.0)
+    # Positively autocorrelated daily returns: AR(1) with coefficient 0.3, after a burn-in.
+    shocks = rng.standard_normal(count + 50)
+    values = np.empty_like(shocks)
+    values[0] = shocks[0]
+    for index in range(1, shocks.size):
+        values[index] = 0.3 * values[index - 1] + shocks[index]
+    return values[50:]
+
+
+@pytest.mark.parametrize(
+    ("kind", "preregistered"),
+    [
+        ("normal", True),
+        ("student_t3", True),
+        ("fixed_target", True),
+        ("ar1", False),
+    ],
+)
+def test_zero_edge_sequences_at_and_below_the_floor_are_rejected(kind: str, preregistered: bool) -> None:
+    # Every other item passes and a single trial is declared, so only the
+    # deflated statistics stand between a zero-edge sequence and approval.
+    # The pre-registered flag uses the looser Newey-West t >= 2.0.
+    universes = 400
+    approved_at_floor = approved_below = 0
+    for seed in range(universes):
+        rng = np.random.default_rng(7000 + seed)
+        at_floor = _zero_edge_sequence(kind, rng, 60)
+        evidence = _complete_evidence(at_floor, trials=1, single_preregistered_hypothesis=preregistered)
+        approved_at_floor += _demo(evidence).approved
+        for count in (3, 5, 14, 30, 59):
+            short = _zero_edge_sequence(kind, rng, count)
+            evidence = _complete_evidence(short, trials=1, single_preregistered_hypothesis=preregistered)
+            approved_below += _demo(evidence).approved
+
+    assert approved_at_floor / universes <= 0.05
+    assert approved_below == 0
 
 
 def test_unusable_trial_sharpes_fail_closed() -> None:
@@ -485,6 +706,13 @@ def test_mapping_edge_cases_never_relax_a_check() -> None:
     # A textual "false" is not an explicit boolean, so walk-forward stays required.
     walk = _demo({**mapping, "optimization_used": "false", "walk_forward_passed": False})
     assert walk.checks["walk_forward"] is False
+    # Nor is 0: optimisation counts as used unless it is declared False.
+    walk_zero = _demo({**mapping, "optimization_used": 0, "walk_forward_passed": False})
+    assert walk_zero.checks["walk_forward"] is False
+    assert _demo({**mapping, "optimization_used": False, "walk_forward_passed": False}).checks["walk_forward"] is True
+    # A pass flag is True, 1 or a true-like text; any other integer fails.
+    assert _demo({**mapping, "forward_controls_passed": 2}).checks["forward_controls"] is False
+    assert _demo({**mapping, "forward_controls_passed": 1}).checks["forward_controls"] is True
     # None is not a written justification.
     small = _demo({**mapping, "historical_trades": 150, "statistical_justification": None})
     assert small.checks["sample_size"] is False
