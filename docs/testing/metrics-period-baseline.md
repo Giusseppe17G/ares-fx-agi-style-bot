@@ -31,7 +31,9 @@ drawdown percentiles. Worst-period reports reflect periods represented by the
 curve; monthly trade summaries list months containing closed trades. Sharpe
 and Sortino retain the existing trade-return formulas and scaling; this change
 does not establish calendar annualization or statistical comparability across
-different trading frequencies. Loss streaks use the documented chronological
+different trading frequencies. Engine 0.4.0 later reports that per-trade Sharpe
+formula as `t_stat` and computes `sharpe` from daily mark-to-market equity
+(PROJECT_SPEC 12.3). Loss streaks use the documented chronological
 trade order, while equity combines simultaneous realizations.
 
 Historical diagnostic artifacts, including run `9aba352`, remain unchanged and

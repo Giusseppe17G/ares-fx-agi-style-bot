@@ -59,6 +59,7 @@ def build_competitive_scorecard(
         "expectancy_r": backtest.get("expectancy_r", 0),
         "sharpe": backtest.get("sharpe"),
         "sortino": backtest.get("sortino"),
+        "t_stat": backtest.get("t_stat"),
         "winrate": backtest.get("winrate", 0),
         "trades_count": backtest.get("total_trades", 0),
         "robustness_score": robustness_score,

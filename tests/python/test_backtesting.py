@@ -312,6 +312,7 @@ def test_backtest_cli_accepts_mode(monkeypatch, tmp_path: Path, capsys) -> None:
                 "expectancy_r": 0,
                 "sharpe": None,
                 "sortino": None,
+                "t_stat": None,
                 "reports_created": [],
                 "execution_attempted": False,
             }

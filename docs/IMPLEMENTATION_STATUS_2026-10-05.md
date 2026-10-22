@@ -41,6 +41,15 @@ anteriores. Se conserva ese historial y se distingue de la evidencia nueva.
 - Motor OHLC 0.3.2 transmite tick_size real al fill y valida la rejilla de SL/TP.
   BE/trailing usan distancias decimales y stops conservadores; las regresiones
   reproducen precios antes inejecutables y activacion perdida de BE exacto.
+- Motor OHLC 0.4.0 (barras bid, gaps a traves del SL, spread de la barra de
+  salida y `t_stat` separado del Sharpe diario): reportes de motores anteriores
+  deben reevaluarse antes de usarse como evidencia, sin sobrescribirlos. SL/TP
+  ya cruzados en su lado de disparo se rechazan y Sharpe/skew/kurtosis/CAGR/
+  Calmar exigen muestra diaria minima, con motivo para cada metrica null. Motor
+  0.4.1: un movimiento BE/trailing que no queda estrictamente del lado protector
+  del cierre (bid BUY, ask SELL) se rechaza como en MT5 y conserva el stop
+  anterior (`stop_move_rejected_invalid_side`); ninguna salida por stop llena
+  en un nivel que el precio no negocio (docs/decisions/2026-10-17-bid-bar-gap-and-exit-spread-convention.md).
 - Monte Carlo conserva la secuencia realmente mezclada y separa su indice
   sintetico del calendario. Stress declara aproximaciones posteriores al trade;
   retrasos, sesiones, fill rate y barras ausentes siguen NOT_MODELED. Reportes v2

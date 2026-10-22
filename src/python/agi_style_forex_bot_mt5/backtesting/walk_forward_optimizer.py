@@ -626,8 +626,10 @@ def _scoped_outcome(outcome: BacktestOutcome, frame: pd.DataFrame) -> BacktestOu
         exposed |= evaluation.timestamp.between(pd.Timestamp(trade.entry_time), pd.Timestamp(trade.exit_time))
     metrics = calculate_metrics(valid, initial_balance=balance, equity_curve=equity,
                                 total_bars=len(evaluation), exposed_bars=int(exposed.sum()))
+    # The unscoped marks include warmup and excluded trades; they are not evidence here.
     return replace(outcome, settings=replace(outcome.settings, initial_balance=balance),
-                   trades=tuple(valid), rejected_candidates=tuple(rejected), metrics=metrics, equity_curve=equity)
+                   trades=tuple(valid), rejected_candidates=tuple(rejected), metrics=metrics, equity_curve=equity,
+                   mark_to_market_curve=None)
 
 
 def _temporal_audit(train, validation, test, train_outcome, validation_outcome, test_outcome) -> dict[str, Any]:

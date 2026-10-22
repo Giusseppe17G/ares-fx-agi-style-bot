@@ -98,12 +98,19 @@ Read these first:
 - `max_drawdown_pct`
 - `winrate`
 - `expectancy_r`
-- `sharpe`
+- `sharpe` (annualised from daily mark-to-market equity, flat weekdays included;
+  null below 20 daily returns, as are `skew`/`kurtosis`, and `cagr_pct`/`calmar`
+  below 261; `daily_metrics_flags` gives the reason for every null daily metric)
+- `t_stat` (per-trade mean/std times sqrt(n); it grows with the sample and is not a Sharpe)
 - `sortino`
 
 Then inspect:
 
 - `trades.csv` for MAE/MFE, duration, SL/TP exits, break-even/trailing outcomes.
+  Engine 0.4.1 refuses a break-even/trailing move that is not strictly below
+  the closing bid (BUY) or above the closing ask (SELL), as MT5 would; the
+  previous stop stays and the trade metadata carries `stop_move_flags` and
+  `stop_moves_rejected`.
 - `by_symbol.csv` for symbol concentration.
 - `by_regime.csv` for whether edge exists only in one market condition.
 - `by_session.csv`, `by_weekday.csv`, and `by_hour_utc.csv` for time concentration.
