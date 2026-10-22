@@ -126,8 +126,13 @@ other check passing), from simulations of 4,000-20,000 draws per cell:
 Positively autocorrelated per-day returns at the pre-registered threshold are
 the binding case: they stay above 5% through 40 observations, because the
 Newey-West lag rule corrects too little in short samples, and first drop
-below 5% near 50. At 60 every simulated case is below 5% with some margin, so
-the floor is 60. That also rules out a per-day sequence covering only the
+below 5% near 50. At 60 the simulated cases above are at or below 5% (AR(1)
+0.3 at 4.8%, close to the limit), so the floor is 60. Stronger
+autocorrelation is not covered by the floor: at the pre-registered t >= 2.0,
+AR(1) 0.5 passed 6.5% at 60 observations and the daily P&L of positions held
+three days 5.3% (later review). The relaxed threshold therefore applies only
+when a return sequence is supplied and its lag-1 autocorrelation is at most
+0.2; otherwise t >= 3.0 holds. That also rules out a per-day sequence covering only the
 14-day forward window: a per-day sequence needs at least 60 days, and a
 per-trade sequence at least 60 trades.
 

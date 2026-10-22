@@ -244,3 +244,28 @@ def _write_edge_reports(tmp_path: Path) -> Path:
     ).to_csv(edge / "by_regime.csv", index=False)
     pd.DataFrame([{"blocking_reason": "SPREAD_BLOCK", "count": 4}, {"blocking_reason": "ENSEMBLE_SCORE_LOW", "count": 8}]).to_csv(edge / "blockers.csv", index=False)
     return edge
+
+
+def test_latest_run_summary_suggests_a_filtered_run_only_on_kept_symbols(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    run = runs / "20260517-160651-real-data-research"
+    run.mkdir(parents=True)
+    (run / "final_summary_compact.json").write_text(json.dumps({"run_id": run.name, "total_trades": 213, "execution_attempted": False}), encoding="utf-8")
+    edge_dir = _write_edge_reports(tmp_path)
+    build_filtered_profile(runs_root=runs, edge_dir=edge_dir, output_dir=run / "reports" / "edge_filtering")
+
+    summary = load_latest_run_summary(runs)
+
+    assert "--symbols EURUSD " in summary["recommended_filtered_run_command"]
+    # Without a significant symbol the suggestion is empty instead of widening to every valid symbol.
+    by_symbol = edge_dir / "by_symbol.csv"
+    frame = pd.read_csv(by_symbol)
+    frame["holm_adjusted_p_value"] = 1.0
+    frame.to_csv(by_symbol, index=False)
+    build_filtered_profile(runs_root=runs, edge_dir=edge_dir, output_dir=run / "reports" / "edge_filtering")
+
+    summary = load_latest_run_summary(runs)
+
+    assert summary["symbols_keep"] == []
+    assert summary["recommended_filtered_run_command"] == ""
+    assert "no symbol passed" in summary["recommended_filtered_run_note"]

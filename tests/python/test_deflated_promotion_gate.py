@@ -296,17 +296,50 @@ def test_caller_computed_statistics_are_accepted_without_a_sequence() -> None:
     assert decision.approved is True, decision.reasons
 
 
-def test_newey_west_threshold_relaxes_only_for_one_preregistered_trial() -> None:
-    strict = _demo(_caller_statistics())
-    relaxed = _demo(_caller_statistics(single_preregistered_hypothesis=True))
-    contradictory = _demo(_caller_statistics(single_preregistered_hypothesis=True, trials=3))
-    text_flag = _demo(_caller_statistics(single_preregistered_hypothesis="yes"))
+def _moving_average_sequence(sharpe: float, count: int = 400, seed: int = 5) -> np.ndarray:
+    """MA(1) returns (lag-1 autocorrelation about 0.5), rescaled to an exact per-period Sharpe."""
 
+    shocks = np.random.default_rng(seed).standard_normal(count + 1)
+    smoothed = shocks[1:] + shocks[:-1]
+    return (smoothed - smoothed.mean()) / smoothed.std(ddof=1) + sharpe
+
+
+def test_newey_west_threshold_relaxes_only_for_one_preregistered_trial() -> None:
+    # A per-period Sharpe of 0.125 over 400 i.i.d. observations: Newey-West t about 2.4.
+    sequence = _sequence_with_sharpe(0.125, count=400)
+    strict = _demo(_complete_evidence(sequence))
+    relaxed = _demo(_complete_evidence(sequence, single_preregistered_hypothesis=True))
+    contradictory = _demo(_complete_evidence(sequence, single_preregistered_hypothesis=True, trials=3))
+    several_sharpes = _demo(
+        _complete_evidence(sequence, single_preregistered_hypothesis=True, trials=1, trial_sharpes=(0.1, 0.15, 0.2))
+    )
+    text_flag = _demo(_complete_evidence(sequence, single_preregistered_hypothesis="yes"))
+
+    assert 2.0 <= relaxed.statistics["newey_west_t"] < 3.0
     assert strict.checks["newey_west_t"] is False
     assert relaxed.checks["newey_west_t"] is True and relaxed.approved is True
     assert relaxed.statistics["newey_west_t_threshold"] == 2.0
     assert contradictory.checks["newey_west_t"] is False
+    # trials=1 with three trial Sharpes counts three trials: no relaxation.
+    assert several_sharpes.statistics["trials"] == 3
+    assert several_sharpes.checks["newey_west_t"] is False
     assert text_flag.checks["newey_west_t"] is False
+
+
+def test_relaxed_newey_west_threshold_needs_a_sequence_without_strong_autocorrelation() -> None:
+    caller_only = _demo(_caller_statistics(single_preregistered_hypothesis=True))
+    autocorrelated = _demo(
+        _complete_evidence(_moving_average_sequence(0.2), single_preregistered_hypothesis=True)
+    )
+
+    # Caller statistics alone cannot be checked for autocorrelation: strict threshold.
+    assert caller_only.statistics["newey_west_t_threshold"] == 3.0
+    assert caller_only.checks["newey_west_t"] is False
+    assert caller_only.statistics["single_preregistered_requested"] is True
+    assert autocorrelated.statistics["lag1_autocorrelation"] > 0.2
+    assert 2.0 <= autocorrelated.statistics["newey_west_t"] < 3.0
+    assert autocorrelated.statistics["newey_west_t_threshold"] == 3.0
+    assert autocorrelated.approved is False
 
 
 def test_min_track_record_length_must_be_reached() -> None:
@@ -318,16 +351,14 @@ def test_min_track_record_length_must_be_reached() -> None:
 @pytest.mark.parametrize(
     ("overrides", "check", "expected"),
     [
-        ({"psr_zero": 0.949}, "psr_zero", False),
+        ({"psr_zero": math.nextafter(0.95, 0.0)}, "psr_zero", False),
         ({"psr_zero": 0.95}, "psr_zero", True),
-        ({"deflated_sharpe": 0.949}, "deflated_sharpe", False),
+        ({"deflated_sharpe": math.nextafter(0.95, 0.0)}, "deflated_sharpe", False),
         ({"deflated_sharpe": 0.95}, "deflated_sharpe", True),
         ({"min_track_record_length": 401.0}, "min_track_record_length", False),
         ({"min_track_record_length": 400.0}, "min_track_record_length", True),
         ({"newey_west_t": 2.999}, "newey_west_t", False),
         ({"newey_west_t": 3.0}, "newey_west_t", True),
-        ({"newey_west_t": 1.999, "single_preregistered_hypothesis": True}, "newey_west_t", False),
-        ({"newey_west_t": 2.0, "single_preregistered_hypothesis": True}, "newey_west_t", True),
         ({"sharpe_observations": 59, "min_track_record_length": 20.0}, "minimum_observations", False),
         ({"sharpe_observations": 60, "min_track_record_length": 20.0}, "minimum_observations", True),
     ],
@@ -343,9 +374,9 @@ def test_caller_statistics_at_their_thresholds(overrides: dict, check: str, expe
 @pytest.mark.parametrize(
     ("overrides", "check", "expected"),
     [
-        ({"psr_zero": 0.949}, "psr_zero", False),
+        ({"psr_zero": math.nextafter(0.95, 0.0)}, "psr_zero", False),
         ({"psr_zero": 0.95}, "psr_zero", True),
-        ({"deflated_sharpe": 0.949}, "deflated_sharpe", False),
+        ({"deflated_sharpe": math.nextafter(0.95, 0.0)}, "deflated_sharpe", False),
         ({"deflated_sharpe": 0.95}, "deflated_sharpe", True),
         # MinTRL one observation above the sequence's 500 observations.
         ({"min_track_record_length": 501.0}, "min_track_record_length", False),
@@ -400,6 +431,7 @@ def test_documented_thresholds_are_pinned() -> None:
     assert scoring_engine.NEWEY_WEST_T_MIN_SINGLE_PREREGISTERED == 2.0
     assert scoring_engine.PBO_MAX == 0.10
     assert scoring_engine.MIN_RETURN_OBSERVATIONS == 60
+    assert scoring_engine.PREREGISTERED_MAX_LAG1_AUTOCORRELATION == 0.2
 
 
 def test_the_less_favourable_source_wins() -> None:
@@ -524,12 +556,17 @@ def _zero_edge_sequence(kind: str, rng: np.random.Generator, count: int) -> np.n
         return rng.standard_t(3, count)
     if kind == "fixed_target":
         return _trades(rng, count, 0.0)
-    # Positively autocorrelated daily returns: AR(1) with coefficient 0.3, after a burn-in.
+    if kind == "overlapping_3_day":
+        # Daily P&L of positions held three days: overlapping 3-day sums.
+        shocks = rng.standard_normal(count + 2)
+        return shocks[2:] + shocks[1:-1] + shocks[:-2]
+    # Positively autocorrelated daily returns: AR(1), after a burn-in.
+    coefficient = 0.5 if kind == "ar1_strong" else 0.3
     shocks = rng.standard_normal(count + 50)
     values = np.empty_like(shocks)
     values[0] = shocks[0]
     for index in range(1, shocks.size):
-        values[index] = 0.3 * values[index - 1] + shocks[index]
+        values[index] = coefficient * values[index - 1] + shocks[index]
     return values[50:]
 
 
@@ -540,6 +577,9 @@ def _zero_edge_sequence(kind: str, rng: np.random.Generator, count: int) -> np.n
         ("student_t3", True),
         ("fixed_target", True),
         ("ar1", False),
+        ("ar1", True),
+        ("ar1_strong", True),
+        ("overlapping_3_day", True),
     ],
 )
 def test_zero_edge_sequences_at_and_below_the_floor_are_rejected(kind: str, preregistered: bool) -> None:
@@ -669,6 +709,7 @@ def test_rejections_name_the_failed_statistics() -> None:
         {"deflated_sharpe": "high"},
         {"newey_west_t": float("inf")},
         {"min_track_record_length": -1.0},
+        {"min_track_record_length": 0.0},
         {"sharpe_observations": -5},
         {"sharpe_observations": 400.5},
     ],

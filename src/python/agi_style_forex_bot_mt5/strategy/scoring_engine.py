@@ -310,15 +310,19 @@ FORWARD_SHADOW_MIN_TRADES = 200
 FORWARD_SHADOW_MIN_PROFIT_FACTOR = 1.15
 PSR_ZERO_MIN = 0.95
 MIN_TRACK_RECORD_CONFIDENCE = 0.95
-# PSR, MinTRL and the Newey-West t are asymptotic. Below this many observations
-# a zero-edge sequence passes them more often than 5% (with positively
-# autocorrelated returns and the pre-registered t >= 2.0 at 30-40 observations,
-# for example); at 60 every simulated case stays at or below 5%. The floor holds
-# in addition to n >= MinTRL. See the decision record for the simulation.
+# PSR, MinTRL and the Newey-West t are asymptotic, so a short sequence can pass
+# them by luck. The floor holds in addition to n >= MinTRL; at 60 observations
+# the simulated zero-edge cases in the decision record stay at or below 5% for
+# i.i.d. returns and lag-1 autocorrelation up to 0.3.
 MIN_RETURN_OBSERVATIONS = 60
 DEFLATED_SHARPE_MIN = 0.95
 NEWEY_WEST_T_MIN = 3.0
 NEWEY_WEST_T_MIN_SINGLE_PREREGISTERED = 2.0
+# The looser t applies only to a supplied return sequence whose lag-1
+# autocorrelation is at most this: strongly autocorrelated daily returns (for
+# example positions held several days) pass t >= 2.0 more than 5% of the time
+# without an edge, and caller-only statistics cannot be checked for it.
+PREREGISTERED_MAX_LAG1_AUTOCORRELATION = 0.2
 PBO_MAX = 0.10
 
 _TRUE_TEXT = frozenset({"1", "true", "yes", "on"})
@@ -539,7 +543,14 @@ def _deflated_checks(data: PromotionEvidence) -> tuple[dict[str, bool], dict[str
     newey_west = _least_favourable(min, computed.get("newey_west_t"), caller["newey_west_t"])
     min_trl = _least_favourable(max, computed.get("min_track_record_length"), caller["min_track_record_length"])
     observations = _least_favourable(min, computed.get("observations"), caller["observations"])
-    single_preregistered = data.single_preregistered_hypothesis is True and effective_trials == 1
+    lag1 = computed.get("lag1_autocorrelation")
+    single_preregistered = (
+        data.single_preregistered_hypothesis is True
+        and effective_trials == 1
+        and lag1 is not None
+        and math.isfinite(lag1)
+        and lag1 <= PREREGISTERED_MAX_LAG1_AUTOCORRELATION
+    )
     t_threshold = NEWEY_WEST_T_MIN_SINGLE_PREREGISTERED if single_preregistered else NEWEY_WEST_T_MIN
     pbo = _real(data.pbo)
 
@@ -579,6 +590,9 @@ def _deflated_checks(data: PromotionEvidence) -> tuple[dict[str, bool], dict[str
         "trials": effective_trials,
         "trial_sharpes_supplied": int(trial_sharpes.size),
         "single_preregistered_hypothesis": single_preregistered,
+        "single_preregistered_requested": data.single_preregistered_hypothesis is True,
+        "lag1_autocorrelation": lag1,
+        "lag1_autocorrelation_max": PREREGISTERED_MAX_LAG1_AUTOCORRELATION,
         "newey_west_t": newey_west,
         "newey_west_t_threshold": t_threshold,
         "pbo": pbo,
@@ -603,6 +617,7 @@ def _sequence_statistics(edge_statistics: Any, sequence: np.ndarray, trial_sharp
             sharpe, 0.0, skew, kurtosis, MIN_TRACK_RECORD_CONFIDENCE
         ),
         "newey_west_t": edge_statistics.newey_west_t_stat(sequence),
+        "lag1_autocorrelation": _lag1_autocorrelation(sequence),
     }
     if trials >= 1:
         # Under the null every trial has zero true Sharpe and its estimate has
@@ -617,6 +632,13 @@ def _sequence_statistics(edge_statistics: Any, sequence: np.ndarray, trial_sharp
             sharpe, benchmark, observations, skew, kurtosis
         )
     return result
+
+
+def _lag1_autocorrelation(sequence: np.ndarray) -> float:
+    """Sample lag-1 autocorrelation (the sequence has non-zero variance here)."""
+
+    centred = sequence - sequence.mean()
+    return float(np.dot(centred[1:], centred[:-1]) / np.dot(centred, centred))
 
 
 def _caller_statistics(data: PromotionEvidence) -> tuple[dict[str, Any], bool]:
