@@ -263,7 +263,9 @@ def test_a_forward_run_seals_decisions_and_refuses_a_changed_past(tmp_path):
     assert first["through_day"] == "2027-01-29" and first["forward_days"] > 60
     assert first["rule"]["status"] == "ONGOING" and first["decisions"] and first["execution_authorized"] is False
     assert len(first["days"]) == len(first["primary"]) == len(first["broker_swap"]) == first["forward_days"]
-    assert set(first["closes"]) == set(CURRENCIES) and len(first["inputs"]["price_files_sha256"]) == 9
+    assert set(first["closes"]["values"]) == set(CURRENCIES) and first["closes"]["days"][0] == "2018-01-02"
+    assert first["closes"]["days"][-1] == first["closes_through"] == first["through_day"]
+    assert len(first["inputs"]["price_files_sha256"]) == 9
     assert all(set(item["directions"].values()) <= {-1.0, 0.0, 1.0} for item in first["decisions"])
     ledger = TrialLedger(tmp_path / "ledger.jsonl")
     assert [record["kind"] for record in ledger.records()] == [CHECKPOINT]
@@ -425,8 +427,23 @@ def test_the_frozen_forward_plan_file_is_self_consistent_and_tracks_v2():
     frozen = json.loads((ROOT / "docs/research/daily_fx_value_forward_v1/plan.json").read_text(encoding="utf-8"))
     canonical = json.dumps(frozen["plan"], sort_keys=True, separators=(",", ":"))
     assert frozen["plan_hash"] == hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    assert frozen["plan_hash"] == "1515edcdf902353a6d78be5a77c879e7a9f10662f9221bc242dd1f046414fcae"
+    assert frozen["plan_hash"] == "0da01b7ad0ff9307c95a8c4414160c53dbbe1a4caceecc1584e79510d4693fe2"
     book = json.loads((ROOT / "docs/research/daily_fx_real_value_v2/plan.json").read_text(encoding="utf-8"))
     assert frozen["plan"]["book_plan_hash"] == book["plan_hash"]
     assert frozen["plan"]["config"] == book["plan"]["hypotheses"][0]["primary"]
     assert frozen["plan"]["forward_start"] == "2026-10-26"
+
+
+def test_a_revised_close_is_refused_even_when_the_sealed_returns_do_not_move(tmp_path):
+    folder = _export(tmp_path / "prices", end="2027-01-29")
+    first = _run(tmp_path, folder, _supplement())
+    held = [item["weights_after_execution"] for item in first["decisions"] if item["weights_after_execution"]][-1]
+    flat = next(code for code, weight in held.items() if weight == 0.0)
+    # The broker re-quotes the last sealed close of a currency the book does not hold.
+    revised = _export(tmp_path / "revised", end="2027-02-26", shock=(flat, first["through_day"]))
+    with pytest.raises(ForwardRefused, match="FORWARD_HISTORY_CHANGED"):
+        _run(tmp_path, revised, _supplement())
+    # Pre-start history is sealed too: a revision there is refused as well.
+    old = _export(tmp_path / "old", end="2027-02-26", shock=(flat, "2019-03-12"))
+    with pytest.raises(ForwardRefused, match="FORWARD_HISTORY_CHANGED"):
+        _run(tmp_path, old, _supplement())

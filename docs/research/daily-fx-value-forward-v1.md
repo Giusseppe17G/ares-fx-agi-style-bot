@@ -1,14 +1,17 @@
 # Pre-registration: forward paper tracking of the v2 real-value book
 
 Status: FROZEN on 2026-10-23, before the first forward day (2026-10-26).
+Re-frozen the same day, still before any forward day, after a PR review found
+that sealed closes were not compared on replay. The first freeze (plan
+`1515edcd…`, commit b4d54be) was never run on broker data and is superseded.
 Research only; no outcome authorises execution (release-lock ADR). Decision record:
 `docs/decisions/2026-10-23-daily-fx-value-forward-paper.md`.
 
 - Plan: `value_forward_v1` in `src/python/agi_style_forex_bot_mt5/research/daily_fx/plans.py`.
 - Frozen plan file: `docs/research/daily_fx_value_forward_v1/plan.json` (written by `forward_runner freeze`).
-- Plan hash: `1515edcdf902353a6d78be5a77c879e7a9f10662f9221bc242dd1f046414fcae`.
-- Engine hash (study engine, `forward.py`, `forward_runner.py`, `broker_swap_snapshot.py`, `core/instruments/registry.py`): `36e5d0d5ed91599478bffb7d34d6cb93984e68ab13bedd012c827019c5781c47`.
-- Code commit to run the tracker from: `b4d54be` (full hash `b4d54bec2073e8d7220fcbf3831e33cf2cd19094`).
+- Plan hash: `0da01b7ad0ff9307c95a8c4414160c53dbbe1a4caceecc1584e79510d4693fe2`.
+- Engine hash (study engine, `forward.py`, `forward_runner.py`, `broker_swap_snapshot.py`, `core/instruments/registry.py`): `875c04e8ec6c04a5176e78df47d290cf4138ce81bce1bb974ea9786b3896cc83`.
+- Code commit to run the tracker from: PENDING (the re-freeze commit).
 
 ## Question
 
@@ -110,7 +113,8 @@ swap withholding is not simulated.
 - **Ledger.** Each checkpoint seals, for its new days:
   - primary returns;
   - broker-swap returns;
-  - the closes;
+  - every close not yet sealed (the first checkpoint seals all closes from
+    2018-01-02);
   - the decisions;
   - the fixed inflation years;
   - the sha256 of every input file.
@@ -118,7 +122,7 @@ swap withholding is not simulated.
 
   | Code | Cause |
   |---|---|
-  | `FORWARD_HISTORY_CHANGED` | A recomputed primary return differs by more than 1e-10, or a decision differs. |
+  | `FORWARD_HISTORY_CHANGED` | A recomputed primary return differs by more than 1e-10, a sealed close by more than a relative 1e-12, or a decision differs. |
   | `ENGINE_CHANGED` or `PLAN_MISMATCH` | The code or the plan changed. Run from the pinned commit. |
   | `INFLATION_BASE_CHANGED` | The pinned inflation file differs. |
   | `LEDGER_MISMATCH` | The ledger belongs to another plan. |

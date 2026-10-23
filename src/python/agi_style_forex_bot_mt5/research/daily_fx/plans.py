@@ -220,8 +220,9 @@ def value_forward_v1() -> "ForwardPlan":
             "before it.",
             "Primary returns: the study's definition (spot, study costs, 75 bps/yr mark-up on gross exposure). "
             "Kept alongside: the mark-up replaced by the broker's captured swap terms (POINTS mode only).",
-            "Ledger: each checkpoint seals its days' returns, closes, decisions, fixed inflation years and input "
-            "hashes; a later run must recompute sealed returns within 1e-10 and decisions exactly or it refuses. "
+            "Ledger: each checkpoint seals its days' returns, every close from 2018-01-02 not yet sealed, its "
+            "decisions, fixed inflation years and input hashes; a later run must recompute sealed returns within "
+            "1e-10, read sealed closes within a relative 1e-12 and recompute decisions exactly, or it refuses. "
             "Sealed broker-swap values are never recomputed; a final status closes the record.",
             "Rule: annual looks for ten years; CONFIRMED when the Newey-West t of the primary daily returns reaches "
             "the O'Brien-Fleming boundary (5.695, 4.027, 3.288, 2.848, 2.547, 2.325, 2.153, 2.014, 1.898, 1.801; "

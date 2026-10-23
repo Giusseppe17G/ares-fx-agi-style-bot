@@ -1,6 +1,7 @@
 {
   "plan": {
     "book_plan_hash": "e8831946d99e7a058b987a5b24707c1f0e98d22c1dd8ba961aecae77437b7556",
+    "close_tolerance": 1e-12,
     "config": {
       "average_rows": 261,
       "execution_lag_days": 1,
@@ -46,7 +47,7 @@
       "NZD",
       "SEK"
     ],
-    "engine_sha256": "36e5d0d5ed91599478bffb7d34d6cb93984e68ab13bedd012c827019c5781c47",
+    "engine_sha256": "875c04e8ec6c04a5176e78df47d290cf4138ce81bce1bb974ea9786b3896cc83",
     "forward_start": "2026-10-26",
     "forward_version": "daily_fx_forward_v1",
     "hypothesis_id": "H1_XS_REAL_VALUE_5Y",
@@ -69,7 +70,7 @@
       "Forward days: from 2026-10-26, after this plan was frozen; earlier days only build the book's state.",
       "Inflation: the pinned World Bank file (datasets/cpi 3750e450) up to 2024; each later year from a World Bank download, taken the first time all ten series have it and never revised afterwards. Year Y is used from 1 July of Y+1; a rebalance whose inputs are missing stops the record the day before it.",
       "Primary returns: the study's definition (spot, study costs, 75 bps/yr mark-up on gross exposure). Kept alongside: the mark-up replaced by the broker's captured swap terms (POINTS mode only).",
-      "Ledger: each checkpoint seals its days' returns, closes, decisions, fixed inflation years and input hashes; a later run must recompute sealed returns within 1e-10 and decisions exactly or it refuses. Sealed broker-swap values are never recomputed; a final status closes the record.",
+      "Ledger: each checkpoint seals its days' returns, every close from 2018-01-02 not yet sealed, its decisions, fixed inflation years and input hashes; a later run must recompute sealed returns within 1e-10, read sealed closes within a relative 1e-12 and recompute decisions exactly, or it refuses. Sealed broker-swap values are never recomputed; a final status closes the record.",
       "Rule: annual looks for ten years; CONFIRMED when the Newey-West t of the primary daily returns reaches the O'Brien-Fleming boundary (5.695, 4.027, 3.288, 2.848, 2.547, 2.325, 2.153, 2.014, 1.898, 1.801; one-sided alpha 0.05) and the broker-swap series covers 80% of the days with a positive total; ABANDONED at a 12% drawdown or a t <= -1 from the second look; ENDED after ten looks.",
       "Power, simulated before any forward day (an upper bound): P(CONFIRMED within 10 years) is about 0.05 with no edge, 0.23 at a true net Sharpe of 0.3, 0.33 at 0.4, 0.45 at 0.5, 0.57 at 0.6 and 0.79 at 0.8; within 5 years 0.03-0.23.",
       "The tracker runs from a git worktree pinned at the freeze commit; the plan binds the engine, the tracker, its runner and the swap conversion code.",
@@ -98,5 +99,5 @@
     "swap_max_age_days": 35,
     "tolerance": 1e-10
   },
-  "plan_hash": "1515edcdf902353a6d78be5a77c879e7a9f10662f9221bc242dd1f046414fcae"
+  "plan_hash": "0da01b7ad0ff9307c95a8c4414160c53dbbe1a4caceecc1584e79510d4693fe2"
 }

@@ -53,14 +53,21 @@ book forward, on the operator's own broker data, is that path.
    checkpoints. Each one seals its new days:
    - primary returns;
    - broker-swap returns (null where uncovered);
-   - the closes of the nine currencies;
+   - every close of the nine currencies not yet sealed (the first checkpoint
+     seals all closes from 2018-01-02);
    - the decisions;
    - the inflation years fixed;
    - the sha256 of every export, the inflation supplement and its download
      record, and the swap snapshots seen and used.
 
-   A later run must recompute every sealed primary return within an absolute
-   1e-10 and every sealed decision exactly. Otherwise it refuses
+   A later run must:
+   - recompute every sealed primary return within an absolute 1e-10;
+   - read every sealed close within a relative 1e-12;
+   - recompute every sealed decision exactly.
+
+   A broker revision of a pair the book does not hold, or of pre-start
+   history, is therefore refused too. Codex found this gap on the PR before
+   the forward start. Otherwise it refuses
    (`FORWARD_HISTORY_CHANGED`) and appends nothing. The tolerance lets
    last-bit numerical noise between machines pass, never a real revision.
 

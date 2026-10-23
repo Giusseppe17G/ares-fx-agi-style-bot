@@ -16,8 +16,10 @@ Each checkpoint seals the values of its new days:
 - the inflation years it fixed;
 - the sha256 of every input file.
 
-A later run must recompute the same primary returns, within ``TOLERANCE``,
-and the same decisions. Otherwise it refuses to append anything
+A later run must recompute the same primary returns within ``TOLERANCE``,
+read the same sealed closes within ``CLOSE_TOLERANCE`` (every close from
+``price_start``, so a revision of a pair the book does not hold is caught
+too) and recompute the same decisions. Otherwise it refuses to append anything
 (``FORWARD_HISTORY_CHANGED``), so a broker that revises its history is never
 absorbed silently. The broker-swap values of sealed days are taken from the
 ledger, never recomputed, and a swap snapshot that claims to predate the last
@@ -90,6 +92,7 @@ FORWARD_VERSION = "daily_fx_forward_v1"
 CHECKPOINT = "forward_checkpoint"
 TERMINAL = {"CONFIRMED", "ABANDONED_FUTILITY", "ABANDONED_DRAWDOWN", "ENDED_WITHOUT_CONFIRMATION"}
 TOLERANCE = 1e-10  # absolute, on daily log returns: last-bit numerical noise passes, any real change does not
+CLOSE_TOLERANCE = 1e-12  # relative, on sealed closes
 # Code that decides every forward number: the study engine, the tracker, its runner and the swap conversion.
 FORWARD_FILES = (*ENGINE_FILES, "daily_fx/forward.py", "daily_fx/forward_runner.py", "../broker_swap_snapshot.py",
                  "../core/instruments/registry.py")
@@ -162,7 +165,8 @@ class ForwardPlan:
                 "inflation_base_sha256": self.inflation_base_sha256,
                 "inflation_base_last_year": self.inflation_base_last_year,
                 "swap_max_age_days": self.swap_max_age_days, "rule": self.rule.to_dict(),
-                "tolerance": TOLERANCE, "engine_sha256": self.engine, "notes": list(self.notes)}
+                "tolerance": TOLERANCE, "close_tolerance": CLOSE_TOLERANCE, "engine_sha256": self.engine,
+                "notes": list(self.notes)}
 
     def canonical_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
@@ -535,6 +539,16 @@ def _sealed(previous: Sequence[Mapping[str, Any]]) -> tuple[pd.Series, pd.Series
     return pd.Series(primary, index=index, dtype=float), pd.Series(swap, index=index, dtype=float)
 
 
+def _sealed_closes(previous: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
+    frames = []
+    for record in previous:
+        block = record["payload"]["closes"]
+        if block["days"]:
+            index = pd.DatetimeIndex(pd.to_datetime(block["days"])).tz_localize("UTC")
+            frames.append(pd.DataFrame(block["values"], index=index, dtype=float))
+    return pd.concat(frames) if frames else pd.DataFrame(dtype=float)
+
+
 def run_forward(plan: ForwardPlan, prices_in: BrokerPrices, inflation_base: pd.DataFrame, inflation_base_sha256: str,
                 supplement: pd.DataFrame | None, swap_snapshots: Sequence[Mapping[str, Any]], ledger: TrialLedger,
                 now_utc: datetime | None = None, inputs: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -590,6 +604,15 @@ def run_forward(plan: ForwardPlan, prices_in: BrokerPrices, inflation_base: pd.D
             bad = drift[(drift > TOLERANCE) | recomputed.isna()].index[0]
             raise ForwardRefused("FORWARD_HISTORY_CHANGED", f"the recomputed return of {bad.date()} differs from "
                                  "the record: the broker history or an input changed after the fact")
+        sealed_closes = _sealed_closes(previous)
+        current = prices.reindex(index=sealed_closes.index, columns=sealed_closes.columns)
+        moved = (current - sealed_closes).abs() / sealed_closes.abs()
+        broken = moved.isna() | (moved > CLOSE_TOLERANCE)
+        if broken.any().any():
+            day = broken.any(axis=1).idxmax()
+            codes = ", ".join(broken.columns[broken.loc[day]])
+            raise ForwardRefused("FORWARD_HISTORY_CHANGED", f"the sealed close of {codes} on {day.date()} changed: "
+                                 "the broker revised its history after the fact")
     # Snapshots claiming to predate the last checkpoint count only if that checkpoint saw them.
     seen = {item for record in previous for item in record["payload"]["swap_snapshots_seen"]}
     cutoff = pd.Timestamp(previous[-1]["payload"]["run_at_utc"]) if previous else None
@@ -626,6 +649,9 @@ def run_forward(plan: ForwardPlan, prices_in: BrokerPrices, inflation_base: pd.D
         decisions.append({"decision_day": key, "execution_day": str(execution.date()) if execution is not None
                           else None, "directions": directions, "weights_after_execution": held,
                           "sealed_after_execution": bool(execution is not None and execution.date() < now.date())})
+    last_sealed_close = (pd.Timestamp(previous[-1]["payload"]["closes_through"], tz="UTC") if previous else None)
+    close_days = prices.index[(prices.index <= through) if last_sealed_close is None
+                              else (prices.index > last_sealed_close) & (prices.index <= through)]
     status = rule_status(all_primary, all_swap, plan.forward_start, through, plan.rule)
     summary = {
         "forward_version": FORWARD_VERSION, "plan_hash": plan_hash, "book_plan_hash": plan.book_plan_hash,
@@ -636,7 +662,10 @@ def run_forward(plan: ForwardPlan, prices_in: BrokerPrices, inflation_base: pd.D
         "days": [str(day.date()) for day in new_days],
         "primary": [float(value) for value in new_primary],
         "broker_swap": [None if not math.isfinite(value) else float(value) for value in new_swap],
-        "closes": {code: [float(value) for value in prices.loc[new_days, code]] for code in prices.columns},
+        # Every close from price_start is sealed once, so any later revision is caught.
+        "closes": {"days": [str(day.date()) for day in close_days],
+                   "values": {code: [float(value) for value in prices.loc[close_days, code]] for code in prices.columns}},
+        "closes_through": str(through.date()),
         "inputs": {"price_files_sha256": dict(prices_in.files), **dict(inputs or {})},
         "inflation": {"base_sha256": inflation_base_sha256, "last_year_used": int(inflation.index.max()),
                       "notes": notes},
