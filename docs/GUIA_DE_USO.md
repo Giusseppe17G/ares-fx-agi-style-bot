@@ -431,6 +431,8 @@ ventaja con datos historicos. La unica prueba limpia que queda son datos que
 todavia no existian cuando se congelo: los dias desde el **2026-10-26**,
 simulados con los precios y el swap de **tu** broker. No envia ninguna orden.
 Plan y regla congelados: `docs/research/daily-fx-value-forward-v1.md`.
+Lista de comandos para copiar y pegar (con casillas para no olvidar nada):
+`docs/COMANDOS_SEGUIMIENTO.md`.
 
 Lo que hay que saber antes de empezar:
 
