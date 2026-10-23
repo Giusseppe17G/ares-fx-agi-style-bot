@@ -129,11 +129,14 @@ class DeflatedSharpe:
                 "trials": self.trials, "skew": self.skew, "kurtosis": self.kurtosis}
 
 
-def deflated_sharpe_ratio(returns: Sequence[float] | np.ndarray, trial_sharpes: Sequence[float]) -> DeflatedSharpe:
+def deflated_sharpe_ratio(returns: Sequence[float] | np.ndarray, trial_sharpes: Sequence[float],
+                          min_variance: float = 0.0) -> DeflatedSharpe:
     """DSR of the selected strategy given the per-period Sharpes of every trial tried.
 
     ``trial_sharpes`` must include every configuration evaluated during the
     search (the selected one too); their dispersion sets the luck benchmark.
+    ``min_variance`` floors that dispersion (e.g. at the null sampling variance
+    1/(n - 1)), so a few similar trials cannot shrink the benchmark.
     """
 
     values = _clean(returns)
@@ -142,7 +145,9 @@ def deflated_sharpe_ratio(returns: Sequence[float] | np.ndarray, trial_sharpes: 
         raise ValueError("trial_sharpes must hold finite values")
     sharpe = sharpe_ratio(values)
     skew, kurtosis = moments(values)
-    variance = float(np.var(trials, ddof=1)) if trials.size > 1 else 0.0
+    if min_variance < 0:
+        raise ValueError("min_variance must be non-negative")
+    variance = max(min_variance, float(np.var(trials, ddof=1)) if trials.size > 1 else 0.0)
     benchmark = expected_max_sharpe(int(trials.size), variance)
     dsr = probabilistic_sharpe_ratio(sharpe, benchmark, values.size, skew, kurtosis)
     return DeflatedSharpe(sharpe, benchmark, dsr, int(values.size), int(trials.size), skew, kurtosis)

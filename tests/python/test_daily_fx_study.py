@@ -168,7 +168,7 @@ def test_runner_freezes_once_and_refuses_a_plan_that_no_longer_matches(tmp_path,
 
     def fake_plan(args):
         plan = slow_premia_v1(DIGEST, built.get("rates", "e" * 64))
-        return plan, panel, None, "e" * 64
+        return runner.Inputs(plan, panel, None, "e" * 64)
 
     monkeypatch.setattr(runner, "_plan", fake_plan)
     plan_file = tmp_path / "plan.json"

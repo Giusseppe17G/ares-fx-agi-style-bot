@@ -21,6 +21,13 @@ Short-term interest rates come from the OECD monthly 3-month interbank rates
 (``short-term-interest.csv``: LOCATION, INDICATOR, SUBJECT, MEASURE,
 FREQUENCY, TIME, Value; e.g. the copy in nautilus_trader's ``test_data``).
 
+Annual consumer-price inflation comes from the World Bank series
+FP.CPI.TOTL.ZG as mirrored by github.com/datasets/cpi (``data/cpi.csv``:
+Country, Country Code, Year, CPI). Despite its column name that file holds
+annual % inflation, not an index (at commit 3750e450 the United States reads
+11.05 for 1974 and 8.00 for 2022); the loader checks known values so an index
+vintage or a GDP-deflator file is refused.
+
 Nothing here reads a terminal or the network.
 """
 
@@ -76,6 +83,19 @@ MT5_USD_PAIRS: Mapping[str, tuple[str, bool]] = {
     "NOK": ("USDNOK", True),
     "DKK": ("USDDKK", True),
 }
+
+# World Bank country codes of the inflation of each currency.
+WORLD_BANK_COUNTRIES: Mapping[str, str] = {
+    "USA": "USD", "AUS": "AUD", "CAN": "CAD", "CHE": "CHF", "DNK": "DKK", "GBR": "GBP", "JPN": "JPY",
+    "NOR": "NOK", "NZL": "NZD", "SWE": "SEK",
+}
+
+# Annual CPI inflation in percent (BLS CPI-U for the United States): a file
+# that disagrees by more than the tolerance is not annual CPI inflation.
+INFLATION_ANCHORS: Mapping[tuple[str, int], float] = {
+    ("USD", 1974): 11.05, ("USD", 1980): 13.55, ("USD", 2009): -0.36, ("USD", 2022): 8.00, ("JPY", 1974): 23.22,
+}
+INFLATION_ANCHOR_TOLERANCE = 0.1
 
 MAX_FORWARD_FILL_DAYS = 5
 MAX_UNCHANGED_DAYS = 5  # a longer run of identical published values is a stale feed
@@ -143,8 +163,12 @@ def _finalise(wide: pd.DataFrame, currencies: Iterable[str]) -> pd.DataFrame:
     return frame
 
 
-def load_fred_daily(path: str | Path, currencies: Iterable[str]) -> PricePanel:
-    """Load ``data/daily.csv`` of github.com/datasets/exchange-rates."""
+def load_fred_daily(path: str | Path, currencies: Iterable[str], start: str | None = None) -> PricePanel:
+    """Load ``data/daily.csv`` of github.com/datasets/exchange-rates.
+
+    ``start`` drops earlier rows before any check, so a peg that ended before
+    it (the 1970s runs of identical published values) does not refuse the panel.
+    """
 
     source = Path(path)
     raw = pd.read_csv(source, dtype={"Country": str, "Exchange rate": str})
@@ -159,6 +183,10 @@ def load_fred_daily(path: str | Path, currencies: Iterable[str]) -> PricePanel:
     if known.duplicated(["date", "code"]).any():
         raise ValueError("duplicate FRED observations")
     wide = known.pivot(index="date", columns="code", values="usd_price")
+    if start is not None:
+        wide = wide.loc[pd.Timestamp(start, tz="UTC"):]
+        if wide.empty:
+            raise ValueError(f"no FRED price on or after {start}")
     business_days = pd.bdate_range(wide.index.min(), wide.index.max(), tz="UTC")
     return PricePanel(_finalise(wide.reindex(business_days), currencies), "fred_h10_daily", _sha256(source))
 
@@ -215,4 +243,42 @@ def load_oecd_rates(path: str | Path, currencies: Iterable[str]) -> tuple[pd.Dat
         raise ValueError(f"no OECD rate for: {', '.join(missing)}")
     wide = wide[wanted]
     wide.columns.name = None
+    return wide, _sha256(source)
+
+
+def load_worldbank_inflation(path: str | Path, currencies: Iterable[str]) -> tuple[pd.DataFrame, str]:
+    """Annual CPI inflation in percent by currency (integer year index), plus the file sha256.
+
+    USD is always included because every position is against USD. Every
+    series must be complete between its first and last year.
+    """
+
+    source = Path(path)
+    raw = pd.read_csv(source, dtype=str)
+    if list(raw.columns) != ["Country", "Country Code", "Year", "CPI"]:
+        raise ValueError("unexpected World Bank CPI CSV columns")
+    known = raw[raw["Country Code"].isin(WORLD_BANK_COUNTRIES)].copy()
+    known["code"] = known["Country Code"].map(WORLD_BANK_COUNTRIES)
+    known["year"] = pd.to_numeric(known["Year"], errors="coerce")
+    known["value"] = pd.to_numeric(known["CPI"], errors="coerce")
+    if known[["year", "value"]].isna().any().any() or known.duplicated(["year", "code"]).any():
+        raise ValueError("World Bank inflation has missing or duplicate yearly values")
+    wide = known.pivot(index="year", columns="code", values="value").sort_index()
+    wide.index = wide.index.astype(int)
+    for (code, year), expected in INFLATION_ANCHORS.items():
+        value = wide.at[year, code] if code in wide.columns and year in wide.index else float("nan")
+        if not abs(value - expected) <= INFLATION_ANCHOR_TOLERANCE:
+            raise ValueError(f"{code} {year} reads {value}, not the anchor {expected}: "
+                             "the file is not annual CPI inflation in percent")
+    wanted = list(dict.fromkeys(["USD", *currencies]))
+    missing = [code for code in wanted if code not in wide.columns]
+    if missing:
+        raise ValueError(f"no inflation for: {', '.join(missing)}")
+    wide = wide[wanted].reindex(range(int(wide.index.min()), int(wide.index.max()) + 1))
+    for code in wanted:
+        series = wide[code]
+        if series.loc[series.first_valid_index():series.last_valid_index()].isna().any():
+            raise ValueError(f"missing years inside the {code} inflation history")
+    wide.columns.name = None
+    wide.index.name = None
     return wide, _sha256(source)

@@ -16,6 +16,16 @@ only hypotheses that claim timing: a nearly static signal such as the sign of
 a rate differential keeps its exposure when shifted, so for it the shift
 measures nothing and is only reported.
 
+A plan may also count the development trials of every earlier plan in the
+ledger (``program_trials``): the deflated Sharpe ratio is then taken over the
+whole research programme, with the variance of the trial Sharpes floored at
+the null sampling variance 1/(n - 1). A plan with a single configuration has
+no selection for the probability of backtest overfitting to measure, so it is
+recorded as not applicable. A cross-sectional signal is compared with the
+same ranking given to permuted currencies instead of random signs, and a
+hypothesis may declare development subperiods, each of which must keep a
+positive Sharpe ratio.
+
 Only hypotheses whose primary configuration passes every development gate are
 scored on the holdout, and the holdout of a plan is scored once. The ledger,
 not the development JSON, decides which hypotheses proceed (the JSON must
@@ -32,6 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from hashlib import sha256
 import json
+import math
 from pathlib import Path
 import platform
 from typing import Any, Mapping, Sequence
@@ -43,16 +54,22 @@ from ..edge_statistics import (deflated_sharpe_ratio, holm_adjusted, moments, ne
     probabilistic_sharpe_ratio, probability_of_backtest_overfitting, sharpe_ratio, superior_predictive_ability)
 from ..trial_registry import TrialLedger
 from .data import PricePanel
-from .portfolio import BacktestResult, CostModel, PortfolioConfig, RiskLimits, backtest, performance, signal_flip_rate
+from .portfolio import (INFLATION_PUBLICATION_MONTH, BacktestResult, CostModel, PortfolioConfig, RiskLimits, backtest,
+    currency_permutation, performance, signal_flip_rate)
 
-STUDY_VERSION = "daily_fx_study_v2"
+STUDY_VERSION = "daily_fx_study_v3"
 RATE_SIGNALS = {"tscarry", "blend"}
+INFLATION_SIGNALS = {"xsvalue"}
+CROSS_SECTIONAL_SIGNALS = {"xsvalue"}  # random control: permuted currencies, not random signs
 # Files whose code decides every number of a study; their sha256 is part of the plan.
 # Plan definitions are bound by the frozen plan JSON itself, so adding a plan does
 # not invalidate the frozen ones.
 ENGINE_FILES = ("daily_fx/data.py", "daily_fx/portfolio.py", "daily_fx/study.py", "edge_statistics.py",
                 "trial_registry.py")
 STRESS_WINDOWS = {
+    "1985-09_plaza_accord": ("1985-09-01", "1985-12-31"),
+    "1992-09_erm_crisis": ("1992-09-01", "1992-10-31"),
+    "1998-08_ltcm_yen": ("1998-08-01", "1998-10-31"),
     "2008-10_crisis": ("2008-10-01", "2008-10-31"),
     "2009-03_to_2010-06_recovery": ("2009-03-01", "2010-06-30"),
     "2015-01_chf_floor": ("2015-01-01", "2015-01-31"),
@@ -94,6 +111,7 @@ class Hypothesis:
     variants: tuple[PortfolioConfig, ...] = ()
     carry_accrual: bool = False  # returns include the interest differential (needs rates)
     timing_claim: bool = True  # gate on the time-shifted control (False for static premia)
+    subperiods: tuple[tuple[str, str], ...] = ()  # development windows that must each stay positive
 
     def configs(self) -> tuple[PortfolioConfig, ...]:
         return (self.primary, *self.variants)
@@ -102,10 +120,15 @@ class Hypothesis:
     def needs_rates(self) -> bool:
         return self.carry_accrual or any(config.signal in RATE_SIGNALS for config in self.configs())
 
+    @property
+    def needs_inflation(self) -> bool:
+        return any(config.signal in INFLATION_SIGNALS for config in self.configs())
+
     def to_dict(self) -> dict[str, Any]:
         return {"hypothesis_id": self.hypothesis_id, "description": self.description,
                 "primary": self.primary.to_dict(), "variants": [config.to_dict() for config in self.variants],
-                "carry_accrual": self.carry_accrual, "timing_claim": self.timing_claim}
+                "carry_accrual": self.carry_accrual, "timing_claim": self.timing_claim,
+                "subperiods": [list(period) for period in self.subperiods]}
 
 
 @dataclass(frozen=True)
@@ -122,6 +145,7 @@ class Acceptance:
     min_stressed_sharpe: float = 0.0
     max_development_drawdown: float = 0.12
     max_currency_share: float = 0.5
+    min_subperiod_sharpe: float = 0.0  # every declared subperiod must be above it
     # Holdout: REJECTED unless all three hold; PASSED_RESEARCH also needs the last two.
     min_holdout_sharpe: float = 0.0
     max_holdout_drawdown: float = 0.12
@@ -138,6 +162,7 @@ class DataBinding:
     price_source: str
     price_sha256: str
     rates_sha256: str | None = None
+    inflation_sha256: str | None = None
 
     def to_dict(self) -> dict[str, str | None]:
         return dict(self.__dict__)
@@ -161,10 +186,16 @@ class StudyPlan:
     engine: str = field(default_factory=engine_sha256)
     runtime: Mapping[str, str] = field(default_factory=environment)
     notes: tuple[str, ...] = ()
+    price_start: str | None = None  # first price row loaded (earlier rows are never read)
+    # None: deflate over this plan's trials only. An integer: also count every
+    # development trial of other plans in the ledger (refusing a ledger with
+    # fewer than this many) and floor the trial-Sharpe variance at 1/(n - 1).
+    program_trials: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {"study_version": STUDY_VERSION, "name": self.name, "currencies": list(self.currencies),
                 "development": list(self.development), "holdout": list(self.holdout),
+                "price_start": self.price_start, "program_trials": self.program_trials,
                 "hypotheses": [item.to_dict() for item in self.hypotheses],
                 "costs": {"one_way_bps": dict(sorted(self.costs.one_way_bps.items())),
                           "financing_bps_per_year": self.costs.financing_bps_per_year},
@@ -192,16 +223,26 @@ class StudyPlan:
         for hypothesis in self.hypotheses:
             for config in hypothesis.configs():
                 config.validate()
-                if config.signal == "random" or config.flip or config.shift_days:
+                if config.signal == "random" or config.flip or config.shift_days or config.permute:
                     raise ValueError("controls are generated by the study, not declared as hypotheses")
             if hypothesis.needs_rates and self.data.rates_sha256 is None:
                 raise ValueError(f"{hypothesis.hypothesis_id} needs rates bound to the plan")
+            if hypothesis.needs_inflation and self.data.inflation_sha256 is None:
+                raise ValueError(f"{hypothesis.hypothesis_id} needs inflation bound to the plan")
+            for period in hypothesis.subperiods:
+                if not (pd.Timestamp(self.development[0]) <= pd.Timestamp(period[0]) < pd.Timestamp(period[1])
+                        <= pd.Timestamp(self.development[1])):
+                    raise ValueError("every subperiod must lie inside the development window")
             if any(config.signal in RATE_SIGNALS for config in hypothesis.configs()) and not hypothesis.carry_accrual:
                 raise ValueError("a carry signal must earn the carry it bets on (carry_accrual)")
             if not hypothesis.timing_claim and any(config.signal != "tscarry" for config in hypothesis.configs()):
                 raise ValueError("only static carry hypotheses may skip the time-shifted control")
+        if self.price_start is not None and pd.Timestamp(self.price_start) >= pd.Timestamp(self.development[0]):
+            raise ValueError("price_start must come before the development window")
+        if self.program_trials is not None and self.program_trials < 0:
+            raise ValueError("program_trials must be >= 0")
 
-    def check_inputs(self, panel: PricePanel, rates_sha256: str | None) -> None:
+    def check_inputs(self, panel: PricePanel, rates_sha256: str | None, inflation_sha256: str | None = None) -> None:
         """Fail closed when the data or the engine differ from what the plan froze."""
 
         self.validate()
@@ -211,6 +252,13 @@ class StudyPlan:
             raise ValueError("the price data differ from the data bound to the plan")
         if self.data.rates_sha256 is not None and rates_sha256 != self.data.rates_sha256:
             raise ValueError("the rate data differ from the data bound to the plan")
+        if self.data.inflation_sha256 is not None and inflation_sha256 != self.data.inflation_sha256:
+            raise ValueError("the inflation data differ from the data bound to the plan")
+        if self.price_start is not None:
+            first = panel.prices.index[0]
+            start = pd.Timestamp(self.price_start, tz=first.tz)
+            if not start <= first <= start + pd.Timedelta(days=7):
+                raise ValueError(f"the price panel starts on {first.date()}, not at the plan's price_start")
         if self.engine != engine_sha256():
             raise ValueError("the engine code changed since the plan was frozen")
         if dict(self.runtime) != environment():
@@ -250,12 +298,27 @@ def _stats(values: pd.Series) -> dict[str, float]:
         stats["hac_t_stat"] = newey_west_t_stat(values.to_numpy())
     except ValueError:
         stats["hac_t_stat"] = 0.0
+    # Reported only: the t of non-overlapping 21-row returns, for slow signals with few independent bets.
+    daily = values.to_numpy()
+    blocks = daily[:daily.size // 21 * 21].reshape(-1, 21).sum(axis=1)
+    try:
+        stats["hac_t_stat_21d"] = newey_west_t_stat(blocks)
+    except ValueError:
+        stats["hac_t_stat_21d"] = 0.0
     return stats
 
 
-def _simulate(prices: pd.DataFrame, rates: pd.DataFrame | None, hypothesis: Hypothesis, config: PortfolioConfig,
-              costs: CostModel, limits: RiskLimits) -> BacktestResult:
-    return backtest(prices, config, costs, limits, rates if hypothesis.needs_rates else None)
+@dataclass(frozen=True)
+class _Inputs:
+    prices: pd.DataFrame
+    rates: pd.DataFrame | None
+    inflation: pd.DataFrame | None
+
+
+def _simulate(inputs: _Inputs, hypothesis: Hypothesis, config: PortfolioConfig, costs: CostModel,
+              limits: RiskLimits) -> BacktestResult:
+    return backtest(inputs.prices, config, costs, limits, inputs.rates if hypothesis.needs_rates else None,
+                    inputs.inflation if hypothesis.needs_inflation else None)
 
 
 def _currency_share(result: BacktestResult, period: tuple[str, str]) -> float:
@@ -277,15 +340,44 @@ def _stress(values: pd.Series) -> dict[str, float | None]:
     return report
 
 
-def _development_inputs(plan: StudyPlan, panel: PricePanel,
-                        rates: pd.DataFrame | None) -> tuple[pd.DataFrame, pd.DataFrame | None]:
-    # Development never sees a price or a rate after the development end.
+def _development_inputs(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | None,
+                        inflation: pd.DataFrame | None) -> _Inputs:
+    # Development never sees a price, a rate or an inflation figure published after the development end.
     end = pd.Timestamp(plan.development[1], tz="UTC")
     prices = panel.prices.loc[:end]
-    if rates is None:
-        return prices, None
-    last_month = end.tz_convert(None).to_period("M")
-    return prices, rates.loc[rates.index <= last_month]
+    if rates is not None:
+        rates = rates.loc[rates.index <= end.tz_convert(None).to_period("M")]
+    if inflation is not None:
+        published = end.year - 1 - int(end.month < INFLATION_PUBLICATION_MONTH)
+        inflation = inflation.loc[inflation.index <= published]
+    return _Inputs(prices, rates, inflation)
+
+
+def _program_sharpes(plan: StudyPlan, plan_hash: str, ledger: TrialLedger) -> list[float]:
+    """Per-period Sharpe ratios of every other plan's development trials, when the plan counts them."""
+
+    if plan.program_trials is None:
+        return []
+    metrics = [record["payload"]["metrics"] for record in ledger.records()
+               if record["kind"] == "development_trial" and record["plan_hash"] != plan_hash]
+    if len(metrics) < plan.program_trials:
+        raise ValueError(f"the ledger holds {len(metrics)} development trials of other plans; "
+                         f"the plan declares at least {plan.program_trials}")
+    return [float(item["sharpe"]) / math.sqrt(float(item["periods_per_year"])) for item in metrics]
+
+
+def _permutation_seeds(count: int, replicas: int) -> list[int]:
+    """The first seeds whose currency permutations are all distinct."""
+
+    seeds, seen = [], set()
+    for seed in range(100 * replicas):
+        order = currency_permutation(count, seed)
+        if order not in seen:
+            seen.add(order)
+            seeds.append(seed)
+            if len(seeds) == replicas:
+                return seeds
+    raise ValueError("too few currencies for distinct permuted controls")
 
 
 def _shift_offsets(length: int, config: PortfolioConfig, replicas: int, seed: int) -> list[int]:
@@ -299,24 +391,29 @@ def _shift_offsets(length: int, config: PortfolioConfig, replicas: int, seed: in
 
 
 def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | None, rates_sha256: str | None,
-                    ledger: TrialLedger) -> dict[str, Any]:
+                    ledger: TrialLedger, inflation: pd.DataFrame | None = None,
+                    inflation_sha256: str | None = None) -> dict[str, Any]:
     """Evaluate every predeclared configuration on the development period."""
 
-    plan.check_inputs(panel, rates_sha256)
+    plan.check_inputs(panel, rates_sha256, inflation_sha256)
     plan_hash = plan.plan_hash()
     if ledger.has("development_summary", plan_hash):
         raise ValueError("the development of this plan was already run; its trials are in the ledger")
     _refuse_seen_data(plan, ledger, [plan.development, plan.holdout])
-    prices, dev_rates = _development_inputs(plan, panel, rates)
-    if any(item.needs_rates for item in plan.hypotheses) and dev_rates is None:
+    program_sharpes = _program_sharpes(plan, plan_hash, ledger)
+    inputs = _development_inputs(plan, panel, rates, inflation)
+    prices = inputs.prices
+    if any(item.needs_rates for item in plan.hypotheses) and inputs.rates is None:
         raise ValueError("the plan needs rates")
+    if any(item.needs_inflation for item in plan.hypotheses) and inputs.inflation is None:
+        raise ValueError("the plan needs inflation")
     limits, costs = plan.limits, plan.costs
     trial_returns: dict[str, pd.Series] = {}
     primaries: dict[str, BacktestResult] = {}
     for hypothesis in plan.hypotheses:
         for index, config in enumerate(hypothesis.configs()):
             key = f"{hypothesis.hypothesis_id}:{index}"
-            result = _simulate(prices, dev_rates, hypothesis, config, costs, limits)
+            result = _simulate(inputs, hypothesis, config, costs, limits)
             returns = _window(result.net_returns, plan.development)
             trial_returns[key] = returns
             if index == 0:
@@ -330,37 +427,51 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
     matrix = pd.DataFrame(trial_returns).dropna()
     # Each trial's Sharpe on its own window, like the primary it deflates.
     trial_sharpes = [_sharpe_or_zero(values) for values in trial_returns.values()]
-    pbo = probability_of_backtest_overfitting(matrix.to_numpy(), blocks=plan.pbo_blocks)
+    # A single configuration involves no selection: there is nothing for PBO to measure.
+    pbo = (probability_of_backtest_overfitting(matrix.to_numpy(), blocks=plan.pbo_blocks)
+           if matrix.shape[1] >= 2 else None)
     spa = superior_predictive_ability(matrix.to_numpy(), bootstraps=plan.spa_bootstraps)
+    deflation_sharpes = [*program_sharpes, *trial_sharpes]
     results, p_values = [], []
     for number, hypothesis in enumerate(plan.hypotheses):
         result = primaries[hypothesis.hypothesis_id]
         primary = trial_returns[f"{hypothesis.hypothesis_id}:0"]
         stats = _stats(primary)
         gross = _window(result.gross_returns, plan.development)
-        dsr = deflated_sharpe_ratio(primary.to_numpy(), trial_sharpes)
+        floor = 1.0 / (len(primary) - 1) if plan.program_trials is not None else 0.0
+        dsr = deflated_sharpe_ratio(primary.to_numpy(), deflation_sharpes, min_variance=floor)
         skew, kurtosis = moments(primary.to_numpy())
         psr_zero = probabilistic_sharpe_ratio(dsr.sharpe, 0.0, len(primary), skew, kurtosis)
         p_values.append(1.0 - psr_zero)
 
         def control_sharpe(config: PortfolioConfig) -> float:
-            simulated = _simulate(prices, dev_rates, hypothesis, config, costs, limits)
+            simulated = _simulate(inputs, hypothesis, config, costs, limits)
             return _sharpe_or_zero(_window(simulated.net_returns, plan.development))
 
-        # Random signs as persistent as the primary signal (same turnover).
-        flip_rate = signal_flip_rate(prices, hypothesis.primary, dev_rates if hypothesis.needs_rates else None)
-        random_sharpes = np.array([control_sharpe(replace(hypothesis.primary, signal="random", seed=seed,
-                                                          random_flip_probability=flip_rate))
-                                   for seed in range(plan.random_replicas)])
+        if hypothesis.primary.signal in CROSS_SECTIONAL_SIGNALS:
+            # The same ranking given to permuted currencies (USD included): same turnover, wrong currencies.
+            seeds = _permutation_seeds(len(plan.currencies) + 1, plan.random_replicas)
+            random_sharpes = np.array([control_sharpe(replace(hypothesis.primary, permute=True, seed=seed))
+                                       for seed in seeds])
+            random_kind = {"kind": "permuted_currencies", "seeds": seeds}
+        else:
+            # Random signs as persistent as the primary signal (same turnover).
+            flip_rate = signal_flip_rate(prices, hypothesis.primary, inputs.rates if hypothesis.needs_rates else None)
+            random_sharpes = np.array([control_sharpe(replace(hypothesis.primary, signal="random", seed=seed,
+                                                              random_flip_probability=flip_rate))
+                                       for seed in range(plan.random_replicas)])
+            random_kind = {"kind": "random_signs", "flip_probability": flip_rate}
         valid_rows = int(result.positions.shape[0])
         shifts = _shift_offsets(valid_rows, hypothesis.primary, plan.random_replicas, seed=1000 + number)
         shift_sharpes = np.array([control_sharpe(replace(hypothesis.primary, shift_days=shift)) for shift in shifts])
         random_quota = float((np.sum(random_sharpes >= dsr.sharpe) + 1) / (plan.random_replicas + 1))
         shift_quota = float((np.sum(shift_sharpes >= dsr.sharpe) + 1) / (plan.random_replicas + 1))
-        flipped = _window(_simulate(prices, dev_rates, hypothesis, replace(hypothesis.primary, flip=True),
+        flipped = _window(_simulate(inputs, hypothesis, replace(hypothesis.primary, flip=True),
                                     costs, limits).net_returns, plan.development)
-        stressed = _window(_simulate(prices, dev_rates, hypothesis, hypothesis.primary,
+        stressed = _window(_simulate(inputs, hypothesis, hypothesis.primary,
                                      costs.scaled(plan.cost_stress_factor), limits).net_returns, plan.development)
+        subperiods = {f"{start}..{end}": _stats(_window(primary, (start, end)))["sharpe"]
+                      for start, end in hypothesis.subperiods}
         variants = {key: _stats(values) for key, values in trial_returns.items()
                     if key.startswith(f"{hypothesis.hypothesis_id}:") and key != f"{hypothesis.hypothesis_id}:0"}
         ledger.append("development_controls", plan_hash, {
@@ -368,6 +479,7 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
             "shift_days": shifts, "shift_sharpes": shift_sharpes.tolist()})
         results.append({
             "hypothesis_id": hypothesis.hypothesis_id,
+            "carry_credited": hypothesis.carry_accrual,
             "primary": stats,
             "gross_primary": _stats(gross),
             "stops": result.stops, "take_profits": result.take_profits,
@@ -379,11 +491,12 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
             "psr_vs_zero": psr_zero,
             "deflated_sharpe": dsr.to_dict(),
             "random_control": {"replicas": plan.random_replicas, "median_sharpe": float(np.median(random_sharpes)),
-                               "quota": random_quota, "flip_probability": flip_rate},
+                               "quota": random_quota, **random_kind},
             "shift_control": {"replicas": plan.random_replicas, "median_sharpe": float(np.median(shift_sharpes)),
                               "quota": shift_quota, "gated": hypothesis.timing_claim},
             "flipped_sharpe": _stats(flipped)["sharpe"],
             "cost_stress": {"factor": plan.cost_stress_factor, "sharpe": _stats(stressed)["sharpe"]},
+            "subperiod_sharpes": subperiods,
             "variants": variants,
         })
     adjusted = holm_adjusted(p_values)
@@ -395,7 +508,7 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
             "hac_t_stat": result["primary"]["hac_t_stat"] >= acceptance.min_development_hac_t,
             "holm_adjusted_p": holm_p <= acceptance.max_holm_p_value,
             "deflated_sharpe": result["deflated_sharpe"]["deflated_sharpe_ratio"] >= acceptance.min_development_dsr,
-            "probability_of_backtest_overfitting": pbo.pbo <= acceptance.max_development_pbo,
+            "probability_of_backtest_overfitting": pbo is None or pbo.pbo <= acceptance.max_development_pbo,
             "superior_predictive_ability": spa.p_value <= acceptance.max_spa_p_value,
             "beats_random_signals": result["random_control"]["quota"] <= acceptance.max_random_quota,
             "beats_time_shifted_signals": (not result["shift_control"]["gated"]
@@ -403,6 +516,8 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
             "survives_stressed_costs": result["cost_stress"]["sharpe"] > acceptance.min_stressed_sharpe,
             "development_drawdown": result["primary"]["max_drawdown"] < acceptance.max_development_drawdown,
             "no_dominant_currency": result["currency_share"] <= acceptance.max_currency_share,
+            "positive_in_subperiods": all(value > acceptance.min_subperiod_sharpe
+                                          for value in result["subperiod_sharpes"].values()),
         }.items()}
         result["checks"] = checks
         result["proceed_to_holdout"] = all(checks.values())
@@ -411,10 +526,11 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
                "data": {"source": panel.source, "sha256": panel.source_sha256, "rates_sha256": rates_sha256,
                         "first_day": str(matrix.index.min().date()), "last_day": str(matrix.index.max().date()),
                         "common_days": int(len(matrix))},
-               "trials": len(trial_sharpes), "pbo": pbo.to_dict(), "spa": spa.to_dict(), "hypotheses": results,
+               "trials": len(trial_sharpes), "program_trials": len(deflation_sharpes),
+               "pbo": pbo.to_dict() if pbo is not None else None, "spa": spa.to_dict(), "hypotheses": results,
                "execution_authorized": False}
     ledger.append("development_summary", plan_hash, {
-        "trials": len(trial_sharpes), "pbo": pbo.pbo, "spa_p_value": spa.p_value,
+        "trials": len(trial_sharpes), "pbo": pbo.pbo if pbo is not None else None, "spa_p_value": spa.p_value,
         "price_sha256": plan.data.price_sha256, "development_window": list(plan.development),
         "proceed_to_holdout": {item["hypothesis_id"]: item["proceed_to_holdout"] for item in results},
         "summary_sha256": digest(summary), "summary": summary})
@@ -422,10 +538,11 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
 
 
 def run_holdout(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | None, rates_sha256: str | None,
-                development: Mapping[str, Any], ledger: TrialLedger, output: str | Path) -> dict[str, Any]:
+                development: Mapping[str, Any], ledger: TrialLedger, output: str | Path,
+                inflation: pd.DataFrame | None = None, inflation_sha256: str | None = None) -> dict[str, Any]:
     """Score the holdout once for hypotheses that passed development."""
 
-    plan.check_inputs(panel, rates_sha256)
+    plan.check_inputs(panel, rates_sha256, inflation_sha256)
     plan_hash = plan.plan_hash()
     if ledger.has("holdout", plan_hash):
         raise ValueError("the holdout of this plan was already scored; it is scored exactly once")
@@ -451,16 +568,20 @@ def run_holdout(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | None, 
     if target.exists():
         raise FileExistsError("refusing to overwrite an existing holdout result")
     acceptance = plan.acceptance
-    pbo_ok = float(recorded["pbo"]) <= acceptance.max_promotion_pbo
+    # Not applicable (None) for a single predeclared configuration: nothing was selected.
+    pbo_ok = recorded["pbo"] is None or float(recorded["pbo"]) <= acceptance.max_promotion_pbo
+    inputs = _Inputs(panel.prices, rates, inflation)
+    if any(item.needs_inflation for item in plan.hypotheses) and inflation is None:
+        raise ValueError("the plan needs inflation")
     results = []
     for hypothesis in plan.hypotheses:
         if not recorded["proceed_to_holdout"][hypothesis.hypothesis_id]:
             results.append({"hypothesis_id": hypothesis.hypothesis_id, "evaluated": False,
                             "verdict": "REJECTED", "reason": "failed development gates"})
             continue
-        result = _simulate(panel.prices, rates, hypothesis, hypothesis.primary, plan.costs, plan.limits)
+        result = _simulate(inputs, hypothesis, hypothesis.primary, plan.costs, plan.limits)
         returns = _window(result.net_returns, plan.holdout)
-        stressed = _window(_simulate(panel.prices, rates, hypothesis, hypothesis.primary,
+        stressed = _window(_simulate(inputs, hypothesis, hypothesis.primary,
                                      plan.costs.scaled(plan.cost_stress_factor), plan.limits).net_returns,
                            plan.holdout)
         stats = _stats(returns)
@@ -474,6 +595,7 @@ def run_holdout(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | None, 
         verdict = ("REJECTED" if not all(survives.values())
                    else "PASSED_RESEARCH" if all(promotes.values()) else "WATCHLIST")
         results.append({"hypothesis_id": hypothesis.hypothesis_id, "evaluated": True, "holdout": stats,
+                        "carry_credited": hypothesis.carry_accrual, "development_pbo": recorded["pbo"],
                         "first_day": str(returns.index.min().date()), "last_day": str(returns.index.max().date()),
                         "psr_vs_zero": psr, "currency_share": _currency_share(result, plan.holdout),
                         "stressed_sharpe": _stats(stressed)["sharpe"], "checks": {**survives, **promotes},
