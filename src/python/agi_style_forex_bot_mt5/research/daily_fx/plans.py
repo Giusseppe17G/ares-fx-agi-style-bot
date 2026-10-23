@@ -10,8 +10,13 @@ docs/research/daily-fx-real-value-predeclared-v2.md.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from .portfolio import CostModel, PortfolioConfig, RiskLimits
 from .study import Acceptance, DataBinding, Hypothesis, StudyPlan
+
+if TYPE_CHECKING:
+    from .forward import ForwardPlan
 
 G10_VS_USD = ("EUR", "JPY", "GBP", "CHF", "CAD", "AUD", "NZD", "SEK", "NOK")
 
@@ -171,5 +176,56 @@ def real_value_v2(price_sha256: str, inflation_sha256: str) -> StudyPlan:
             "10 positions, 3% daily and 5% floating loss halts; catastrophe stop at 2.5 monthly sigmas and "
             "take-profit at 3x the stop distance, checked on daily closes.",
             "No verdict authorises execution; execution stays removed (release-lock ADR).",
+        ),
+    )
+
+
+# Forward paper tracking of plan v2's book (docs/research/daily-fx-value-forward-v1.md).
+REAL_VALUE_V2_PLAN_HASH = "e8831946d99e7a058b987a5b24707c1f0e98d22c1dd8ba961aecae77437b7556"
+WORLD_BANK_CPI_SHA256 = "182baa44c536079bea07bb8700c37c85441c3d7d5f8e6dd68fb92fcb4a7815e8"
+
+
+def value_forward_v1() -> "ForwardPlan":
+    """The frozen v2 real-value book on the operator's broker D1 bars, counted from 2026-10-26."""
+
+    from .forward import DecisionRule, ForwardPlan
+
+    book = real_value_v2("0" * 64, "0" * 64)  # the book does not depend on the data hashes
+    hypothesis = book.hypotheses[0]
+    return ForwardPlan(
+        name="daily_fx_value_forward_v1",
+        book_plan_hash=REAL_VALUE_V2_PLAN_HASH,
+        hypothesis_id=hypothesis.hypothesis_id,
+        currencies=book.currencies,
+        config=hypothesis.primary,
+        costs=book.costs,
+        limits=book.limits,
+        price_start="2018-01-02",
+        forward_start="2026-10-26",
+        inflation_base_sha256=WORLD_BANK_CPI_SHA256,
+        inflation_base_last_year=2024,
+        swap_max_age_days=35,
+        rule=DecisionRule(),
+        notes=(
+            "Book: plan v2's H1_XS_REAL_VALUE_5Y exactly (signal, sizing, invariants, costs), rejected at its "
+            "development gate (deflated Sharpe 0.77); tracked forward because only data that did not exist when "
+            "it was frozen can test it cleanly.",
+            "Prices: the operator's MT5 D1 exports of the nine USD pairs from 2018-01-02; the last bar of every "
+            "file is dropped (it may be forming). The rebalance calendar is anchored on the first complete signal "
+            "after 2018-01-02, so it does not move as the export grows.",
+            "Forward days: from 2026-10-26, after this plan was frozen; earlier days only build the book's state.",
+            "Inflation: the pinned World Bank file (datasets/cpi 3750e450) up to 2024; each later year from a "
+            "World Bank download, taken the first time all ten series have it and never revised afterwards. "
+            "Year Y is used from 1 July of Y+1; a rebalance whose inflation is missing stops the record before it.",
+            "Primary returns: the study's definition (spot, study costs, 75 bps/yr mark-up on gross exposure). "
+            "Reported alongside: the same book with the mark-up replaced by the broker's captured swap terms.",
+            "Rule: annual looks for ten years; CONFIRMED when the Newey-West t of the primary daily returns reaches "
+            "the O'Brien-Fleming boundary (5.695, 4.027, 3.288, 2.848, 2.547, 2.325, 2.153, 2.014, 1.898, 1.801; "
+            "one-sided alpha 0.05) and the broker-swap series covers 80% of the days with a positive total; "
+            "ABANDONED at a 12% drawdown or a t <= -1 from the second look; ENDED after ten looks.",
+            "Power, simulated before any forward day: P(CONFIRMED within 10 years) is about 0.23 at a true net "
+            "Sharpe of 0.3, 0.33 at 0.4, 0.45 at 0.5, 0.57 at 0.6 and 0.79 at 0.8; within 5 years 0.03-0.23.",
+            "No verdict authorises execution; a confirmation only allows a decision record about live trading, "
+            "which AGENTS.md keeps out of scope.",
         ),
     )
