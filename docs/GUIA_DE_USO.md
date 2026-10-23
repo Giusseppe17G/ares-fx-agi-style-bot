@@ -324,6 +324,39 @@ Copy-Item docs\research\daily_fx_slow_premia_v1\plan.json data\runs\daily_fx_rep
 git switch main
 ```
 
+Segundo estudio (2026-10-23, plan v2): valor real a 5 anos sobre AUD, CAD,
+CHF, DKK, GBP, JPY, NOK, NZD y SEK, con el USD como decima divisa ordenada.
+El libro compra las 3 divisas mas baratas en terminos reales (precio frente a
+su nivel de hace 4,5-5,5 anos, corregido por la inflacion anual del Banco
+Mundial) y vende las 3 mas caras, cada una con 0,5% de riesgo hasta su stop.
+Solo precio: no acredita el carry.
+
+Resultado en desarrollo (1985-2016):
+
+- Pasa 12 de 13 compuertas: Sharpe neta 0,39, t de Newey-West 2,06, positivo
+  en 1985-1998 y en 1999-2016, mejor que las 200 carteras con divisas
+  permutadas, Sharpe 0,17 con costes duplicados, caida maxima 6,1%.
+- Falla la Sharpe deflactada, que cuenta las 8 pruebas del programa: 0,77
+  frente a 0,95.
+- Queda **rechazado** y el periodo reservado no se evaluo.
+- Es el mejor resultado obtenido hasta ahora, pero no basta para descartar
+  que sea suerte entre los intentos hechos.
+
+Detalle: `docs/research/daily-fx-real-value-predeclared-v2.md`.
+
+El plan v2 necesita ademas el CSV de inflacion del Banco Mundial
+(github.com/datasets/cpi, commit 3750e450, `data/cpi.csv`, sha256 182baa44...)
+copiado en `data/historical/worldbank/cpi.csv`. Para reproducir el desarrollo
+hace falta el ledger compartido hasta la cabeza registrada (sus 11 primeras
+lineas), no un ledger vacio:
+
+```powershell
+New-Item -ItemType Directory -Force data\runs\daily_fx_v2_repro | Out-Null
+Copy-Item docs\research\daily_fx_real_value_v2\plan.json data\runs\daily_fx_v2_repro\plan.json
+.\.venv\Scripts\python.exe -c "lines = open('docs/research/trial_ledger.jsonl', encoding='utf-8').readlines()[:11]; open('data/runs/daily_fx_v2_repro/ledger.jsonl', 'w', encoding='utf-8', newline='\n').writelines(lines)"
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.runner development --plan real_value_v2 --prices data\historical\fred\daily.csv --inflation data\historical\worldbank\cpi.csv --plan-file data\runs\daily_fx_v2_repro\plan.json --ledger data\runs\daily_fx_v2_repro\ledger.jsonl
+```
+
 Nada de esto lee el terminal ni envia ordenes.
 
 ## 11. Registrar el swap del broker (solo lectura)

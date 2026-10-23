@@ -319,3 +319,101 @@ trials), and its holdout is never reused.
 ## Results
 
 Filled in after the runs, without editing anything above.
+
+The development result was written by the runner to
+`docs/research/daily_fx_real_value_v2/development.json`. Every trial,
+control and summary was appended to the shared ledger
+`docs/research/trial_ledger.jsonl` (14 records, chain verified), starting
+from ledger head `233c67bf…` with v1's 7 trials counted.
+
+### Development (run once on 2026-10-23, frozen plan of commit 1f2e6c4): REJECTED
+
+Window: 1985-04-01 to 2016-12-30 (8,285 days, 31.75 years). The hypothesis
+failed 1 of the 13 gates: the deflated Sharpe ratio.
+
+| Check | H1 real value 5y | Gate | Pass |
+|---|---|---|---|
+| Net Sharpe | 0.39 | >= 0.3 | yes |
+| Newey-West t | 2.06 | >= 2.0 | yes |
+| Holm-adjusted p (one hypothesis) | 0.014 | <= 0.05 | yes |
+| Deflated Sharpe ratio over 8 trials | **0.77** | >= 0.95 | **no** |
+| PBO | not applicable | - | - |
+| SPA_c p | 0.020 | <= 0.05 | yes |
+| Share of permuted-currency books as good | 0.005 (none of 200) | <= 0.05 | yes |
+| Share of time-shifted books as good | 0.045 (8 of 200) | <= 0.05 | yes (not a calibrated test) |
+| Net Sharpe with doubled costs | 0.17 | > 0 | yes |
+| Maximum drawdown | 6.1% | < 12% | yes |
+| Largest currency share of gross profit | 30% | <= 50% | yes |
+| Net Sharpe 1985-04 to 1998-12 / 1999-01 to 2016-12 | 0.39 / 0.39 | > 0 | yes |
+| Rebalances traded flat for lack of inputs | 0 | 0 | yes |
+
+Further figures:
+
+| Figure | Value |
+|---|---|
+| Gross Sharpe (before costs and swap mark-up) | 0.61 (t 3.21) |
+| Net annual return | 0.63% |
+| Annual volatility | 1.62% |
+| Total net return over 31.75 years | 22.2% |
+| Positive years | 59% |
+| Flipped signal Sharpe | -0.85 |
+| Mean gross exposure | 0.43 of equity |
+| Stops / take-profits / blocked rebalances | 47 / 2 / 0 |
+| Daily skew / kurtosis | 0.17 / 6.97 |
+| Reported only: t of non-overlapping 21-row returns | 1.86 |
+
+Reading, without changing the verdict:
+
+- **Strongest result of the programme so far, but not enough.**
+  - It is the first book in the programme with a positive net Sharpe that
+    is significant before deflation (t 2.06, Holm p 0.014).
+  - It was positive in both subperiods with the same Sharpe ratio, including
+    1985-1998, which no plan had used.
+  - It beat all 200 permuted-currency books and 192 of 200 time-shifted
+    copies, and survived doubled costs.
+- **Why the deflated Sharpe ratio fails.**
+  - Counting the 8 daily-FX trials, the luck benchmark is an annual Sharpe
+    ratio of about 0.26, so the gate needs an observed t of about 3.1. The
+    observed t was 2.06.
+  - This is the outcome the power table predicted for a true net Sharpe
+    ratio near 0.4: the gate passes about 17% of the time.
+- **The 21-row t disagrees with the daily t.** The t of non-overlapping
+  21-row returns is 1.86, below 2, while the daily t is 2.06. As declared,
+  this is stated: it weakens the evidence further.
+- **Costs.** Trading costs and the swap mark-up take about 0.22 of Sharpe
+  (gross 0.61, net 0.39). The book is spot only: the carry its positions
+  would earn or pay is not in these numbers.
+- **Small absolute returns.** Under the invariants the book earned 0.63% a
+  year at 1.6% volatility.
+
+Reproduction check (2026-10-23):
+
+- The development was re-run from a copy of the frozen plan, into a copy of
+  the shared ledger cut at the recorded head (its first 11 lines), with the
+  same data and environment.
+- Its result digest equals the one the shared ledger recorded
+  (`c15073642536eb4915e20a4dc3fa70a232b023846b784b8974b557a17ed0d072`).
+
+### Holdout: not run
+
+The hypothesis did not pass development, so per the plan it is not scored on
+the holdout. The holdout phase was deliberately not executed, as in v1:
+
+- It would score nothing.
+- A holdout record would block those dates for future plans.
+
+The kill rule applies:
+
+- H1 is not re-tuned and is not re-tested on 2017-01-01 to 2026-06-30 in any
+  form. "It nearly passed" is exactly the selection the protocol exists to
+  stop.
+- The only clean follow-up for this exact book is forward paper data
+  collected after 2026-10-09 under a new decision record. At a net Sharpe
+  ratio near 0.4 that takes many years: about 25 years for even odds of
+  t >= 2.
+
+### Verdict
+
+H1_XS_REAL_VALUE_5Y is REJECTED at development (deflated Sharpe ratio 0.77
+against 0.95). No daily FX book is promoted to paper or demo work by this
+study.

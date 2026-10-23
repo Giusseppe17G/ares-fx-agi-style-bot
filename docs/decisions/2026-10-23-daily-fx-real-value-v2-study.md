@@ -156,3 +156,30 @@ The reviews also found the binding constraints:
 - **What a verdict allows.** `PASSED_RESEARCH` or `WATCHLIST` only allows
   designing a daily paper path with its own ADR. The Strategy Promotion Gate
   (PROJECT_SPEC 12.1) still applies in full.
+
+## Outcome (2026-10-23)
+
+Plan v2 (hash `e8831946`) was frozen at commit 1f2e6c4, and its development
+was run once and recorded at c383e7f.
+
+H1 failed 1 of 13 gates, the deflated Sharpe ratio: 0.77 against 0.95 over
+8 trials. It passed the others:
+
+| Figure | Value |
+|---|---|
+| Net Sharpe | 0.39 |
+| Newey-West t | 2.06 |
+| Holm p | 0.014 |
+| SPA_c p | 0.020 |
+| Permuted-currency books as good | none of 200 |
+| Time-shifted copies as good | 8 of 200 |
+| Sharpe with doubled costs | 0.17 |
+| Drawdown | 6.1% |
+| Each subperiod | 0.39 |
+
+It is therefore REJECTED, and the holdout is not scored. Details:
+`docs/research/daily-fx-real-value-predeclared-v2.md`.
+
+The engine stays as research tooling. No daily paper path is opened on the
+basis of this study. A follow-up on this exact book can only use forward
+paper data collected after 2026-10-09, under its own decision record.
