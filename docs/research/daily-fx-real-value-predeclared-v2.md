@@ -1,14 +1,15 @@
 # Pre-registration: daily FX real value v2
 
-Status: DRAFT (not yet frozen). Research only; no verdict of this study
+Status: FROZEN on 2026-10-23 with the engine of commit 306b984, before any
+result of this plan existed. Research only; no verdict of this study
 authorises execution (release-lock ADR). Decision record:
 `docs/decisions/2026-10-23-daily-fx-real-value-v2-study.md`.
 
 - Plan: `real_value_v2` in `src/python/agi_style_forex_bot_mt5/research/daily_fx/plans.py`.
 - Frozen plan file: `docs/research/daily_fx_real_value_v2/plan.json` (written by `runner freeze`).
-- Plan hash (sha256 of the canonical plan JSON): PENDING.
-- Engine hash (sha256 of the engine sources): PENDING.
-- Environment: PENDING.
+- Plan hash (sha256 of the canonical plan JSON): `e8831946d99e7a058b987a5b24707c1f0e98d22c1dd8ba961aecae77437b7556`.
+- Engine hash (sha256 of the engine sources): `c46e71202818a33c9f290c2d883853a475f482da4cdddb9f10823f0a5bf54270`.
+- Environment: Python 3.14.4, numpy 2.4.4, pandas 3.0.2.
 
 Any change to the code, data, parameters or gates gives a different hash, and
 the runner refuses it.
