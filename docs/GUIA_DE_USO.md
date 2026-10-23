@@ -574,8 +574,9 @@ proxima rutina, y los mensajes creados con Telegram apagado no se envian
 despues. El resultado de cada operacion es bruto (antes de costes y swap) y
 cuenta solo desde el 2026-10-26; el resumen semanal es neto de los costes
 estimados del estudio. Antes las operaciones se reconstruyen desde el
-registro sellado y se comprueba que reproducen sus rentabilidades; si no,
-llega la alerta `RECORD_MISMATCH` y no se describe nada.
+registro sellado y se comprueba que reproducen sus rentabilidades y los
+stops del motor; si no, llega la alerta `RECORD_MISMATCH` o `TRADES_MISMATCH`
+y no se describe nada.
 
 **A mano, paso a paso (si no usas la rutina).** Con MT5 abierto, desde la
 carpeta del proyecto y con las dos lineas de la seccion 2 ya ejecutadas:

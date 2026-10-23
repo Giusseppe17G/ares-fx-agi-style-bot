@@ -13,8 +13,10 @@ trades, one per currency and direction:
   (the close on the execution day) and stop distance, exactly as the engine
   sets them. Its risk is the loss at the stop as a share of equity (at most
   ``risk_per_position``).
-- **Re-anchor.** At each later rebalance the engine resizes the position and
-  re-anchors its entry, stop and take-profit; the trade stays open.
+- **Re-anchor.** At a later rebalance that resizes the position, the engine
+  re-anchors its entry, stop and take-profit; the trade stays open. A
+  rebalance that leaves the weight unchanged (a loss halt keeps it) keeps the
+  previous levels, as the engine does.
 - **Close.** A trade closes when the position goes flat or flips, with one
   reason:
   - ``SL`` or ``TP``: the close crossed the level since the last anchor (the
@@ -24,6 +26,9 @@ trades, one per currency and direction:
 - **Result.** The gross contribution of the position to equity (before costs
   and swap), counted only on forward days. Trades still open at the forward
   start are flagged.
+
+The derivation is checked too: its stop-loss and take-profit closes must
+equal the engine's counts, or it refuses (``TRADES_MISMATCH``).
 
 Prices are shown as the MT5 pair (AUDUSD or USDJPY), so a long position in a
 USD-base pair's currency is a SELL. Everything is paper: nothing here reads an
@@ -149,16 +154,26 @@ def rebuild_trades(plan: ForwardPlan, prices_in: BrokerPrices, inflation_base: p
     horizon = math.sqrt(config.rebalance_days / TRADING_DAYS)
     stops: dict[pd.Timestamp, pd.Series] = {}
     for row in range(first, len(prices) - lag, config.rebalance_days):
-        stops[prices.index[row + lag]] = limits.stop_sigmas * vol.iloc[row] * horizon
+        stops[prices.index[row + lag]] = np.maximum(limits.stop_sigmas * vol.iloc[row] * horizon, 1e-6)
     forward_start = pd.Timestamp(plan.forward_start, tz="UTC")
     positions, contributions = result.positions, result.contributions
+    # The engine re-anchors a position only when a rebalance changes its weight
+    # from yesterday's weight drifted by the day's move.
+    held = positions.to_numpy(dtype=float)
+    previous = np.vstack([np.zeros((1, held.shape[1])), held[:-1]])
+    moved = (prices.loc[positions.index].to_numpy(dtype=float)
+             / prices.shift(1).loc[positions.index].to_numpy(dtype=float) - 1.0)
+    gross = contributions.to_numpy(dtype=float).sum(axis=1, keepdims=True)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        drifted = np.nan_to_num(previous * (1.0 + moved) / (1.0 + gross))
+    resized = np.abs(held - drifted) > 1e-9 * np.abs(drifted)
     trades: list[PaperTrade] = []
-    for code in prices.columns:
+    for column, code in enumerate(prices.columns):
         symbol, usd_base = MT5_USD_PAIRS[code]
         trade: PaperTrade | None = None
         anchor = stop = 0.0
         direction = 0.0
-        for day in positions.index:
+        for row, day in enumerate(positions.index):
             price = float(prices.at[day, code])
             if trade is not None:
                 if day >= forward_start:
@@ -172,7 +187,7 @@ def rebuild_trades(plan: ForwardPlan, prices_in: BrokerPrices, inflation_base: p
                     trade.reason = hit or "REBALANCE"
                     trades.append(trade)
                     trade = None
-                elif rebalance:
+                elif rebalance and resized[row, column]:
                     anchor, stop = price, float(stops[day][code])
             sign = float(np.sign(positions.at[day, code]))
             if trade is None and sign != 0.0 and day in stops:
@@ -188,6 +203,10 @@ def rebuild_trades(plan: ForwardPlan, prices_in: BrokerPrices, inflation_base: p
         if trade is not None:
             trade.last_price = _pair_price(float(prices.iloc[-1][code]), usd_base)
             trades.append(trade)
+    exits = {reason: sum(trade.reason == reason for trade in trades) for reason in ("SL", "TP")}
+    if exits != {"SL": result.stops, "TP": result.take_profits}:
+        raise ReportUnavailable("TRADES_MISMATCH", f"derived exits {exits} differ from the engine's "
+                                f"{result.stops} stops and {result.take_profits} take-profits")
     trades = [trade for trade in trades if trade.closed_on is None or trade.closed_on >= plan.forward_start]
     trades.sort(key=lambda item: (item.opened_on, item.symbol))
     return TradeBook(forward_start=plan.forward_start, through_day=str(through.date()), trades=trades,

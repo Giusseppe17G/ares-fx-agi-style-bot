@@ -16,7 +16,8 @@ from agi_style_forex_bot_mt5.research.daily_fx.data import MT5_USD_PAIRS
 from agi_style_forex_bot_mt5.research.daily_fx.forward import load_broker_daily, run_forward
 from agi_style_forex_bot_mt5.research.daily_fx.forward_routine import (Completed, RoutinePaths,
     needed_inflation_year, run_routine)
-from agi_style_forex_bot_mt5.research.daily_fx.forward_telegram import (alert_message, build_messages, deliver)
+from agi_style_forex_bot_mt5.research.daily_fx.forward_telegram import (DISCLAIMER, alert_message, build_messages,
+    deliver)
 from agi_style_forex_bot_mt5.research.daily_fx.forward_trades import ReportUnavailable, rebuild_trades
 from agi_style_forex_bot_mt5.research.daily_fx.portfolio import backtest
 from agi_style_forex_bot_mt5.research.trial_registry import TrialLedger
@@ -86,6 +87,21 @@ def test_a_crash_against_a_position_closes_it_at_its_stop(tmp_path):
     assert (stopped.pips < 0) and stopped.opened_before_start
 
 
+def test_a_loss_halt_that_keeps_a_position_keeps_its_stop_and_take_profit(tmp_path):
+    # Tight halts block many rebalances: the engine keeps those weights and their old levels.
+    plan = replace(PLAN, limits=replace(PLAN.limits, daily_loss_halt=0.002, floating_loss_halt=0.002))
+    folder = _export(tmp_path / "prices", end="2027-03-31")
+    prices, ledger = _record(tmp_path, folder, plan=plan)
+    from agi_style_forex_bot_mt5.research.daily_fx.forward import assemble_inflation
+    table = assemble_inflation(_base_inflation(), 2024, {}, _supplement())[0]
+    result = backtest(prices.panel.prices.loc[:"2027-03-31"], plan.config, plan.costs, plan.limits,
+                      inflation=table)
+    assert result.blocked_rebalances > 0 and result.stops > 0
+    # The derived stop-loss and take-profit closes must match the engine's, or it refuses (TRADES_MISMATCH).
+    book = rebuild_trades(plan, prices, _base_inflation(), ledger)
+    assert book.trades
+
+
 def test_the_report_refuses_a_book_that_does_not_reproduce_the_record(tmp_path):
     folder = _export(tmp_path / "prices", end="2027-01-29")
     prices = load_broker_daily(folder, PLAN.currencies, PLAN.price_start)
@@ -104,7 +120,7 @@ def test_messages_read_like_a_trading_channel_and_always_say_paper(tmp_path):
     messages = build_messages(book)
     kinds = [message.kind for message in messages]
     assert kinds[0] == "start" and "week" in kinds and "open" in kinds
-    assert all("papel" in message.text for message in messages)
+    assert all("papel" in message.text and message.text.endswith(DISCLAIMER) for message in messages)
     assert [message.on for message in messages] == sorted(message.on for message in messages)
     opened = next(message for message in messages if message.kind == "open")
     assert ("COMPRA" in opened.text or "VENTA" in opened.text) and "Stop loss" in opened.text
@@ -166,6 +182,7 @@ def test_alerts_say_what_to_do():
     message = alert_message("PRICES_STALE", "USDDKK", "2027-01-09")
     assert message.key == "forward:alert:PRICES_STALE:2027-01-09"
     assert "Repite la exportación" in message.text and "papel" in message.text and "USDDKK" in message.text
+    assert message.text.endswith(DISCLAIMER)
 
 
 def test_needed_inflation_year_follows_the_publication_rule():

@@ -145,7 +145,7 @@ Con la opcion B:
 | Codigo 3 en `fetch-inflation` | Sin conexion con el Banco Mundial: reintentalo mas tarde. |
 | `EXPORT_INCOMPLETE` (rutina) | MT5 no trajo los 9 pares: revisa la Observacion de mercado y repite. |
 | `MT5_UNAVAILABLE` (rutina, codigo 3) | MT5 cerrado o sin sesion: abrelo con la cuenta demo y repite. |
-| `RECORD_MISMATCH` (rutina) | El informe no reproduce el registro: el seguimiento sigue valido, pero no borres nada y avisame. |
+| `RECORD_MISMATCH` / `TRADES_MISMATCH` (rutina) | El informe no reproduce el registro o el motor: el seguimiento sigue valido, pero no borres nada y avisame. |
 
 ## 6. Nunca
 

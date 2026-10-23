@@ -15,7 +15,9 @@ From the rebuilt paper trades and the sealed record, this module writes:
 - one message per annual look and per final status;
 - alerts with what to do when the routine stops.
 
-Every message says it is paper. Each one has a stable key, so a rerun never
+Every message says it is paper and ends with the disclaimer (estimated
+costs, not real money, not a recommendation). Each one has a stable key, so a
+rerun never
 repeats it: it is queued in the existing durable outbox and sent once.
 Nothing here reads an account or sends an order.
 """
@@ -59,6 +61,7 @@ ALERT_ACTIONS = {
     "WAITING_FOR_INFLATION": "Falta la inflación de un año nuevo. Se descargará cuando el Banco Mundial la publique.",
     "SWAP_CAPTURE_FAILED": "No se pudo capturar el swap. La cobertura del swap real baja; revisa el mapa de símbolos.",
     "RECORD_MISMATCH": "El informe no reproduce el registro sellado. No borres nada y avisa.",
+    "TRADES_MISMATCH": "Las operaciones del informe no cuadran con el motor. El registro sigue válido; avisa.",
 }
 
 
@@ -107,6 +110,7 @@ def open_message(trade: PaperTrade) -> Message:
         f"Stop loss: {_price(trade.symbol, trade.stop_loss)} · Take profit: {_price(trade.symbol, trade.take_profit)}",
         f"Riesgo hasta el stop: {_number(trade.risk_percent)}% del capital (máximo 0,50%)",
         f"Abierta el {_day(trade.opened_on)} en el rebalanceo · estrategia valor real 5 años",
+        DISCLAIMER,
     ])
     return Message(f"forward:open:{trade.trade_id}", "open", trade.opened_on, 2, text)
 
@@ -120,6 +124,7 @@ def close_message(trade: PaperTrade, forward_start: str) -> Message:
         f"Salida {_price(trade.symbol, trade.close_price)} ({trade.pips:+.0f} pips)",
         f"Resultado{since}: {_pct(trade.pnl_percent)} del capital (bruto, antes de costes)",
         f"Duración: {days} días",
+        DISCLAIMER,
     ]
     return Message(f"forward:close:{trade.trade_id}", "close", trade.closed_on, 1, "\n".join(lines))
 
@@ -211,11 +216,12 @@ def rule_messages(book: TradeBook) -> list[Message]:
                 f"Swap real cubierto: {_number(100.0 * look['swap_coverage'], 0)}% de los días")
         if look.get("confirmation_withheld"):
             text += "\nConfirmación retenida: el swap real no cubre lo suficiente o su total no es positivo."
+        text += f"\n{DISCLAIMER}"
         messages.append(Message(f"forward:look:{look['look']}", "look", look["on"], 4, text))
     status = book.rule.get("status", "ONGOING")
     if status != "ONGOING":
         text = (f"🏁 Estado final del seguimiento: {STATUS_TEXT.get(status, status)} ({_day(book.rule['on'])}) · "
-                f"{PAPER}\nEl registro queda cerrado. Ningún resultado activa operaciones reales.")
+                f"{PAPER}\nEl registro queda cerrado. Ningún resultado activa operaciones reales.\n{DISCLAIMER}")
         messages.append(Message(f"forward:final:{status}", "final", book.rule["on"], 5, text))
     return messages
 
@@ -223,7 +229,8 @@ def rule_messages(book: TradeBook) -> list[Message]:
 def alert_message(code: str, detail: str = "", on: str | None = None) -> Message:
     day = on or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     action = ALERT_ACTIONS.get(code, "Revisa la salida de la rutina.")
-    text = f"⚠️ Seguimiento en {PAPER}: {code}\n{action}" + (f"\nDetalle: {detail[:500]}" if detail else "")
+    text = (f"⚠️ Seguimiento en {PAPER}: {code}\n{action}" + (f"\nDetalle: {detail[:500]}" if detail else "")
+            + f"\n{DISCLAIMER}")
     return Message(f"forward:alert:{code}:{day}", "alert", day, 9, text)
 
 

@@ -44,8 +44,11 @@ losses. The ledger seals returns, closes and decisions, but no trades.
      match the ledger.
    - It then derives trades from the engine's own positions:
      - a trade opens at a rebalance;
-     - it re-anchors at later rebalances;
+     - it re-anchors at a later rebalance only when the engine resizes it (a
+       loss halt that keeps the weight keeps the old levels);
      - it closes on a stop loss, a take-profit or a signal change.
+   - The derived stop-loss and take-profit closes must equal the engine's
+     counts. Otherwise it refuses (`TRADES_MISMATCH`).
    - Stop loss and take-profit are the engine's levels, shown as MT5 pair
      prices.
    - A trade's result is its gross contribution to equity on forward days
@@ -91,6 +94,7 @@ checks:
 
 - that the trades rebuild the sealed record and add up;
 - that a crash against a position closes it at its stop;
+- that loss halts keep a position's levels, as the engine does;
 - the `NO_RECORD`, `RECORD_MISMATCH` and `LEDGER_MISMATCH` refusals;
 - the message contents and that each message is sent once;
 - the retry after a failed send and the disabled-outbox behaviour;
