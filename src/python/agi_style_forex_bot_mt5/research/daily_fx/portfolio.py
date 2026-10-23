@@ -27,15 +27,29 @@ Signals (all in [-1, 1] per currency, long = long the currency vs USD):
   without a rate ends the simulation there instead of carrying a stale rate);
 - ``blend``: equal-weight mean of ``tsmom`` and ``tscarry``;
 - ``xsmom``: cross-sectional momentum, diagnostic only;
+- ``xsvalue``: cross-sectional real-exchange-rate value (Asness, Moskowitz &
+  Pedersen 2013). The score of a currency is minus its real appreciation vs
+  USD: the log price on d minus its mean over ``average_rows`` rows ending
+  ``lookbacks[0] - average_rows + 1`` rows earlier, plus its cumulative log
+  inflation minus the USD one over the last ``inflation_years`` published
+  years (``inflation_differentials``). USD is ranked with a score of zero; the
+  ``xs_top`` highest scores are long and the ``xs_top`` lowest are short (a
+  USD slot leaves its leg to the others), ties going to the ISO code first in
+  alphabetical order. Needs ``inflation``;
 - ``random``: random signs (control). Each sign flips at a rebalance with
   probability ``random_flip_probability`` (0.5: independent draws), so the
   control can match the turnover of the signal it is compared with.
 
 ``shift_days`` circularly shifts the signal in time (a turnover-matched
 control: same persistence and cross-section, no alignment with returns).
+``permute`` gives each currency's ``xsvalue`` score to another currency
+(USD included), by a fixed permutation drawn from ``seed`` (a control: the
+same ranking dynamics and turnover on the wrong currencies).
 
-Positions are scaled by inverse ex-ante volatility and the book to
-``target_annual_vol`` before the invariants cut them down. Returns are net of
+With ``sizing="vol_target"`` positions are scaled by inverse ex-ante
+volatility and the book to ``target_annual_vol`` before the invariants cut
+them down. With ``sizing="equal_risk"`` every position takes exactly
+``risk_per_position`` of equity to its stop. Returns are net of
 one-way trading costs, a financing mark-up on gross exposure and, when
 ``rates`` are given, the interest differential; both accrue by calendar days
 elapsed (a Monday carries the weekend). Because positions drift, every live
@@ -53,7 +67,9 @@ import numpy as np
 import pandas as pd
 
 TRADING_DAYS = 252
-SIGNALS = {"tsmom", "tscarry", "blend", "xsmom", "random"}
+SIGNALS = {"tsmom", "tscarry", "blend", "xsmom", "xsvalue", "random"}
+SIZINGS = {"vol_target", "equal_risk"}
+INFLATION_PUBLICATION_MONTH = 7  # annual inflation of year Y is used from 1 July of Y + 1
 
 
 @dataclass(frozen=True)
@@ -70,12 +86,22 @@ class PortfolioConfig:
     seed: int = 0
     shift_days: int = 0
     random_flip_probability: float = 0.5
+    sizing: str = "vol_target"
+    average_rows: int = 261  # xsvalue: rows averaged into the past price level
+    inflation_years: int = 5  # xsvalue: published years of inflation differential
+    permute: bool = False  # control: xsvalue scores moved to other currencies
 
     def validate(self) -> None:
         if self.signal not in SIGNALS:
             raise ValueError(f"signal must be one of {sorted(SIGNALS)}")
+        if self.sizing not in SIZINGS:
+            raise ValueError(f"sizing must be one of {sorted(SIZINGS)}")
         if not self.lookbacks or any(int(value) < 2 for value in self.lookbacks):
             raise ValueError("lookbacks must be integers >= 2")
+        if self.signal == "xsvalue" and not (1 <= self.average_rows < self.lookbacks[0] and self.inflation_years >= 1):
+            raise ValueError("xsvalue needs 1 <= average_rows < lookbacks[0] and inflation_years >= 1")
+        if self.permute and self.signal != "xsvalue":
+            raise ValueError("permute is a control of the xsvalue signal only")
         if self.vol_span < 5 or self.rebalance_days < 1 or self.execution_lag_days < 0 or self.shift_days < 0:
             raise ValueError("vol_span >= 5, rebalance_days >= 1, execution_lag_days >= 0 and shift_days >= 0 "
                              "are required")
@@ -140,6 +166,7 @@ class BacktestResult:
     take_profits: int
     blocked_rebalances: int
     config: PortfolioConfig = field(repr=False)
+    incomplete_decisions: tuple[pd.Timestamp, ...] = ()  # rebalances traded flat for lack of inputs
 
 
 def tsmom_signal(log_prices: pd.DataFrame, lookbacks: tuple[int, ...]) -> pd.DataFrame:
@@ -182,9 +209,79 @@ def rate_differentials(rates: pd.DataFrame, index: pd.DatetimeIndex, currencies:
     return daily[list(currencies)].sub(daily["USD"], axis=0) / 100.0
 
 
-def _signal(log_prices: pd.DataFrame, config: PortfolioConfig, carry: pd.DataFrame | None) -> pd.DataFrame:
+def inflation_differentials(inflation: pd.DataFrame, index: pd.DatetimeIndex, currencies: tuple[str, ...],
+                            years: int) -> pd.DataFrame:
+    """Cumulative log inflation of each currency minus USD over the last ``years`` published years.
+
+    ``inflation`` holds annual % inflation indexed by integer year. Year Y is
+    only used from 1 July of Y + 1 (``INFLATION_PUBLICATION_MONTH``), so a day
+    before July uses the years up to Y - 2. A missing year gives NaN rather
+    than a shorter sum.
+    """
+
+    missing = [code for code in (*currencies, "USD") if code not in inflation.columns]
+    if missing:
+        raise ValueError(f"no inflation for: {', '.join(missing)}")
+    if years < 1:
+        raise ValueError("years must be >= 1")
+    table = inflation.copy()
+    table.index = table.index.astype(int)
+    table = table.reindex(range(int(table.index.min()), int(table.index.max()) + 1))
+    logs = np.log1p(table[[*currencies, "USD"]].astype(float) / 100.0)
+    gap = logs[list(currencies)].sub(logs["USD"], axis=0)
+    cumulative = gap.rolling(years, min_periods=years).sum()
+    days = pd.DatetimeIndex(index)
+    days = days.tz_convert(None) if days.tz is not None else days
+    published = days.year - 1 - (days.month < INFLATION_PUBLICATION_MONTH).astype(int)
+    daily = cumulative.reindex(published)
+    daily.index = index
+    return daily
+
+
+def currency_permutation(count: int, seed: int) -> tuple[int, ...]:
+    """A permutation of ``range(count)`` other than the identity, fixed by ``seed``."""
+
+    if count < 2:
+        raise ValueError("a permutation needs 2+ currencies")
+    rng = np.random.default_rng(seed)
+    while True:
+        order = rng.permutation(count)
+        if not np.array_equal(order, np.arange(count)):
+            return tuple(int(value) for value in order)
+
+
+def xsvalue_signal(log_prices: pd.DataFrame, inflation_gap: pd.DataFrame, lookback: int, average_rows: int,
+                   top: int, permutation: tuple[int, ...] | None = None) -> pd.DataFrame:
+    """Long the ``top`` cheapest and short the ``top`` dearest of the currencies and USD in real terms."""
+
+    if not 1 <= average_rows < lookback:
+        raise ValueError("need 1 <= average_rows < lookback")
+    past = log_prices.shift(lookback - average_rows + 1).rolling(average_rows, min_periods=average_rows).mean()
+    scores = -((log_prices - past) + inflation_gap[list(log_prices.columns)])
+    scores["USD"] = 0.0
+    # Alphabetical columns: a tie goes to the ISO code that comes first.
+    scores = scores[sorted(scores.columns)]
+    if top < 1 or 2 * top > scores.shape[1]:
+        raise ValueError("xs_top must leave distinct long and short groups")
+    if permutation is not None:
+        if sorted(permutation) != list(range(scores.shape[1])):
+            raise ValueError("permutation must reorder every currency and USD")
+        # The score of column j goes to column permutation[j].
+        moved = np.empty_like(scores.to_numpy())
+        moved[:, list(permutation)] = scores.to_numpy()
+        scores = pd.DataFrame(moved, index=scores.index, columns=scores.columns)
+    complete = scores.notna().all(axis=1)
+    ranks = scores.rank(axis=1, method="first", ascending=False)
+    signal = ranks.le(top).astype(float) - ranks.gt(scores.shape[1] - top).astype(float)
+    return signal.where(complete, np.nan, axis=0)[list(log_prices.columns)]
+
+
+def _signal(log_prices: pd.DataFrame, config: PortfolioConfig, carry: pd.DataFrame | None,
+            inflation_gap: pd.DataFrame | None = None) -> pd.DataFrame:
     if config.signal in {"tscarry", "blend"} and carry is None:
         raise ValueError(f"signal {config.signal} needs rates")
+    if config.signal == "xsvalue" and inflation_gap is None:
+        raise ValueError("signal xsvalue needs inflation")
     if config.signal == "tsmom":
         signal = tsmom_signal(log_prices, config.lookbacks)
     elif config.signal == "tscarry":
@@ -193,6 +290,10 @@ def _signal(log_prices: pd.DataFrame, config: PortfolioConfig, carry: pd.DataFra
         signal = (tsmom_signal(log_prices, config.lookbacks) + np.sign(carry)) / 2.0
     elif config.signal == "xsmom":
         signal = xsmom_signal(log_prices, config.lookbacks[0], config.xs_top)
+    elif config.signal == "xsvalue":
+        permutation = currency_permutation(log_prices.shape[1] + 1, config.seed) if config.permute else None
+        signal = xsvalue_signal(log_prices, inflation_gap, config.lookbacks[0], config.average_rows,
+                                config.xs_top, permutation)
     else:
         signal = _random_signs(log_prices, config)
     if config.shift_days:
@@ -214,7 +315,8 @@ def _random_signs(log_prices: pd.DataFrame, config: PortfolioConfig) -> pd.DataF
         log_prices.shift(max(config.lookbacks)).notna())
 
 
-def signal_flip_rate(prices: pd.DataFrame, config: PortfolioConfig, rates: pd.DataFrame | None = None) -> float:
+def signal_flip_rate(prices: pd.DataFrame, config: PortfolioConfig, rates: pd.DataFrame | None = None,
+                     inflation: pd.DataFrame | None = None) -> float:
     """Share of currency signs that change from one rebalance to the next, in [0.01, 0.5].
 
     Used to give a random-sign control the persistence (turnover) of the signal it is
@@ -223,7 +325,9 @@ def signal_flip_rate(prices: pd.DataFrame, config: PortfolioConfig, rates: pd.Da
 
     config.validate()
     carry = rate_differentials(rates, prices.index, tuple(prices.columns)) if rates is not None else None
-    signs = np.sign(_signal(np.log(prices), config, carry))
+    gap = (inflation_differentials(inflation, prices.index, tuple(prices.columns), config.inflation_years)
+           if inflation is not None else None)
+    signs = np.sign(_signal(np.log(prices), config, carry, gap))
     complete = signs.notna().all(axis=1).to_numpy()
     if not complete.any():
         raise ValueError("price history is too short for the signal")
@@ -247,14 +351,22 @@ def _shifted(signal: pd.DataFrame, shift_days: int) -> pd.DataFrame:
     return shifted
 
 
-def target_weights(prices: pd.DataFrame, config: PortfolioConfig,
-                   carry: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Unconstrained target weights and annual ex-ante volatility, from data up to each day."""
+def target_weights(prices: pd.DataFrame, config: PortfolioConfig, carry: pd.DataFrame | None = None,
+                   inflation_gap: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Unconstrained target weights and annual ex-ante volatility, from data up to each day.
+
+    With ``equal_risk`` sizing the target is only the direction of each
+    position; ``backtest`` sizes it to the risk cap at the rebalance.
+    """
 
     log_prices = np.log(prices)
     returns = log_prices.diff()
     ex_ante_vol = returns.ewm(span=config.vol_span, min_periods=config.vol_span).std() * np.sqrt(TRADING_DAYS)
-    raw = (_signal(log_prices, config, carry) / ex_ante_vol).replace([np.inf, -np.inf], np.nan)
+    signal = _signal(log_prices, config, carry, inflation_gap)
+    if config.sizing == "equal_risk":
+        target = signal.where(ex_ante_vol.notna())
+        return target.where(target.notna().all(axis=1)), ex_ante_vol
+    raw = (signal / ex_ante_vol).replace([np.inf, -np.inf], np.nan)
     unscaled_returns = (raw.shift(1) * returns).sum(axis=1, min_count=1)
     book_vol = unscaled_returns.ewm(span=config.vol_span, min_periods=config.vol_span).std() * np.sqrt(TRADING_DAYS)
     target = raw.mul(config.target_annual_vol / book_vol.where(book_vol > 0), axis=0)
@@ -304,12 +416,17 @@ def _open_pnl(entry_weight: np.ndarray, entry: np.ndarray, price: np.ndarray, en
 
 
 def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
-             limits: RiskLimits = RiskLimits(), rates: pd.DataFrame | None = None) -> BacktestResult:
+             limits: RiskLimits = RiskLimits(), rates: pd.DataFrame | None = None,
+             inflation: pd.DataFrame | None = None) -> BacktestResult:
     """Simulate the book day by day over ``prices`` (USD price per currency)."""
 
     config.validate()
     if prices.shape[1] < 2 or prices.isna().any().any() or (prices <= 0).any().any():
         raise ValueError("prices must be a complete, positive panel with 2+ currencies")
+    if config.sizing == "equal_risk" and limits.risk_per_position is None:
+        raise ValueError("equal_risk sizing needs risk_per_position")
+    if config.signal == "xsvalue" and inflation is None:
+        raise ValueError("signal xsvalue needs inflation")
     currencies = tuple(prices.columns)
     carry = None
     if rates is not None:
@@ -322,7 +439,9 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
             raise ValueError("rates have a missing month inside their history")
         # Fail closed at the end of the rate history: never carry a stale rate.
         prices, carry = prices.iloc[:end], carry.iloc[:end]
-    target, ex_ante_vol = target_weights(prices, config, carry)
+    gap = (inflation_differentials(inflation, prices.index, currencies, config.inflation_years)
+           if config.signal == "xsvalue" else None)
+    target, ex_ante_vol = target_weights(prices, config, carry, gap)
     valid = target.notna().all(axis=1).to_numpy().copy()
     if carry is not None:
         valid &= carry.notna().all(axis=1).to_numpy()
@@ -349,6 +468,7 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
     contrib = np.zeros((days, count))
     gross_out, net_out, cost_out, turn_out = (np.zeros(days) for _ in range(4))
     stops = take_profits = blocked = 0
+    incomplete: list[pd.Timestamp] = []
     start = first + config.execution_lag_days
     for t in range(start, days):
         # 1) Return of the day on yesterday's book.
@@ -384,6 +504,12 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
             if not (np.isfinite(wanted).all() and np.isfinite(stop_distance).all()):
                 # Incomplete inputs: fail closed to a flat book.
                 wanted, stop_distance = np.zeros(count), np.full(count, 1e-6)
+                incomplete.append(prices.index[decision])
+            elif config.sizing == "equal_risk":
+                wanted = wanted * (limits.risk_per_position / stop_distance)
+                gross_wanted = float(np.sum(np.abs(wanted)))
+                if gross_wanted > config.max_gross_leverage:
+                    wanted = wanted * (config.max_gross_leverage / gross_wanted)
             new = _apply_limits(wanted, stop_distance, limits)
             # The day's loss counts its costs so far (financing and protective exits).
             halted = ((limits.daily_loss_halt is not None and gross - day_cost <= -limits.daily_loss_halt)
@@ -420,6 +546,7 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
         turnover=pd.Series(turn_out[sl], index=index),
         contributions=pd.DataFrame(contrib[sl], index=index, columns=list(currencies)),
         stops=stops, take_profits=take_profits, blocked_rebalances=blocked, config=config,
+        incomplete_decisions=tuple(incomplete),
     )
 
 

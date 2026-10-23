@@ -64,6 +64,11 @@ class TrialLedger:
             handle.write(_canonical(record) + "\n")
         return record
 
+    def head(self) -> str:
+        """sha256 of the last record (the genesis hash for an empty ledger)."""
+
+        return self._last_hash()
+
     def has(self, kind: str, plan_hash: str) -> bool:
         return any(record["kind"] == kind and record["plan_hash"] == plan_hash for record in self.records())
 

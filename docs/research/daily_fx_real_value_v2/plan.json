@@ -1,0 +1,178 @@
+{
+  "plan": {
+    "acceptance": {
+      "max_currency_share": 0.5,
+      "max_development_drawdown": 0.12,
+      "max_development_pbo": 0.3,
+      "max_holdout_drawdown": 0.12,
+      "max_holm_p_value": 0.05,
+      "max_promotion_pbo": 0.1,
+      "max_random_quota": 0.05,
+      "max_shift_quota": 0.05,
+      "max_spa_p_value": 0.05,
+      "min_development_dsr": 0.95,
+      "min_development_hac_t": 2.0,
+      "min_development_sharpe": 0.3,
+      "min_holdout_hac_t": 2.0,
+      "min_holdout_sharpe": 0.0,
+      "min_holdout_stressed_sharpe": 0.0,
+      "min_stressed_sharpe": 0.0,
+      "min_subperiod_sharpe": 0.0
+    },
+    "cost_stress_factor": 2.0,
+    "costs": {
+      "financing_bps_per_year": 75.0,
+      "one_way_bps": {
+        "AUD": 1.2,
+        "CAD": 1.2,
+        "CHF": 1.5,
+        "DKK": 3.0,
+        "GBP": 1.2,
+        "JPY": 1.0,
+        "NOK": 3.0,
+        "NZD": 2.0,
+        "SEK": 3.0
+      }
+    },
+    "currencies": [
+      "AUD",
+      "CAD",
+      "CHF",
+      "DKK",
+      "GBP",
+      "JPY",
+      "NOK",
+      "NZD",
+      "SEK"
+    ],
+    "data": {
+      "inflation_sha256": "182baa44c536079bea07bb8700c37c85441c3d7d5f8e6dd68fb92fcb4a7815e8",
+      "price_sha256": "68349ef41ecc0cf35fa00ba0d9d63ec93b45a5182c37d2bb9a368fcd654bfeaa",
+      "price_source": "fred_h10_daily",
+      "rates_sha256": null
+    },
+    "development": [
+      "1985-04-01",
+      "2016-12-31"
+    ],
+    "engine_sha256": "c46e71202818a33c9f290c2d883853a475f482da4cdddb9f10823f0a5bf54270",
+    "environment": {
+      "numpy": "2.4.4",
+      "pandas": "3.0.2",
+      "python": "3.14.4"
+    },
+    "holdout": [
+      "2017-01-01",
+      "2026-06-30"
+    ],
+    "hypotheses": [
+      {
+        "carry_accrual": false,
+        "description": "Currency value (Asness, Moskowitz & Pedersen 2013): the score of each currency is minus its real appreciation vs USD over about five years, i.e. the log price on the decision day minus its mean over the year that ended 4.5 years earlier, plus the last five published years of its CPI inflation minus US CPI inflation. The nine currencies and USD (score zero) are ranked; the three cheapest are bought and the three dearest sold against USD, each at 0.5% of equity to its stop. Spot returns only: the rate differential is not credited, the swap mark-up is charged.",
+        "hypothesis_id": "H1_XS_REAL_VALUE_5Y",
+        "primary": {
+          "average_rows": 261,
+          "execution_lag_days": 1,
+          "flip": false,
+          "inflation_years": 5,
+          "lookbacks": [
+            1435
+          ],
+          "max_gross_leverage": 3.0,
+          "permute": false,
+          "random_flip_probability": 0.5,
+          "rebalance_days": 21,
+          "seed": 0,
+          "shift_days": 0,
+          "signal": "xsvalue",
+          "sizing": "equal_risk",
+          "target_annual_vol": 0.1,
+          "vol_span": 60,
+          "xs_top": 3
+        },
+        "subperiods": [
+          [
+            "1985-04-01",
+            "1998-12-31"
+          ],
+          [
+            "1999-01-01",
+            "2016-12-31"
+          ]
+        ],
+        "timing_claim": true,
+        "variants": []
+      }
+    ],
+    "limits": {
+      "daily_loss_halt": 0.03,
+      "floating_loss_halt": 0.05,
+      "max_net_usd_risk": 0.03,
+      "max_open_risk": 0.05,
+      "max_positions": 10,
+      "risk_per_position": 0.005,
+      "stop_sigmas": 2.5,
+      "take_profit_multiple": 3.0
+    },
+    "name": "daily_fx_real_value_v2",
+    "notes": [
+      "Prices: FRED H.10 noon New York rates, github.com/datasets/exchange-rates commit c023dd8b8f87, data/daily.csv (the file v1 used), read from 1979-01-02; every series is currency per USD and is inverted.",
+      "Inflation: World Bank FP.CPI.TOTL.ZG via github.com/datasets/cpi commit 3750e450, data/cpi.csv, whose CPI column is annual % CPI inflation (not an index). Year Y is used from 1 July of Y+1; the last year is 2024, so the signal is complete up to 2026-06-30 and the holdout ends there.",
+      "Spot only: no rate file covers 2017-2026 for all ten currencies, so the rate differential is not credited and the 75 bps/yr swap mark-up is charged on gross exposure. Any verdict is spot-only and must be confirmed with the broker's real swaps (swap snapshot) before a paper path is designed.",
+      "Development starts on 1985-04-01, after the NZD float (1985-03-04). SEK and NOK basket pegs (to 1992) and DKK in the EMS are kept; capital controls and realignments before 1990 make some development P&L hard to achieve.",
+      "Departure from v1's reuse rule: development includes v1's development years 1999-2016 (where value was never computed); the verdict comes only from 2017-01-01 to 2026-06-30, which no plan has scored, and the 1985-1998 subperiod, which no plan has used, must be positive on its own.",
+      "The inflation window ends 0.5 to 1.5 years before the price window (publication lag); declared, not tuned.",
+      "The deflated Sharpe ratio counts every development trial in the shared daily-FX ledger (v1's 7) plus this one, with the variance of the trial Sharpes floored at 1/(n-1), n the observations of this trial (the deflated-promotion-gate convention). PBO is not applicable to a single predeclared configuration: v1's PBO conditions are dropped, compensated by that programme-wide deflation.",
+      "Controls: the same ranking given to 200 distinct permutations of the ten currencies (same ranking dynamics, about the same turnover, wrong currencies), and the signal shifted in time by at least 5.5 years plus a holding period (gated: value claims timing). The shift quota is not a calibrated 5% test: shifted copies are correlated with each other, which makes it slightly lenient under the null.",
+      "Each development subperiod (1985-04 to 1998-12, 1999-01 to 2016-12) must keep a positive net Sharpe, and no rebalance inside a scored window may be traded flat for lack of inputs.",
+      "Chosen knowing the published results (AMP 2013; Menkhoff, Sarno, Schmeling & Schrimpf 2017) and the broad FX moves of 2017-2025 (the 2021-2024 yen slump, the 2022 USD rally); every parameter comes from AMP 2013 or v1, none was tuned to them.",
+      "Risk invariants of the bot: 0.5% risk to the stop per position, 5% open risk, 3% net USD risk, 10 positions, 3% daily and 5% floating loss halts; catastrophe stop at 2.5 monthly sigmas and take-profit at 3x the stop distance, checked on daily closes.",
+      "No verdict authorises execution; execution stays removed (release-lock ADR)."
+    ],
+    "pbo_blocks": 16,
+    "price_start": "1979-01-02",
+    "program_trials": 7,
+    "random_replicas": 200,
+    "spa_bootstraps": 2000,
+    "stress_windows": {
+      "1985-09_plaza_accord": [
+        "1985-09-01",
+        "1985-12-31"
+      ],
+      "1992-09_erm_crisis": [
+        "1992-09-01",
+        "1992-10-31"
+      ],
+      "1998-08_ltcm_yen": [
+        "1998-08-01",
+        "1998-10-31"
+      ],
+      "2008-10_crisis": [
+        "2008-10-01",
+        "2008-10-31"
+      ],
+      "2009-03_to_2010-06_recovery": [
+        "2009-03-01",
+        "2010-06-30"
+      ],
+      "2015-01_chf_floor": [
+        "2015-01-01",
+        "2015-01-31"
+      ],
+      "2020-03_covid": [
+        "2020-03-01",
+        "2020-03-31"
+      ],
+      "2022_usd_rally": [
+        "2022-01-01",
+        "2022-12-31"
+      ],
+      "2024-08_yen_unwind": [
+        "2024-07-15",
+        "2024-08-31"
+      ]
+    },
+    "study_version": "daily_fx_study_v3"
+  },
+  "plan_hash": "e8831946d99e7a058b987a5b24707c1f0e98d22c1dd8ba961aecae77437b7556"
+}
