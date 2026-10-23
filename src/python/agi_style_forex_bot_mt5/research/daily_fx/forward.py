@@ -1,56 +1,67 @@
 """Forward paper tracking of a frozen daily FX book (research only).
 
 A frozen study book (plan v2's ``H1_XS_REAL_VALUE_5Y``) is simulated with the
-unchanged engine on the operator's own broker daily bars, and only the days
-after ``forward_start`` count. Those days did not exist when the plan was
-frozen, so they cannot have been fitted. Nothing here builds, checks or sends
-an order, and no verdict authorises execution.
+unchanged engine on the operator's own broker daily bars. Only the days after
+``forward_start`` count: they did not exist when the plan was frozen, so they
+cannot have been fitted. Nothing here builds, checks or sends an order, and
+no outcome authorises execution.
 
 The record is a hash-chained ledger of checkpoints on the operator's machine.
-Each checkpoint stores the digest of the forward returns up to its last day,
-the rebalance decisions it saw and the inflation figures it used. A later run
-must recompute exactly the same past, or it refuses to append anything:
-broker history revised after the fact (``FORWARD_HISTORY_CHANGED``) is never
-absorbed silently.
+Each checkpoint seals the values of its new days:
+
+- the primary daily return;
+- the broker-swap daily return (null where uncovered);
+- the closes the day used;
+- the rebalance decisions it saw;
+- the inflation years it fixed;
+- the sha256 of every input file.
+
+A later run must recompute the same primary returns, within ``TOLERANCE``,
+and the same decisions. Otherwise it refuses to append anything
+(``FORWARD_HISTORY_CHANGED``), so a broker that revises its history is never
+absorbed silently. The broker-swap values of sealed days are taken from the
+ledger, never recomputed, and a swap snapshot that claims to predate the last
+checkpoint but was not seen by it is ignored.
 
 Data conventions (all fail closed):
 
-- **Prices.** MT5 ``D1`` exports (``<SYMBOL>_D1.csv`` written by
-  ``--mode export-history``) are read from ``price_start``. The last bar of
-  every file is dropped, because ``copy_rates_from_pos(..., 0, n)`` includes
-  the bar still forming.
-- **Inflation.** Years up to ``inflation_base_last_year`` come from the
-  pinned World Bank file. Each later year comes from a supplement file and is
-  taken the first time all ten series have it. That value is then fixed in
-  the ledger, so a later revision never changes a past decision.
-- **Missing data.** A rebalance whose inputs are missing stops the record
-  just before it, and nothing after it is counted, until the data exist.
+- **Prices.** MT5 ``D1`` exports (``<SYMBOL>_D1.csv`` from ``--mode
+  export-history``).
+  - The last bar of every file is dropped: ``copy_rates_from_pos(..., 0, n)``
+    includes the bar still forming.
+  - The panel is cut at the last day that every pair has; a pair more than one
+    business day behind refuses the run (``PRICES_STALE``).
+  - It starts exactly at ``price_start``, and every pair must reach back to
+    it. The rebalance calendar is therefore anchored on a fixed day.
+- **Inflation.** Years up to ``inflation_base_last_year`` come from the pinned
+  World Bank file. Each later year comes from a supplement and is taken the
+  first time all ten series have it, then fixed in the ledger.
+- **Missing inputs.** A rebalance whose inputs are missing stops the record on
+  the day before it.
 
-Two return series are reported:
+Two return series are kept:
 
 - **Primary.** The study's own definition: spot returns, the study's trading
-  costs and a 75 bps/yr mark-up on gross exposure. It drives the decision
-  rule.
-- **Broker swap.** The mark-up is replaced by the broker's real swap (carry
-  plus mark-up) from the operator's ``capture-swap-snapshot`` files. A day is
-  covered only when every held currency has captured swap terms no older than
+  costs and a 75 bps/yr mark-up on gross exposure. It drives the rule.
+- **Broker swap.** The mark-up is replaced by the broker's captured swap
+  terms (``capture-swap-snapshot``; only the ``POINTS`` mode converts). A day
+  is covered only when every held currency has terms no older than
   ``swap_max_age_days``.
 
 Decision rule (group sequential, one-sided alpha 0.05):
 
 - **Looks.** One look at each anniversary of ``forward_start``, at most ten.
-- **CONFIRMED.** At look k the Newey-West t of the primary daily returns so
-  far reaches the O'Brien-Fleming boundary ``boundaries[k-1]``. The broker-swap
-  series must also cover at least ``min_swap_coverage`` of those days, with a
-  positive total.
-- **ABANDONED.**
-  - ``ABANDONED_FUTILITY``: from look 2, the t is at or below ``futility_t``.
-  - ``ABANDONED_DRAWDOWN``: at any time, the primary drawdown reaches
-    ``max_drawdown``.
+- **CONFIRMED.** At look k, the Newey-West t of the primary daily returns so
+  far reaches the O'Brien-Fleming boundary ``boundaries[k-1]``. The
+  broker-swap series must also cover at least ``min_swap_coverage`` of those
+  days, with a positive total.
+- **ABANDONED_FUTILITY.** From look 2, the t is at or below ``futility_t``.
+- **ABANDONED_DRAWDOWN.** At any time, the primary drawdown reaches
+  ``max_drawdown``.
 - **ENDED_WITHOUT_CONFIRMATION.** Ten looks pass without a confirmation.
 
-A confirmation only allows opening a decision record about live trading,
-which AGENTS.md keeps out of scope.
+A final status is never extended. A confirmation only allows opening a
+decision record about live trading, which AGENTS.md keeps out of scope.
 """
 
 from __future__ import annotations
@@ -71,14 +82,17 @@ import pandas as pd
 from ..edge_statistics import newey_west_t_stat
 from ..trial_registry import TrialLedger
 from .data import MT5_USD_PAIRS, PricePanel, WORLD_BANK_COUNTRIES, _finalise
-from .portfolio import (CostModel, PortfolioConfig, RiskLimits, TRADING_DAYS, backtest, inflation_differentials,
-    performance, target_weights)
+from .portfolio import (CostModel, PortfolioConfig, RiskLimits, backtest, inflation_differentials, performance,
+    target_weights)
 from .study import ENGINE_FILES
 
 FORWARD_VERSION = "daily_fx_forward_v1"
 CHECKPOINT = "forward_checkpoint"
-# Code that decides every forward number: the study engine, this module and the swap conversion.
-FORWARD_FILES = (*ENGINE_FILES, "daily_fx/forward.py", "../broker_swap_snapshot.py")
+TERMINAL = {"CONFIRMED", "ABANDONED_FUTILITY", "ABANDONED_DRAWDOWN", "ENDED_WITHOUT_CONFIRMATION"}
+TOLERANCE = 1e-10  # absolute, on daily log returns: last-bit numerical noise passes, any real change does not
+# Code that decides every forward number: the study engine, the tracker, its runner and the swap conversion.
+FORWARD_FILES = (*ENGINE_FILES, "daily_fx/forward.py", "daily_fx/forward_runner.py", "../broker_swap_snapshot.py",
+                 "../core/instruments/registry.py")
 WORLD_BANK_INDICATOR = "FP.CPI.TOTL.ZG"
 WORLD_BANK_URL = ("https://api.worldbank.org/v2/country/{countries}/indicator/" + WORLD_BANK_INDICATOR
                   + "?date={first}:{last}&format=json&per_page=1000")
@@ -148,7 +162,7 @@ class ForwardPlan:
                 "inflation_base_sha256": self.inflation_base_sha256,
                 "inflation_base_last_year": self.inflation_base_last_year,
                 "swap_max_age_days": self.swap_max_age_days, "rule": self.rule.to_dict(),
-                "engine_sha256": self.engine, "notes": list(self.notes)}
+                "tolerance": TOLERANCE, "engine_sha256": self.engine, "notes": list(self.notes)}
 
     def canonical_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
@@ -162,6 +176,8 @@ class ForwardPlan:
             raise ValueError("the forward tracker follows an equal-risk xsvalue book")
         if pd.Timestamp(self.price_start) >= pd.Timestamp(self.forward_start):
             raise ValueError("price_start must come before forward_start")
+        if pd.Timestamp(self.price_start).dayofweek >= 5:
+            raise ValueError("price_start must be a business day")
         if len(self.rule.boundaries) < 1 or self.swap_max_age_days < 1:
             raise ValueError("the rule needs at least one look and a positive swap age limit")
         if not 0 < self.rule.min_swap_coverage <= 1 or not 0 < self.rule.max_drawdown < 1:
@@ -176,49 +192,71 @@ def _digest(payload: Any) -> str:
     return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=float).encode("utf-8")).hexdigest()
 
 
-def _series_digest(values: pd.Series) -> str:
-    rows = [[str(day.date()), f"{float(value):.12e}"] for day, value in values.items()]
-    return _digest(rows)
+def _finite_or_none(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, Mapping):
+        return {key: _finite_or_none(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite_or_none(item) for item in value]
+    return value
 
 
 # --- data -------------------------------------------------------------------
 
 
-def load_broker_daily(directory: str | Path, currencies: Iterable[str], start: str) -> PricePanel:
-    """MT5 ``D1`` exports from ``start``, the last (possibly forming) bar of every file dropped."""
+@dataclass(frozen=True)
+class BrokerPrices:
+    panel: PricePanel
+    files: Mapping[str, str]  # export file name -> sha256
+
+
+def load_broker_daily(directory: str | Path, currencies: Iterable[str], start: str) -> BrokerPrices:
+    """MT5 ``D1`` exports from exactly ``start`` to the last day every pair has."""
 
     folder = Path(directory)
-    series = {}
-    for code in currencies:
+    codes = tuple(currencies)
+    series, files, firsts, lasts = {}, {}, {}, {}
+    for code in codes:
         if code not in MT5_USD_PAIRS:
             raise ValueError(f"no USD pair known for {code}")
         symbol, usd_base = MT5_USD_PAIRS[code]
         path = folder / f"{symbol}_D1.csv"
         if not path.exists():
             raise ForwardRefused("PRICES_MISSING", f"{path.name} not found: export D1 history for {symbol}")
+        files[path.name] = sha256(path.read_bytes()).hexdigest()
         frame = pd.read_csv(path)
         if not {"timestamp_utc", "close"} <= set(frame.columns):
             raise ValueError(f"{path.name} needs timestamp_utc and close columns")
         frame = frame.assign(opened=pd.to_datetime(frame["timestamp_utc"], utc=True)).sort_values("opened")
         frame = frame.iloc[:-1]  # copy_rates_from_pos(..., 0, n) includes the bar still forming
+        if frame.empty:
+            raise ForwardRefused("PRICES_TOO_SHORT", f"{path.name} has no complete bar")
         # Date each bar by its close: a bar opening at 21:00 UTC on Sunday is Monday's.
         dates = (frame["opened"] + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)).dt.normalize()
         close = pd.to_numeric(frame["close"], errors="coerce")
         if dates.duplicated().any() or close.isna().any() or (close <= 0).any():
             raise ValueError(f"{path.name} has duplicate days or invalid closes")
-        series[code] = pd.Series((1.0 / close if usd_base else close).to_numpy(), index=pd.DatetimeIndex(dates))
-    wide = pd.DataFrame(series)
+        values = pd.Series((1.0 / close if usd_base else close).to_numpy(), index=pd.DatetimeIndex(dates))
+        series[code], firsts[code], lasts[code] = values, values.index.min(), values.index.max()
     first = pd.Timestamp(start, tz="UTC")
-    if wide.index.min() > first:
-        raise ForwardRefused("PRICES_TOO_SHORT", f"the D1 export starts on {wide.index.min().date()}, after "
-                             f"{start}: export more bars")
-    wide = wide.loc[first:]
-    business_days = pd.bdate_range(wide.index.min(), wide.index.max(), tz="UTC")
-    panel = _finalise(wide.reindex(business_days), tuple(currencies))
-    if panel.index[0] > first + pd.Timedelta(days=7):
-        raise ForwardRefused("PRICES_TOO_SHORT", f"some D1 export starts after {start}: export more bars")
-    return PricePanel(panel, "mt5_d1_export", _digest([[str(d.date()), *map(float, row)]
-                                                       for d, row in zip(panel.index, panel.to_numpy())]))
+    late = sorted(code for code in codes if firsts[code] > first)
+    if late:
+        raise ForwardRefused("PRICES_TOO_SHORT", f"{', '.join(late)} start after {start}: export more bars")
+    last_common, last_any = min(lasts.values()), max(lasts.values())
+    if np.busday_count(last_common.date(), last_any.date()) > 1:
+        behind = sorted(code for code in codes if lasts[code] == last_common)
+        raise ForwardRefused("PRICES_STALE", f"{', '.join(behind)} end on {last_common.date()}, more than one "
+                             f"business day before {last_any.date()}: export again (check files_created)")
+    if last_common <= first:
+        raise ForwardRefused("PRICES_TOO_SHORT", "no complete day after price_start")
+    # Never forward-fill past the last day every pair has; fill holidays only from earlier bars.
+    wide = pd.DataFrame(series).loc[first - pd.Timedelta(days=31):last_common]
+    business_days = pd.bdate_range(wide.index.min(), last_common, tz="UTC")
+    filled = _finalise(wide.reindex(business_days), codes).loc[first:]
+    if filled.empty or filled.index[0] != first:
+        raise ForwardRefused("PRICES_TOO_SHORT", f"not every pair has a price on {start}")
+    return BrokerPrices(PricePanel(filled, "mt5_d1_export", _digest(sorted(files.items()))), dict(sorted(files.items())))
 
 
 def read_inflation_supplement(path: str | Path, currencies: Iterable[str]) -> tuple[pd.DataFrame, str]:
@@ -248,8 +286,7 @@ def assemble_inflation(base: pd.DataFrame, base_last_year: int, first_seen: Mapp
     """Inflation table for the engine: the pinned base, then each later year as first seen.
 
     Returns the table, the years newly fixed by this run and a list of
-    ignored differences (revisions of fixed years, base years in the
-    supplement, partial years).
+    ignored differences (revisions of fixed years, partial years).
     """
 
     table = base.loc[base.index <= base_last_year].copy()
@@ -278,11 +315,6 @@ def assemble_inflation(base: pd.DataFrame, base_last_year: int, first_seen: Mapp
         if year != int(table.index.max()) + 1:
             raise ForwardRefused("INFLATION_GAP", f"inflation year {year} does not follow {int(table.index.max())}")
         table.loc[year] = [values[code] for code in columns]
-    if supplement is not None:
-        for year in supplement.index:
-            if year <= base_last_year:
-                notes.append(f"{year}: base year in the supplement ignored")
-                break
     table.index = table.index.astype(int)
     return table, added, notes
 
@@ -347,12 +379,13 @@ def fetch_world_bank_inflation(output: str | Path, first_year: int, last_year: i
 
 
 def _swap_rates(snapshots: Sequence[Mapping[str, Any]], prices: pd.DataFrame, max_age_days: int,
-                days: pd.DatetimeIndex) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
+                days: pd.DatetimeIndex) -> tuple[pd.DataFrame, pd.DataFrame, list[str], dict[str, str]]:
     """Annual swap rate (fraction of notional) of a long and of a short in each currency vs USD, per day.
 
     The rate of day t comes from the latest snapshot captured before day t
     began (UTC) and no older than ``max_age_days``, converted at the previous
-    close. NaN where no such snapshot holds captured terms for the pair.
+    close. NaN where no such snapshot holds convertible terms for the pair;
+    the reasons are returned per symbol.
     """
 
     from ...broker_swap_snapshot import annualised_swap_carry, verify_swap_snapshot
@@ -361,8 +394,9 @@ def _swap_rates(snapshots: Sequence[Mapping[str, Any]], prices: pd.DataFrame, ma
     long_rate = pd.DataFrame(np.nan, index=days, columns=prices.columns)
     short_rate = long_rate.copy()
     used: list[str] = []
+    reasons: dict[str, str] = {}
     if not verified:
-        return long_rate, short_rate, used
+        return long_rate, short_rate, used, reasons
     stamps = pd.DatetimeIndex([pd.Timestamp(item["captured_at_utc"]) for item in verified]).tz_convert("UTC")
     previous = prices.shift(1)
     for row, day in enumerate(days):
@@ -376,18 +410,22 @@ def _swap_rates(snapshots: Sequence[Mapping[str, Any]], prices: pd.DataFrame, ma
             symbol, usd_base = MT5_USD_PAIRS[code]
             record = snapshot["instruments"].get(symbol)
             usd_price = previous.at[day, code]
-            if record is None or not np.isfinite(usd_price):
+            if record is None:
+                reasons[symbol] = "NOT_IN_SNAPSHOT"
+                continue
+            if not np.isfinite(usd_price):
                 continue
             try:
                 carry = annualised_swap_carry(record, price=float(1.0 / usd_price if usd_base else usd_price))
-            except Exception:  # an unconvertible record leaves the day uncovered
+            except Exception as error:  # an unconvertible record leaves the day uncovered
+                reasons[symbol] = str(getattr(error, "detail", {}).get("reason") or "CARRY_UNAVAILABLE")
                 continue
             pair_long = carry["long_annual_percent_of_notional"] / 100.0
             pair_short = carry["short_annual_percent_of_notional"] / 100.0
             # Long the currency is long XXXUSD or short USDXXX.
             long_rate.iat[row, prices.columns.get_loc(code)] = pair_short if usd_base else pair_long
             short_rate.iat[row, prices.columns.get_loc(code)] = pair_long if usd_base else pair_short
-    return long_rate, short_rate, used
+    return long_rate, short_rate, used, reasons
 
 
 def broker_swap_returns(primary: pd.Series, positions: pd.DataFrame, prices: pd.DataFrame, costs: CostModel,
@@ -472,7 +510,7 @@ def _stats(values: pd.Series) -> dict[str, Any] | None:
         return None
     stats = performance(clean)
     stats["hac_t_stat"] = _t_stat(clean)
-    return stats
+    return _finite_or_none(stats)
 
 
 def _decision_rows(prices: pd.DataFrame, config: PortfolioConfig, inflation: pd.DataFrame
@@ -486,21 +524,32 @@ def _decision_rows(prices: pd.DataFrame, config: PortfolioConfig, inflation: pd.
     return list(range(first, len(prices), config.rebalance_days)), target
 
 
-def run_forward(plan: ForwardPlan, panel: PricePanel, inflation_base: pd.DataFrame, inflation_base_sha256: str,
+def _sealed(previous: Sequence[Mapping[str, Any]]) -> tuple[pd.Series, pd.Series]:
+    days, primary, swap = [], [], []
+    for record in previous:
+        payload = record["payload"]
+        days += payload["days"]
+        primary += payload["primary"]
+        swap += [np.nan if value is None else value for value in payload["broker_swap"]]
+    index = pd.DatetimeIndex(pd.to_datetime(days)).tz_localize("UTC") if days else pd.DatetimeIndex([], tz="UTC")
+    return pd.Series(primary, index=index, dtype=float), pd.Series(swap, index=index, dtype=float)
+
+
+def run_forward(plan: ForwardPlan, prices_in: BrokerPrices, inflation_base: pd.DataFrame, inflation_base_sha256: str,
                 supplement: pd.DataFrame | None, swap_snapshots: Sequence[Mapping[str, Any]], ledger: TrialLedger,
-                now_utc: datetime | None = None) -> dict[str, Any]:
+                now_utc: datetime | None = None, inputs: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Extend the forward record with every complete day since the last checkpoint."""
 
     plan.validate()
     plan_hash = plan.plan_hash()
+    panel = prices_in.panel
     if plan.engine != forward_engine_sha256():
         raise ForwardRefused("ENGINE_CHANGED", "the engine code changed since the forward plan was frozen")
     if inflation_base_sha256 != plan.inflation_base_sha256:
         raise ForwardRefused("INFLATION_BASE_CHANGED", "the inflation base file differs from the pinned one")
     if tuple(panel.currencies) != tuple(plan.currencies) or panel.source != plan.price_source:
         raise ForwardRefused("PRICES_MISMATCH", "the price panel is not the plan's broker D1 panel")
-    start = pd.Timestamp(plan.price_start, tz="UTC")
-    if not start <= panel.prices.index[0] <= start + pd.Timedelta(days=7):
+    if panel.prices.index[0] != pd.Timestamp(plan.price_start, tz="UTC"):
         raise ForwardRefused("PRICES_MISMATCH", "the price panel does not start at the plan's price_start")
     previous = [record for record in ledger.records() if record["kind"] == CHECKPOINT]
     if any(record["plan_hash"] != plan_hash for record in previous):
@@ -514,72 +563,99 @@ def run_forward(plan: ForwardPlan, panel: PricePanel, inflation_base: pd.DataFra
     result = backtest(prices, plan.config, plan.costs, plan.limits, inflation=inflation)
     rows, target = _decision_rows(prices, plan.config, inflation)
     forward_start = pd.Timestamp(plan.forward_start, tz="UTC")
+    horizon = forward_start - pd.Timedelta(days=45)  # the last rebalance before the start sets the opening book
     through = prices.index[-1]
     waiting = None
-    incomplete = [day for day in result.incomplete_decisions if day >= forward_start - pd.Timedelta(days=45)]
-    if incomplete:
-        # Stop just before a rebalance whose inputs are missing: nothing after it is counted.
-        waiting = incomplete[0]
-        through = min(through, prices.index[prices.index.get_loc(waiting) - 1])
-    primary = result.net_returns.loc[forward_start:through]
-    long_rate, short_rate, snapshots_used = _swap_rates(swap_snapshots, prices, plan.swap_max_age_days,
-                                                        primary.index)
-    adjusted = broker_swap_returns(primary, result.positions, prices, plan.costs, long_rate, short_rate)
-    decisions = []
     for row in rows:
         day = prices.index[row]
-        if day < forward_start - pd.Timedelta(days=45) or day > through:
-            continue
-        lag = plan.config.execution_lag_days
-        execution = prices.index[row + lag] if row + lag < len(prices) else None
-        held = (result.positions.loc[execution].round(10).to_dict()
-                if execution is not None and execution <= through else None)
-        decisions.append({"decision_day": str(day.date()),
-                          "execution_day": str(execution.date()) if execution is not None else None,
-                          "directions": {code: float(value) for code, value in target.loc[day].items()},
-                          "weights_after_execution": held})
-    # The past must be recomputed exactly.
+        if day >= horizon and not np.isfinite(target.loc[day].to_numpy(dtype=float)).all():
+            # Stop on the day before a rebalance whose inputs are missing: nothing after it is counted.
+            waiting = day
+            through = min(through, prices.index[row - 1])
+            break
+    primary = result.net_returns.loc[forward_start:through]
+    sealed_primary, sealed_swap = _sealed(previous)
+    now = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
     if previous:
         last = previous[-1]["payload"]
+        if last["rule"]["status"] in TERMINAL:
+            return {**last, "appended": False, "note": "the rule reached a final status; the record is closed"}
         last_day = pd.Timestamp(last["through_day"], tz="UTC")
         if last_day > through:
             raise ForwardRefused("FORWARD_HISTORY_CHANGED", f"the data now end on {through.date()}, before the "
                                  f"recorded {last_day.date()} (missing bars or inflation)")
-        if _series_digest(primary.loc[:last_day]) != last["returns_sha256"]:
-            raise ForwardRefused("FORWARD_HISTORY_CHANGED", "recomputed forward returns differ from the record: "
-                                 "the broker history or an input changed after the fact")
-        sealed = {item["decision_day"]: item for record in previous for item in record["payload"]["decisions"]}
-        for item in decisions:
-            old = sealed.get(item["decision_day"])
-            if old is not None and old["directions"] != item["directions"]:
-                raise ForwardRefused("FORWARD_HISTORY_CHANGED", f"the decision of {item['decision_day']} changed")
-    now = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    status = rule_status(primary, adjusted, plan.forward_start, through, plan.rule)
-    sealed_days = {item["decision_day"] for record in previous for item in record["payload"]["decisions"]}
-    new_decisions = [{**item, "sealed_after_execution": bool(item["execution_day"] and
-                                                             pd.Timestamp(item["execution_day"]).date() < now.date())}
-                     for item in decisions if item["decision_day"] not in sealed_days]
+        recomputed = primary.reindex(sealed_primary.index)
+        drift = (recomputed - sealed_primary).abs()
+        if recomputed.isna().any() or (drift > TOLERANCE).any():
+            bad = drift[(drift > TOLERANCE) | recomputed.isna()].index[0]
+            raise ForwardRefused("FORWARD_HISTORY_CHANGED", f"the recomputed return of {bad.date()} differs from "
+                                 "the record: the broker history or an input changed after the fact")
+    # Snapshots claiming to predate the last checkpoint count only if that checkpoint saw them.
+    seen = {item for record in previous for item in record["payload"]["swap_snapshots_seen"]}
+    cutoff = pd.Timestamp(previous[-1]["payload"]["run_at_utc"]) if previous else None
+    admitted = [item for item in swap_snapshots
+                if cutoff is None or item.get("payload_sha256") in seen
+                or pd.Timestamp(item.get("captured_at_utc")) >= cutoff]
+    new_days = primary.index[primary.index > (sealed_primary.index.max() if len(sealed_primary) else
+                                              forward_start - pd.Timedelta(days=1))]
+    long_rate, short_rate, snapshots_used, swap_reasons = _swap_rates(admitted, prices, plan.swap_max_age_days,
+                                                                      new_days)
+    new_primary = primary.loc[new_days]
+    new_swap = broker_swap_returns(new_primary, result.positions, prices, plan.costs, long_rate, short_rate)
+    all_primary = pd.concat([sealed_primary, new_primary])
+    all_swap = pd.concat([sealed_swap, new_swap])
+    decisions = []
+    sealed_directions = {item["decision_day"]: item["directions"]
+                         for record in previous for item in record["payload"]["decisions"]}
+    lag = plan.config.execution_lag_days
+    for row in rows:
+        day = prices.index[row]
+        if day < horizon or day > through:
+            continue
+        directions = {code: float(value) for code, value in target.loc[day].items()}
+        if not all(math.isfinite(value) for value in directions.values()):
+            raise ForwardRefused("INTERNAL", f"refusing to seal an incomplete decision on {day.date()}")
+        key = str(day.date())
+        if key in sealed_directions:
+            if sealed_directions[key] != directions:
+                raise ForwardRefused("FORWARD_HISTORY_CHANGED", f"the decision of {key} changed")
+            continue
+        execution = prices.index[row + lag] if row + lag < len(prices) else None
+        held = (result.positions.loc[execution].round(10).to_dict()
+                if execution is not None and execution <= through else None)
+        decisions.append({"decision_day": key, "execution_day": str(execution.date()) if execution is not None
+                          else None, "directions": directions, "weights_after_execution": held,
+                          "sealed_after_execution": bool(execution is not None and execution.date() < now.date())})
+    status = rule_status(all_primary, all_swap, plan.forward_start, through, plan.rule)
     summary = {
         "forward_version": FORWARD_VERSION, "plan_hash": plan_hash, "book_plan_hash": plan.book_plan_hash,
         "run_at_utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "environment": environment(),
         "forward_start": plan.forward_start, "through_day": str(through.date()),
         "waiting_for_inputs_on": str(waiting.date()) if waiting is not None else None,
-        "forward_days": int(len(primary)), "returns_sha256": _series_digest(primary),
-        "prices_sha256": panel.source_sha256,
+        "forward_days": int(len(all_primary)),
+        "days": [str(day.date()) for day in new_days],
+        "primary": [float(value) for value in new_primary],
+        "broker_swap": [None if not math.isfinite(value) else float(value) for value in new_swap],
+        "closes": {code: [float(value) for value in prices.loc[new_days, code]] for code in prices.columns},
+        "inputs": {"price_files_sha256": dict(prices_in.files), **dict(inputs or {})},
         "inflation": {"base_sha256": inflation_base_sha256, "last_year_used": int(inflation.index.max()),
                       "notes": notes},
         "inflation_fixed": added,
+        "swap_snapshots_seen": sorted({str(item.get("payload_sha256")) for item in admitted}),
         "swap_snapshots_used": snapshots_used,
-        "primary": _stats(primary),
-        "broker_swap": {"coverage": float(adjusted.notna().mean()) if len(adjusted) else 0.0,
-                        "stats": _stats(adjusted)},
-        "rule": status,
-        "decisions": new_decisions,
+        "swap_unconverted": swap_reasons,
+        "summary": {"primary": _stats(all_primary),
+                    "broker_swap": {"coverage": float(all_swap.notna().mean()) if len(all_swap) else 0.0,
+                                    "stats": _stats(all_swap)}},
+        "rule": _finite_or_none(status),
+        "decisions": decisions,
         "execution_authorized": False,
     }
-    advanced = not previous or pd.Timestamp(previous[-1]["payload"]["through_day"], tz="UTC") < through \
-        or bool(added) or bool(new_decisions)
-    if advanced and len(primary) > 0:
+    json.dumps(summary, allow_nan=False)  # a NaN or an infinity must never reach the ledger
+    if len(new_days) or added or decisions:
+        if not len(all_primary):
+            summary["appended"] = False
+            return summary
         ledger.append(CHECKPOINT, plan_hash, summary)
         summary["appended"] = True
     else:

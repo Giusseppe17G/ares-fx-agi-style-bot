@@ -421,7 +421,8 @@ divide el resultado por diez: comprueba el precio antes de usar la cifra.
 `implied_symmetric_markup_bps_per_year` es el margen del broker si lo aplica por
 igual a largos y cortos, comparable con los 75 pb supuestos. Es una
 aproximacion: ignora los festivos con rollover extra y los cambios de terminos
-durante el ano. Nada de esto cambia todavia los backtests ni las decisiones.
+durante el ano. Los backtests no lo usan; el seguimiento hacia adelante (seccion 12) lo usa
+para la serie con el swap real de tu broker.
 
 ## 12. Seguimiento en papel hacia adelante de la estrategia de valor
 
@@ -434,11 +435,15 @@ Plan y regla congelados: `docs/research/daily-fx-value-forward-v1.md`.
 Lo que hay que saber antes de empezar:
 
 - Es lento. Con una ventaja real de Sharpe 0,4, la probabilidad de confirmarla
-  es casi nula en 3 anos, del 5% en 5 anos y del 33% en 10 anos. Su valor
-  principal es abandonar pronto una estrategia que pierde y no confirmar nunca
-  una por suerte.
+  es casi nula en 3 anos, de un 5% en 5 anos y de un 33% en 10 anos (como
+  maximo). Una estrategia sin ventaja se "confirma" por suerte un 5% de las
+  veces, y una que pierde no siempre se abandona pronto.
 - Todo corre en tu PC y los archivos se quedan alli. Haz copia de seguridad de
-  la carpeta `data\runtime\forward` y no edites nunca el ledger.
+  `data\runtime\forward` y no edites ni borres nunca el ledger. Enviamelo al
+  menos cada 3 meses para guardarlo en el repositorio (no contiene datos de tu
+  cuenta, solo rentabilidades, decisiones, inflacion y cierres).
+- El seguimiento corre siempre desde el codigo congelado (una copia fija del
+  repositorio), asi que actualizar `main` no lo rompe.
 
 **Una sola vez:**
 
@@ -446,45 +451,65 @@ Lo que hay que saber antes de empezar:
    USDCAD, USDCHF, USDDKK, GBPUSD, USDJPY, USDNOK, NZDUSD y USDSEK. Si tu
    broker no ofrece alguno (USDDKK a veces falta), el seguimiento no puede
    correr: dimelo y lo vemos con un plan nuevo.
-2. Crea el mapa de simbolos de los 9 pares para el swap. Cambia cada nombre de
-   la derecha por el que use tu broker (por ejemplo `USDJPY.r`):
+2. Crea las carpetas y el mapa de simbolos de los 9 pares para el swap. Cambia
+   cada nombre de la derecha por el que use tu broker (por ejemplo `USDJPY.r`):
 
 ```powershell
+New-Item -ItemType Directory -Force data\runtime\forward, data\historical\forward, data\historical\worldbank | Out-Null
 [IO.File]::WriteAllText("$PWD\data\runtime\symbol_map_forward.json", '{"AUDUSD": "AUDUSD", "USDCAD": "USDCAD", "USDCHF": "USDCHF", "USDDKK": "USDDKK", "GBPUSD": "GBPUSD", "USDJPY": "USDJPY", "USDNOK": "USDNOK", "NZDUSD": "NZDUSD", "USDSEK": "USDSEK"}')
 ```
 
-3. Copia el archivo de inflacion fijado (el mismo del estudio v2) y comprueba
+3. Crea la copia fija del codigo del seguimiento. El commit es el que indica
+   `docs/research/daily-fx-value-forward-v1.md` en la linea "Code commit"
+   (cambia `<commit>` por ese valor):
+
+```powershell
+git fetch origin
+git worktree add ..\ares-forward-v1 <commit>
+```
+
+4. Copia el archivo de inflacion fijado (el mismo del estudio v2) y comprueba
    su huella:
 
 ```powershell
 git clone -c core.autocrlf=false https://github.com/datasets/cpi.git C:\ares-data\cpi
 git -C C:\ares-data\cpi checkout 3750e45064a99b0452deb1423a416e4d5473a58e
-New-Item -ItemType Directory -Force data\historical\worldbank | Out-Null
 Copy-Item C:\ares-data\cpi\data\cpi.csv data\historical\worldbank\cpi.csv
 (Get-FileHash data\historical\worldbank\cpi.csv -Algorithm SHA256).Hash
 ```
 
    La huella debe ser `182BAA44C536079BEA07BB8700C37C85441C3D7D5F8E6DD68FB92FCB4A7815E8`.
 
-4. Descarga la inflacion de 2025 en adelante del Banco Mundial (es la unica
+5. Descarga la inflacion de 2025 en adelante del Banco Mundial (es la unica
    llamada a internet; repitela cada ano despues de julio):
 
 ```powershell
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.forward_runner fetch-inflation --output "data\historical\worldbank\inflation-$(Get-Date -Format yyyyMMdd).csv"
 ```
 
-**Cada semana (como minimo una vez cada 4 semanas), con MT5 abierto:**
+**Cada semana (como minimo una vez cada 4 semanas), con MT5 abierto**, desde
+la carpeta del proyecto y con las dos lineas de la seccion 2 ya ejecutadas:
 
 ```powershell
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode export-history --symbols AUDUSD,USDCAD,USDCHF,USDDKK,GBPUSD,USDJPY,USDNOK,NZDUSD,USDSEK --timeframes D1 --bars 6000 --output-dir data\historical\forward --config C:\ares-config\bot.ini
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode capture-swap-snapshot --broker-symbol-map data\runtime\symbol_map_forward.json --swap-snapshot-output "data\runtime\forward\swap_snapshot-$(Get-Date -Format yyyyMMdd-HHmmss).json" --config C:\ares-config\bot.ini
-.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.forward_runner run --plan-file docs\research\daily_fx_value_forward_v1\plan.json --prices-dir data\historical\forward --inflation-base data\historical\worldbank\cpi.csv --inflation-supplement data\historical\worldbank\inflation-AAAAMMDD.csv --swap-snapshots-dir data\runtime\forward --ledger data\runtime\forward\value_forward_v1.jsonl
 ```
 
-Antes del primer `capture-swap-snapshot` crea la carpeta con
-`New-Item -ItemType Directory -Force data\runtime\forward`. En
-`--inflation-supplement` pon el archivo que descargaste en el paso 4 (el mas
-reciente).
+Comprueba que la exportacion dice `"files_created": 9`; si no, repitela (un
+par sin exportar deja un archivo viejo y el seguimiento se negara con
+`PRICES_STALE`). La primera vez mira en el snapshot que los 9 simbolos digan
+`"swap_mode_name": "POINTS"`; si no, dimelo: con otro modo no hay serie con el
+swap real y no se puede confirmar nada.
+
+Despues ejecuta el seguimiento desde la copia fija, apuntando a los datos de la
+carpeta del proyecto (cambia `AAAAMMDD` por el archivo del paso 5):
+
+```powershell
+Push-Location ..\ares-forward-v1
+$env:PYTHONPATH = "src/python"
+..\ares-fx-agi-style-bot\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.forward_runner run --plan-file docs\research\daily_fx_value_forward_v1\plan.json --prices-dir ..\ares-fx-agi-style-bot\data\historical\forward --inflation-base ..\ares-fx-agi-style-bot\data\historical\worldbank\cpi.csv --inflation-supplement ..\ares-fx-agi-style-bot\data\historical\worldbank\inflation-AAAAMMDD.csv --swap-snapshots-dir ..\ares-fx-agi-style-bot\data\runtime\forward --ledger ..\ares-fx-agi-style-bot\data\runtime\forward\value_forward_v1.jsonl
+Pop-Location
+```
 
 Como leer la salida (JSON):
 
@@ -492,11 +517,14 @@ Como leer la salida (JSON):
 - `through_day`: ultimo dia contado; `forward_days`: dias contados desde el
   2026-10-26.
 - `waiting_for_inputs_on`: si no esta vacio, falta un dato (casi siempre la
-  inflacion de un ano nuevo): ejecuta `fetch-inflation` y vuelve a correr.
-- `primary`: resultado con los costes del estudio (rentabilidad anual,
+  inflacion de un ano nuevo): ejecuta `fetch-inflation` y vuelve a correr con
+  el archivo nuevo.
+- `summary.primary`: resultado con los costes del estudio (rentabilidad anual,
   volatilidad, Sharpe, t, caida maxima).
-- `broker_swap.coverage`: parte de los dias con swap real de tu broker; para
-  confirmar hace falta al menos el 80%, asi que captura el swap cada semana.
+- `summary.broker_swap.coverage`: parte de los dias con el swap real de tu
+  broker; para confirmar hace falta al menos el 80%, asi que captura el swap
+  cada semana. `swap_unconverted` dice que simbolo no se pudo convertir y por
+  que.
 - `rule.status`: `ONGOING` (sigue; `next_look` es la proxima revision anual),
   `CONFIRMED`, `ABANDONED_FUTILITY`, `ABANDONED_DRAWDOWN` o
   `ENDED_WITHOUT_CONFIRMATION`. Entre revisiones las cifras no deciden nada.
@@ -504,13 +532,14 @@ Como leer la salida (JSON):
 Si se niega (codigo 2), no borres nada:
 
 - `FORWARD_HISTORY_CHANGED`: el pasado recalculado no coincide con el
-  registrado (tu broker cambio barras antiguas o falta un dato). Guarda las
-  exportaciones y el ledger y avisame.
+  registrado (tu broker cambio barras antiguas o falta un dato). Guarda el
+  ledger y las exportaciones y avisame.
+- `PRICES_STALE`: un par no se exporto esta vez; repite la exportacion.
 - `PRICES_TOO_SHORT` o `PRICES_MISSING`: exporta con mas `--bars` o anade el
   par que falta a la Observacion de mercado.
-- `PLAN_MISMATCH` o `ENGINE_CHANGED`: el codigo no coincide con el plan
-  congelado; actualiza el repositorio a `main`.
-- `INFLATION_BASE_CHANGED`: el `cpi.csv` no es el fijado (repite el paso 3).
+- `PLAN_MISMATCH` o `ENGINE_CHANGED`: no estas ejecutando desde la copia fija
+  del paso 3 (o se modifico); vuelve a crearla en el commit indicado.
+- `INFLATION_BASE_CHANGED`: el `cpi.csv` no es el fijado (repite el paso 4).
 
 Un `CONFIRMED` no activa nada: solo permitiria abrir una decision de
 arquitectura sobre operar en real, que sigue fuera del alcance del proyecto.

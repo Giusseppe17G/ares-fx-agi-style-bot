@@ -1,6 +1,7 @@
 """Forward paper tracking of the frozen v2 book, on synthetic broker exports only (no market data)."""
 from dataclasses import replace
 from datetime import datetime, timezone
+import hashlib
 import io
 import json
 import math
@@ -15,9 +16,11 @@ import pytest
 from agi_style_forex_bot_mt5.broker_swap_snapshot import build_swap_snapshot
 from agi_style_forex_bot_mt5.research.daily_fx import forward_runner
 from agi_style_forex_bot_mt5.research.daily_fx.data import MT5_USD_PAIRS, ORIENTATION_ANCHORS
+from agi_style_forex_bot_mt5.research.daily_fx import forward
 from agi_style_forex_bot_mt5.research.daily_fx.forward import (CHECKPOINT, DecisionRule, ForwardRefused,
-    _swap_rates, assemble_inflation, broker_swap_returns, fetch_world_bank_inflation, forward_engine_sha256,
-    load_broker_daily, parse_world_bank_inflation, read_inflation_supplement, rule_status, run_forward)
+    _decision_rows, _swap_rates, assemble_inflation, broker_swap_returns, fetch_world_bank_inflation,
+    forward_engine_sha256, load_broker_daily, parse_world_bank_inflation, read_inflation_supplement, rule_status,
+    run_forward)
 from agi_style_forex_bot_mt5.research.daily_fx.plans import REAL_VALUE_V2_PLAN_HASH, value_forward_v1
 from agi_style_forex_bot_mt5.research.daily_fx.portfolio import CostModel
 from agi_style_forex_bot_mt5.research.trial_registry import TrialLedger
@@ -72,9 +75,19 @@ def _supplement(years=(2025,), value=2.5, missing=None):
 
 
 def _run(tmp_path, folder, supplement=None, snapshots=(), ledger="ledger.jsonl", plan=PLAN, now=None):
-    panel = load_broker_daily(folder, plan.currencies, plan.price_start)
-    return run_forward(plan, panel, _base_inflation(), plan.inflation_base_sha256, supplement, list(snapshots),
+    prices = load_broker_daily(folder, plan.currencies, plan.price_start)
+    return run_forward(plan, prices, _base_inflation(), plan.inflation_base_sha256, supplement, list(snapshots),
                        TrialLedger(tmp_path / ledger), now or datetime(2027, 4, 2, tzinfo=timezone.utc))
+
+
+def _trim(folder, symbol, keep_until=None, drop_first_on=None):
+    path = folder / f"{symbol}_D1.csv"
+    frame = pd.read_csv(path)
+    if keep_until is not None:
+        frame = frame[frame["timestamp_utc"] <= keep_until]
+    if drop_first_on is not None:
+        frame = frame[~frame["timestamp_utc"].str.startswith(drop_first_on)]
+    frame.to_csv(path, index=False)
 
 
 def test_forward_book_is_exactly_the_frozen_v2_book():
@@ -92,9 +105,18 @@ def test_forward_book_is_exactly_the_frozen_v2_book():
 
 def test_broker_exports_drop_the_forming_bar_and_need_the_whole_history(tmp_path):
     folder = _export(tmp_path / "prices", end="2026-12-31")
-    panel = load_broker_daily(folder, CURRENCIES, PLAN.price_start)
-    assert panel.prices.index[0] == pd.Timestamp("2018-01-02", tz="UTC")
+    loaded = load_broker_daily(folder, CURRENCIES, PLAN.price_start)
+    panel = loaded.panel
+    assert panel.prices.index[0] == pd.Timestamp("2018-01-02", tz="UTC") and len(loaded.files) == 9
     assert panel.prices.index[-1] == pd.Timestamp("2026-12-31", tz="UTC")  # the forming bar is gone
+    # A pair one day behind cuts the panel at its last day; never a forward-filled price.
+    _trim(folder, "USDDKK", keep_until="2026-12-31T23")  # its new last complete bar is 2026-12-30
+    assert load_broker_daily(folder, CURRENCIES, PLAN.price_start).panel.prices.index[-1] == \
+        pd.Timestamp("2026-12-30", tz="UTC")
+    # A pair whose export failed this week (a stale file) refuses the run.
+    _trim(folder, "USDDKK", keep_until="2026-12-24T23")
+    with pytest.raises(ForwardRefused, match="PRICES_STALE"):
+        load_broker_daily(folder, CURRENCIES, PLAN.price_start)
     short = _export(tmp_path / "short", end="2026-12-31")
     frame = pd.read_csv(short / "USDJPY_D1.csv")
     frame[frame["timestamp_utc"] >= "2019-01-01"].to_csv(short / "USDJPY_D1.csv", index=False)
@@ -220,8 +242,8 @@ def test_swap_terms_map_to_currency_direction_and_expire():
     prices = pd.DataFrame({code: ORIENTATION_ANCHORS[code] for code in CURRENCIES}, index=days)
     snapshot = _snapshot(datetime(2026, 10, 27, 21, 0, tzinfo=timezone.utc), {"USDJPY": (15.0, -32.0),
                                                                               "AUDUSD": (2.0, -9.0)})
-    long_rate, short_rate, used = _swap_rates([snapshot], prices, 35, days)
-    assert used == [snapshot["payload_sha256"]]
+    long_rate, short_rate, used, reasons = _swap_rates([snapshot], prices, 35, days)
+    assert used == [snapshot["payload_sha256"]] and reasons == {}
     first = pd.Timestamp("2026-10-28", tz="UTC")  # the first day that began after the capture
     assert long_rate.loc[:"2026-10-27"].isna().all().all() and long_rate.loc[first].notna().all()
     jpy_price = 1.0 / ORIENTATION_ANCHORS["JPY"]
@@ -240,6 +262,8 @@ def test_a_forward_run_seals_decisions_and_refuses_a_changed_past(tmp_path):
     assert first["appended"] is True and first["inflation_fixed"] == {"2025": {c: 2.5 for c in ("USD", *CURRENCIES)}}
     assert first["through_day"] == "2027-01-29" and first["forward_days"] > 60
     assert first["rule"]["status"] == "ONGOING" and first["decisions"] and first["execution_authorized"] is False
+    assert len(first["days"]) == len(first["primary"]) == len(first["broker_swap"]) == first["forward_days"]
+    assert set(first["closes"]) == set(CURRENCIES) and len(first["inputs"]["price_files_sha256"]) == 9
     assert all(set(item["directions"].values()) <= {-1.0, 0.0, 1.0} for item in first["decisions"])
     ledger = TrialLedger(tmp_path / "ledger.jsonl")
     assert [record["kind"] for record in ledger.records()] == [CHECKPOINT]
@@ -273,8 +297,8 @@ def test_a_changed_engine_or_another_plan_is_refused(tmp_path):
     with pytest.raises(ForwardRefused, match="ENGINE_CHANGED"):
         _run(tmp_path, folder, _supplement(), plan=replace(PLAN, engine="0" * 64))
     with pytest.raises(ForwardRefused, match="INFLATION_BASE_CHANGED"):
-        panel = load_broker_daily(folder, CURRENCIES, PLAN.price_start)
-        run_forward(PLAN, panel, _base_inflation(), "f" * 64, _supplement(), [], TrialLedger(tmp_path / "x.jsonl"))
+        prices = load_broker_daily(folder, CURRENCIES, PLAN.price_start)
+        run_forward(PLAN, prices, _base_inflation(), "f" * 64, _supplement(), [], TrialLedger(tmp_path / "x.jsonl"))
     _run(tmp_path, folder, _supplement())
     with pytest.raises(ForwardRefused, match="LEDGER_MISMATCH"):
         _run(tmp_path, folder, _supplement(), plan=replace(PLAN, swap_max_age_days=20))
@@ -319,3 +343,90 @@ def test_runner_freezes_runs_and_reports_refusals(tmp_path, monkeypatch, capsys)
 
     monkeypatch.setattr(forward_runner, "fetch_world_bank_inflation", offline)
     assert forward_runner.main(["fetch-inflation", "--output", str(tmp_path / "x.csv")]) == 3
+
+
+def test_a_missing_inflation_year_on_the_last_bar_never_seals_an_incomplete_decision(tmp_path):
+    folder = _export(tmp_path / "probe", end="2027-09-30")
+    probe = _run(tmp_path, folder, _supplement(), ledger="probe.jsonl")
+    waiting = probe["waiting_for_inputs_on"]  # the first rebalance that needs 2026 inflation
+    assert waiting is not None and waiting >= "2027-07-01"
+    # The export ends exactly on that rebalance day: it must stop the day before, not seal NaN.
+    edge = _export(tmp_path / "edge", end=waiting)
+    first = _run(tmp_path, edge, _supplement())
+    assert first["appended"] is True and first["waiting_for_inputs_on"] == waiting
+    assert first["through_day"] < waiting
+    assert all(math.isfinite(v) for item in first["decisions"] for v in item["directions"].values())
+    again = _run(tmp_path, edge, _supplement())
+    assert again["appended"] is False
+    later = _run(tmp_path, folder, _supplement((2025, 2026)))
+    assert later["appended"] is True and later["waiting_for_inputs_on"] is None
+    assert "NaN" not in (tmp_path / "ledger.jsonl").read_text()
+
+
+def test_the_calendar_does_not_depend_on_a_bar_exactly_on_price_start(tmp_path):
+    full = _export(tmp_path / "full", end="2027-01-29")
+    holed = _export(tmp_path / "holed", end="2027-01-29")
+    _trim(holed, "USDDKK", drop_first_on="2018-01-02")
+    inflation = assemble_inflation(_base_inflation(), 2024, {}, _supplement())[0]
+    rows_full, _ = _decision_rows(load_broker_daily(full, CURRENCIES, PLAN.price_start).panel.prices,
+                                  PLAN.config, inflation)
+    rows_holed, _ = _decision_rows(load_broker_daily(holed, CURRENCIES, PLAN.price_start).panel.prices,
+                                   PLAN.config, inflation)
+    assert rows_full == rows_holed
+
+
+def test_sealed_broker_swap_values_do_not_change_and_back_dated_snapshots_are_ignored(tmp_path):
+    folder = _export(tmp_path / "prices", end="2027-01-29")
+    early = _snapshot(datetime(2026, 10, 25, 12, 0, tzinfo=timezone.utc), {})
+    first = _run(tmp_path, folder, _supplement(), [early], now=datetime(2027, 1, 30, tzinfo=timezone.utc))
+    covered = sum(value is not None for value in first["broker_swap"])
+    assert covered > 20 and first["swap_snapshots_used"] == [early["payload_sha256"]]
+    # The early snapshot is deleted and one claiming 2026-12-01 appears after the fact: the past stays.
+    back_dated = _snapshot(datetime(2026, 12, 1, 12, 0, tzinfo=timezone.utc), {})
+    more = _export(tmp_path / "more", end="2027-02-26")
+    second = _run(tmp_path, more, _supplement(), [back_dated], now=datetime(2027, 2, 27, tzinfo=timezone.utc))
+    assert back_dated["payload_sha256"] not in second["swap_snapshots_seen"]
+    assert all(value is None for value in second["broker_swap"])  # no admissible snapshot for the new days
+    sealed = [value for record in TrialLedger(tmp_path / "ledger.jsonl").records()
+              for value in record["payload"]["broker_swap"]]
+    assert sum(value is not None for value in sealed) == covered
+
+
+def test_last_bit_noise_passes_and_a_real_change_is_refused(tmp_path, monkeypatch):
+    folder = _export(tmp_path / "prices", end="2027-01-29")
+    _run(tmp_path, folder, _supplement())
+    real_backtest = forward.backtest
+
+    def nudged(amount):
+        def run(*args, **kwargs):
+            result = real_backtest(*args, **kwargs)
+            object.__setattr__(result, "net_returns", result.net_returns + amount)
+            return result
+        return run
+
+    more = _export(tmp_path / "more", end="2027-02-26")
+    monkeypatch.setattr(forward, "backtest", nudged(1e-14))
+    assert _run(tmp_path, more, _supplement())["appended"] is True
+    monkeypatch.setattr(forward, "backtest", nudged(1e-6))
+    with pytest.raises(ForwardRefused, match="FORWARD_HISTORY_CHANGED"):
+        _run(tmp_path, _export(tmp_path / "most", end="2027-03-31"), _supplement())
+
+
+def test_a_final_status_closes_the_record(tmp_path):
+    plan = replace(PLAN, rule=DecisionRule(max_drawdown=0.0001))
+    folder = _export(tmp_path / "prices", end="2027-01-29")
+    first = _run(tmp_path, folder, _supplement(), plan=plan)
+    assert first["rule"]["status"] == "ABANDONED_DRAWDOWN" and first["appended"] is True
+    closed = _run(tmp_path, _export(tmp_path / "more", end="2027-02-26"), _supplement(), plan=plan)
+    assert closed["appended"] is False and "final status" in closed["note"]
+
+
+def test_the_frozen_forward_plan_file_is_self_consistent_and_tracks_v2():
+    frozen = json.loads((ROOT / "docs/research/daily_fx_value_forward_v1/plan.json").read_text(encoding="utf-8"))
+    canonical = json.dumps(frozen["plan"], sort_keys=True, separators=(",", ":"))
+    assert frozen["plan_hash"] == hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    assert frozen["plan_hash"] == "1515edcdf902353a6d78be5a77c879e7a9f10662f9221bc242dd1f046414fcae"
+    book = json.loads((ROOT / "docs/research/daily_fx_real_value_v2/plan.json").read_text(encoding="utf-8"))
+    assert frozen["plan"]["book_plan_hash"] == book["plan_hash"]
+    assert frozen["plan"]["config"] == book["plan"]["hypotheses"][0]["primary"]
+    assert frozen["plan"]["forward_start"] == "2026-10-26"

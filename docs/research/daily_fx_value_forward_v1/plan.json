@@ -1,0 +1,102 @@
+{
+  "plan": {
+    "book_plan_hash": "e8831946d99e7a058b987a5b24707c1f0e98d22c1dd8ba961aecae77437b7556",
+    "config": {
+      "average_rows": 261,
+      "execution_lag_days": 1,
+      "flip": false,
+      "inflation_years": 5,
+      "lookbacks": [
+        1435
+      ],
+      "max_gross_leverage": 3.0,
+      "permute": false,
+      "random_flip_probability": 0.5,
+      "rebalance_days": 21,
+      "seed": 0,
+      "shift_days": 0,
+      "signal": "xsvalue",
+      "sizing": "equal_risk",
+      "target_annual_vol": 0.1,
+      "vol_span": 60,
+      "xs_top": 3
+    },
+    "costs": {
+      "financing_bps_per_year": 75.0,
+      "one_way_bps": {
+        "AUD": 1.2,
+        "CAD": 1.2,
+        "CHF": 1.5,
+        "DKK": 3.0,
+        "GBP": 1.2,
+        "JPY": 1.0,
+        "NOK": 3.0,
+        "NZD": 2.0,
+        "SEK": 3.0
+      }
+    },
+    "currencies": [
+      "AUD",
+      "CAD",
+      "CHF",
+      "DKK",
+      "GBP",
+      "JPY",
+      "NOK",
+      "NZD",
+      "SEK"
+    ],
+    "engine_sha256": "36e5d0d5ed91599478bffb7d34d6cb93984e68ab13bedd012c827019c5781c47",
+    "forward_start": "2026-10-26",
+    "forward_version": "daily_fx_forward_v1",
+    "hypothesis_id": "H1_XS_REAL_VALUE_5Y",
+    "inflation_base_last_year": 2024,
+    "inflation_base_sha256": "182baa44c536079bea07bb8700c37c85441c3d7d5f8e6dd68fb92fcb4a7815e8",
+    "limits": {
+      "daily_loss_halt": 0.03,
+      "floating_loss_halt": 0.05,
+      "max_net_usd_risk": 0.03,
+      "max_open_risk": 0.05,
+      "max_positions": 10,
+      "risk_per_position": 0.005,
+      "stop_sigmas": 2.5,
+      "take_profit_multiple": 3.0
+    },
+    "name": "daily_fx_value_forward_v1",
+    "notes": [
+      "Book: plan v2's H1_XS_REAL_VALUE_5Y exactly (signal, sizing, invariants, costs), rejected at its development gate (deflated Sharpe 0.77); tracked forward because only data that did not exist when it was frozen can test it cleanly.",
+      "Prices: the operator's MT5 D1 exports of the nine USD pairs; the last bar of every file is dropped; the panel runs from exactly 2018-01-02 (every pair must reach it) to the last day every pair has, and a pair more than one business day behind refuses the run.",
+      "Forward days: from 2026-10-26, after this plan was frozen; earlier days only build the book's state.",
+      "Inflation: the pinned World Bank file (datasets/cpi 3750e450) up to 2024; each later year from a World Bank download, taken the first time all ten series have it and never revised afterwards. Year Y is used from 1 July of Y+1; a rebalance whose inputs are missing stops the record the day before it.",
+      "Primary returns: the study's definition (spot, study costs, 75 bps/yr mark-up on gross exposure). Kept alongside: the mark-up replaced by the broker's captured swap terms (POINTS mode only).",
+      "Ledger: each checkpoint seals its days' returns, closes, decisions, fixed inflation years and input hashes; a later run must recompute sealed returns within 1e-10 and decisions exactly or it refuses. Sealed broker-swap values are never recomputed; a final status closes the record.",
+      "Rule: annual looks for ten years; CONFIRMED when the Newey-West t of the primary daily returns reaches the O'Brien-Fleming boundary (5.695, 4.027, 3.288, 2.848, 2.547, 2.325, 2.153, 2.014, 1.898, 1.801; one-sided alpha 0.05) and the broker-swap series covers 80% of the days with a positive total; ABANDONED at a 12% drawdown or a t <= -1 from the second look; ENDED after ten looks.",
+      "Power, simulated before any forward day (an upper bound): P(CONFIRMED within 10 years) is about 0.05 with no edge, 0.23 at a true net Sharpe of 0.3, 0.33 at 0.4, 0.45 at 0.5, 0.57 at 0.6 and 0.79 at 0.8; within 5 years 0.03-0.23.",
+      "The tracker runs from a git worktree pinned at the freeze commit; the plan binds the engine, the tracker, its runner and the swap conversion code.",
+      "No outcome authorises execution; a confirmation only allows a decision record about live trading, which AGENTS.md keeps out of scope."
+    ],
+    "price_source": "mt5_d1_export",
+    "price_start": "2018-01-02",
+    "rule": {
+      "boundaries": [
+        5.695,
+        4.027,
+        3.288,
+        2.848,
+        2.547,
+        2.325,
+        2.153,
+        2.014,
+        1.898,
+        1.801
+      ],
+      "futility_from_look": 2,
+      "futility_t": -1.0,
+      "max_drawdown": 0.12,
+      "min_swap_coverage": 0.8
+    },
+    "swap_max_age_days": 35,
+    "tolerance": 1e-10
+  },
+  "plan_hash": "1515edcdf902353a6d78be5a77c879e7a9f10662f9221bc242dd1f046414fcae"
+}

@@ -1,13 +1,14 @@
 # Pre-registration: forward paper tracking of the v2 real-value book
 
-Status: DRAFT (not yet frozen). Research only; no outcome authorises
-execution (release-lock ADR). Decision record:
+Status: FROZEN on 2026-10-23, before the first forward day (2026-10-26).
+Research only; no outcome authorises execution (release-lock ADR). Decision record:
 `docs/decisions/2026-10-23-daily-fx-value-forward-paper.md`.
 
 - Plan: `value_forward_v1` in `src/python/agi_style_forex_bot_mt5/research/daily_fx/plans.py`.
 - Frozen plan file: `docs/research/daily_fx_value_forward_v1/plan.json` (written by `forward_runner freeze`).
-- Plan hash: PENDING.
-- Engine hash (study engine, `forward.py`, `broker_swap_snapshot.py`): PENDING.
+- Plan hash: `1515edcdf902353a6d78be5a77c879e7a9f10662f9221bc242dd1f046414fcae`.
+- Engine hash (study engine, `forward.py`, `forward_runner.py`, `broker_swap_snapshot.py`, `core/instruments/registry.py`): `36e5d0d5ed91599478bffb7d34d6cb93984e68ab13bedd012c827019c5781c47`.
+- Code commit to run the tracker from: PENDING.
 
 ## Question
 
@@ -42,10 +43,16 @@ swap.
 
 | Input | Source | Rule |
 |---|---|---|
-| Daily prices | The operator's MT5 D1 exports of AUDUSD, USDCAD, USDCHF, USDDKK, GBPUSD, USDJPY, USDNOK, NZDUSD, USDSEK | Read from 2018-01-02; the last bar of every file is dropped. The rebalance calendar is anchored on the first complete signal after that date. |
+| Daily prices | The operator's MT5 D1 exports of AUDUSD, USDCAD, USDCHF, USDDKK, GBPUSD, USDJPY, USDNOK, NZDUSD, USDSEK | See below |
 | CPI inflation up to 2024 | World Bank FP.CPI.TOTL.ZG, datasets/cpi 3750e450 | sha256 `182baa44…`, as in plan v2 |
 | CPI inflation from 2025 | World Bank API, downloaded on the operator's machine | A year is used from 1 July of the next year. It is taken the first time all ten series have it, then fixed. |
-| Broker swap | The operator's `capture-swap-snapshot` files | A snapshot applies from the next day for at most 35 days |
+| Broker swap | The operator's `capture-swap-snapshot` files | A snapshot applies from the next day, for at most 35 days. Only the `POINTS` swap mode converts. |
+
+Price rules:
+
+- The last bar of every file is dropped.
+- The panel runs from exactly 2018-01-02 to the last day every pair has.
+- A pair more than one business day behind refuses the run.
 
 ## Forward days
 
@@ -62,8 +69,9 @@ the rule uses the Newey-West t of all primary daily returns before that date.
 | Boundary to confirm | 5.695 | 4.027 | 3.288 | 2.848 | 2.547 | 2.325 | 2.153 | 2.014 | 1.898 | 1.801 |
 
 The boundaries are O'Brien-Fleming for one-sided alpha 0.05 over ten looks,
-c = 1.801, simulated with 400,000 Brownian paths. The early looks are
-deliberately hard to pass.
+c = 1.801, simulated with 400,000 Brownian paths. An independent review
+found 1.7998 with 2 million paths. The early looks are deliberately hard to
+pass.
 
 | Status | Condition |
 |---|---|
@@ -73,9 +81,12 @@ deliberately hard to pass.
 | ENDED_WITHOUT_CONFIRMATION | Look 10 passes without a confirmation. |
 | ONGOING | Between looks. The statistics are shown, but they decide nothing. |
 
+A final status closes the record.
+
 ## Power, written before any forward day
 
-Simulated on Brownian paths with the rule above:
+Simulated on Brownian paths with the rule above. These are upper bounds:
+swap withholding is not simulated.
 
 | True net Sharpe | 0.0 | 0.2 | 0.3 | 0.4 | 0.5 | 0.6 | 0.8 | 1.0 |
 |---|---|---|---|---|---|---|---|---|
@@ -84,37 +95,46 @@ Simulated on Brownian paths with the rule above:
 | P(CONFIRMED within 10 years) | 0.05 | 0.15 | 0.23 | 0.33 | 0.45 | 0.57 | 0.79 | 0.92 |
 
 - The development estimate was a net Sharpe of 0.39, before any decay after
-  publication.
-- Confirmation in under five years is very unlikely, even if the edge is
-  real.
-- The tracking mainly stops a losing book early and never confirms one by
-  luck.
+  publication. Confirmation in under five years is very unlikely, even if the
+  edge is real.
+- A book with no edge is confirmed 5% of the time.
+- At a true Sharpe of -0.2, about 32% of runs are abandoned within 3 years
+  and 57% within 10. The 12% drawdown stop rarely acts at this book's
+  volatility, about 1.6% a year.
+- A real Sharpe 0.4 book is abandoned for futility about 11% of the time.
 - A real but small edge will most likely end without confirmation after ten
   years.
 
 ## Integrity
 
-- **Ledger.** A hash-chained ledger on the operator's machine. Each
-  checkpoint holds:
-  - the digest of the forward returns so far;
-  - the decisions it saw;
-  - the inflation years it fixed;
-  - the swap snapshots used;
-  - the statistics and the status.
-- **Refusals.** A run appends nothing and refuses when:
+- **Ledger.** Each checkpoint seals, for its new days:
+  - primary returns;
+  - broker-swap returns;
+  - the closes;
+  - the decisions;
+  - the fixed inflation years;
+  - the sha256 of every input file.
+- **Refusals.** A run refuses, appending nothing:
 
   | Code | Cause |
   |---|---|
-  | `FORWARD_HISTORY_CHANGED` | The recomputed past differs from the record, for example after a broker revision. |
-  | `ENGINE_CHANGED` or `PLAN_MISMATCH` | The engine code or the plan file changed. |
+  | `FORWARD_HISTORY_CHANGED` | A recomputed primary return differs by more than 1e-10, or a decision differs. |
+  | `ENGINE_CHANGED` or `PLAN_MISMATCH` | The code or the plan changed. Run from the pinned commit. |
   | `INFLATION_BASE_CHANGED` | The pinned inflation file differs. |
   | `LEDGER_MISMATCH` | The ledger belongs to another plan. |
-  | `PRICES_TOO_SHORT` or `PRICES_MISSING` | The price exports are too short or missing. |
+  | `PRICES_STALE`, `PRICES_TOO_SHORT` or `PRICES_MISSING` | The price exports are stale, too short or missing. |
 
+- **Swap values of sealed days** come from the ledger. A snapshot that
+  claims to predate the last checkpoint is ignored unless that checkpoint saw
+  it.
 - **Late runs.** The rule is deterministic, so a late run chooses nothing.
   Each decision records whether it was sealed after its execution day.
-- **Limits.** The record proves it was not edited, not that the broker data
-  are genuine. The operator's exports are trusted.
+- **External anchor.**
+  - Locally, the chain detects edits, but not a truncated or restarted
+    ledger.
+  - The operator sends the ledger at least every quarter and at each look,
+    and it is committed under `docs/research/daily_fx_value_forward_v1/`.
+  - The broker data and the inflation download are trusted.
 
 ## What an outcome allows
 
@@ -128,5 +148,6 @@ Simulated on Brownian paths with the rule above:
 
 ## Results
 
-Checkpoints are kept in the operator's ledger. A summary is added here at
+Checkpoints are kept in the operator's ledger, and committed copies are
+under `docs/research/daily_fx_value_forward_v1/`. A summary is added here at
 each annual look, without editing anything above.

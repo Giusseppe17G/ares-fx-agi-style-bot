@@ -30,10 +30,11 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import http.client
 import json
 from pathlib import Path
 import sys
-from typing import Sequence
+from typing import Any, Sequence
 import urllib.error
 
 from ..trial_registry import TrialLedger
@@ -73,13 +74,23 @@ def _snapshots(directory: Path | None) -> tuple[list[dict], list[str]]:
     return loaded, skipped
 
 
+def _sidecar(path: Path) -> dict[str, Any] | None:
+    """The download record written next to a fetched supplement, when it is there."""
+
+    sidecar = path.with_suffix(path.suffix + ".json")
+    if not sidecar.exists():
+        return None
+    meta = json.loads(sidecar.read_text(encoding="utf-8"))
+    return {key: meta.get(key) for key in ("lastupdated", "fetched_at_utc", "sha256", "source")}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Forward paper tracking of a frozen daily FX book (research only)")
     parser.add_argument("phase", choices=("freeze", "fetch-inflation", "run"))
     parser.add_argument("--plan", choices=sorted(PLANS), default="value_forward_v1")
     parser.add_argument("--plan-file", type=Path)
     parser.add_argument("--output", type=Path, help="fetch-inflation: new CSV path")
-    parser.add_argument("--first-year", type=int, default=2020, help="fetch-inflation: first year")
+    parser.add_argument("--first-year", type=int, default=2025, help="fetch-inflation: first year")
     parser.add_argument("--last-year", type=int, default=datetime.now(timezone.utc).year, help="fetch-inflation")
     parser.add_argument("--prices-dir", type=Path, help="run: folder with the <SYMBOL>_D1.csv exports")
     parser.add_argument("--inflation-base", type=Path, help="run: datasets/cpi data/cpi.csv (pinned)")
@@ -93,7 +104,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise ValueError("--output is required")
             try:
                 meta = fetch_world_bank_inflation(args.output, args.first_year, args.last_year)
-            except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+            except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException,
+                    json.JSONDecodeError, UnicodeDecodeError) as error:
                 print(json.dumps({"phase": args.phase, "error": f"download failed: {type(error).__name__}"}),
                       file=sys.stderr)
                 return 3
@@ -110,13 +122,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if missing:
             raise ValueError("required: " + ", ".join("--" + name.replace("_", "-") for name in missing))
         _frozen(plan, args.plan_file)
-        panel = load_broker_daily(args.prices_dir, plan.currencies, plan.price_start)
+        prices = load_broker_daily(args.prices_dir, plan.currencies, plan.price_start)
         base, base_sha256 = load_worldbank_inflation(args.inflation_base, plan.currencies)
-        supplement = (read_inflation_supplement(args.inflation_supplement, plan.currencies)[0]
-                      if args.inflation_supplement is not None else None)
+        supplement, inputs = None, {}
+        if args.inflation_supplement is not None:
+            supplement, supplement_sha256 = read_inflation_supplement(args.inflation_supplement, plan.currencies)
+            inputs = {"inflation_supplement_sha256": supplement_sha256,
+                      "inflation_supplement_download": _sidecar(args.inflation_supplement)}
         snapshots, skipped = _snapshots(args.swap_snapshots_dir)
-        summary = run_forward(plan, panel, base, base_sha256, supplement, snapshots, TrialLedger(args.ledger))
-        summary["swap_snapshots_skipped"] = skipped
+        inputs["swap_snapshots_skipped"] = skipped
+        summary = run_forward(plan, prices, base, base_sha256, supplement, snapshots, TrialLedger(args.ledger),
+                              inputs=inputs)
         print(json.dumps(summary, indent=2, sort_keys=True, default=float))
         return 0
     except ForwardRefused as error:

@@ -210,22 +210,29 @@ def value_forward_v1() -> "ForwardPlan":
             "Book: plan v2's H1_XS_REAL_VALUE_5Y exactly (signal, sizing, invariants, costs), rejected at its "
             "development gate (deflated Sharpe 0.77); tracked forward because only data that did not exist when "
             "it was frozen can test it cleanly.",
-            "Prices: the operator's MT5 D1 exports of the nine USD pairs from 2018-01-02; the last bar of every "
-            "file is dropped (it may be forming). The rebalance calendar is anchored on the first complete signal "
-            "after 2018-01-02, so it does not move as the export grows.",
+            "Prices: the operator's MT5 D1 exports of the nine USD pairs; the last bar of every file is dropped; "
+            "the panel runs from exactly 2018-01-02 (every pair must reach it) to the last day every pair has, "
+            "and a pair more than one business day behind refuses the run.",
             "Forward days: from 2026-10-26, after this plan was frozen; earlier days only build the book's state.",
             "Inflation: the pinned World Bank file (datasets/cpi 3750e450) up to 2024; each later year from a "
             "World Bank download, taken the first time all ten series have it and never revised afterwards. "
-            "Year Y is used from 1 July of Y+1; a rebalance whose inflation is missing stops the record before it.",
+            "Year Y is used from 1 July of Y+1; a rebalance whose inputs are missing stops the record the day "
+            "before it.",
             "Primary returns: the study's definition (spot, study costs, 75 bps/yr mark-up on gross exposure). "
-            "Reported alongside: the same book with the mark-up replaced by the broker's captured swap terms.",
+            "Kept alongside: the mark-up replaced by the broker's captured swap terms (POINTS mode only).",
+            "Ledger: each checkpoint seals its days' returns, closes, decisions, fixed inflation years and input "
+            "hashes; a later run must recompute sealed returns within 1e-10 and decisions exactly or it refuses. "
+            "Sealed broker-swap values are never recomputed; a final status closes the record.",
             "Rule: annual looks for ten years; CONFIRMED when the Newey-West t of the primary daily returns reaches "
             "the O'Brien-Fleming boundary (5.695, 4.027, 3.288, 2.848, 2.547, 2.325, 2.153, 2.014, 1.898, 1.801; "
             "one-sided alpha 0.05) and the broker-swap series covers 80% of the days with a positive total; "
             "ABANDONED at a 12% drawdown or a t <= -1 from the second look; ENDED after ten looks.",
-            "Power, simulated before any forward day: P(CONFIRMED within 10 years) is about 0.23 at a true net "
-            "Sharpe of 0.3, 0.33 at 0.4, 0.45 at 0.5, 0.57 at 0.6 and 0.79 at 0.8; within 5 years 0.03-0.23.",
-            "No verdict authorises execution; a confirmation only allows a decision record about live trading, "
+            "Power, simulated before any forward day (an upper bound): P(CONFIRMED within 10 years) is about 0.05 "
+            "with no edge, 0.23 at a true net Sharpe of 0.3, 0.33 at 0.4, 0.45 at 0.5, 0.57 at 0.6 and 0.79 at "
+            "0.8; within 5 years 0.03-0.23.",
+            "The tracker runs from a git worktree pinned at the freeze commit; the plan binds the engine, the "
+            "tracker, its runner and the swap conversion code.",
+            "No outcome authorises execution; a confirmation only allows a decision record about live trading, "
             "which AGENTS.md keeps out of scope.",
         ),
     )
