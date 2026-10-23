@@ -279,6 +279,10 @@ def load_worldbank_inflation(path: str | Path, currencies: Iterable[str]) -> tup
         series = wide[code]
         if series.loc[series.first_valid_index():series.last_valid_index()].isna().any():
             raise ValueError(f"missing years inside the {code} inflation history")
+    # A series that stops early would leave the book flat, unseen, while the others are published.
+    last_years = {code: int(wide[code].last_valid_index()) for code in wanted}
+    if len(set(last_years.values())) > 1:
+        raise ValueError(f"the inflation series end in different years: {last_years}")
     wide.columns.name = None
     wide.index.name = None
     return wide, _sha256(source)

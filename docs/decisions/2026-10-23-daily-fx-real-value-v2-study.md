@@ -29,8 +29,8 @@ The reviews also found the binding constraints:
 - **Data traps:**
   - the World Bank "CPI" file holds annual % inflation, not an index;
   - the OECD monthly rates end in 2020 with holes;
-  - the engine's stale-price check refused any panel starting before
-    1974-11-19.
+  - the engine's stale-price check refused any panel starting before about
+    1974-11-11.
 
 ## Decision
 
@@ -49,9 +49,11 @@ The reviews also found the binding constraints:
    - Ties go to the ISO code first in alphabetical order.
 
    Fail-closed rules:
-   - Year Y of inflation is used only from 1 July of Y+1.
+   - Year Y of inflation is used only from 1 July of Y+1, so the inflation
+     window ends 0.5-1.5 years before the price window.
    - A missing year makes the row incomplete, and the next rebalance
-     flattens the book.
+     flattens the book. The rebalance is recorded, and any such rebalance
+     inside a scored window fails the run.
 2. **Sizing (`sizing="equal_risk"`).** Every position takes exactly the
    per-position risk cap (0.5% of equity) to its stop. `_apply_limits` and
    every invariant and halt are unchanged.
@@ -59,24 +61,28 @@ The reviews also found the binding constraints:
    - `load_worldbank_inflation` reads datasets/cpi `data/cpi.csv`. It refuses
      the file unless five known values match within 0.1 pp, which rejects a
      CPI-index vintage and the GDP-deflator file. It also refuses missing
-     years inside a series.
+     years inside a series, or series that end in different years.
    - `load_fred_daily(start=...)` drops rows before the start before any
      check. The 1970s pegs are then never read, and the stale and gap checks
      still apply to every row used.
 4. **Study (`study.py`).**
    - **Programme deflation.** `StudyPlan.program_trials` deflates the Sharpe
-     ratio over every other plan's development trials in the ledger as well
-     as the plan's own. The run refuses a ledger with fewer trials than
-     declared. The variance of the trial Sharpes is floored at the null
-     sampling variance 1/(n-1), the convention of
-     `2026-10-22-deflated-promotion-gate.md`; `edge_statistics` gains
-     `min_variance`.
+     ratio over every other plan's development trials in the shared
+     daily-FX ledger as well as the plan's own.
+     - The run refuses a ledger with fewer trials than declared.
+     - The variance of the trial Sharpes is floored at the null sampling
+       variance 1/(n-1), with n the observations of the deflated trial. This
+       is the convention of `2026-10-22-deflated-promotion-gate.md`;
+       `edge_statistics` gains `min_variance`.
+     - The run records the ledger head and every programme trial it
+       counted.
    - **PBO.** A plan with a single configuration records PBO as not
-     applicable: there is no selection for it to measure. The holdout's
-     promotion condition on PBO is therefore satisfied by the programme-wide
-     deflated Sharpe ratio. This relaxes v1's PBO gate only for a plan
-     without selection, and is accepted here because the programme
-     deflation is stricter than v1's.
+     applicable: there is no selection for it to measure.
+     - v1's PBO conditions (the development gate and the holdout promotion
+       condition) are dropped for such a plan, and the programme deflation
+       compensates for them.
+     - A single-configuration plan must therefore declare `program_trials`.
+     - This relaxes v1 only for plans without selection.
    - **Random control.** For a cross-sectional signal it is the same ranking
      given to 200 distinct permutations of the ten currencies: same
      turnover, wrong currencies. Random signs would build directional books
@@ -121,9 +127,19 @@ The reviews also found the binding constraints:
 
 ## Consequences
 
+- **Departure from v1's reuse rule.** v1 said a follow-up would be scored
+  only on data no plan has seen.
+  - v2's development window includes v1's development years 1999-2016,
+    where value was never computed.
+  - The verdict comes only from the 2017-2026 holdout, which no plan has
+    scored.
+  - The 1985-1998 subperiod, which no plan has used, must be positive on its
+    own.
+  - v1's trials count in the deflation.
 - **Low power, stated before any result.** On synthetic returns, the
-  development gates pass with probability about 0.06 at a true net Sharpe of
-  0.3, 0.17 at 0.4, 0.36 at 0.5 and 0.55 at 0.6. A 9.5-year holdout reaches
+  statistical development gates (an upper bound: the controls and the other
+  gates are not simulated) pass with probability about 0.06 at a true net
+  Sharpe of 0.3, 0.17 at 0.4, 0.36 at 0.5 and 0.55 at 0.6. A 9.5-year holdout reaches
   t >= 2 about 0.13, 0.19, 0.34 and 0.43 of the time at the same Sharpes.
   The most likely outcome is a rejection, even if the premium is real.
 - **Spot only.** A pass would describe the spot return of a value book. The

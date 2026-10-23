@@ -149,13 +149,21 @@ def real_value_v2(price_sha256: str, inflation_sha256: str) -> StudyPlan:
             "Development starts on 1985-04-01, after the NZD float (1985-03-04). SEK and NOK basket pegs (to 1992) "
             "and DKK in the EMS are kept; capital controls and realignments before 1990 make some development "
             "P&L hard to achieve.",
-            "The deflated Sharpe ratio counts v1's 7 development trials from the shared ledger plus this one, with "
-            "the variance of the trial Sharpes floored at 1/(n-1). PBO is not applicable to a single predeclared "
-            "configuration, so the holdout's PBO condition is replaced by that deflated Sharpe ratio.",
-            "Controls: the same ranking given to 200 distinct permutations of the ten currencies (same turnover, "
-            "wrong currencies), and the signal shifted in time by at least 5.5 years plus a holding period (gated: "
-            "value claims timing).",
-            "Each development subperiod (1985-04 to 1998-12, 1999-01 to 2016-12) must keep a positive net Sharpe.",
+            "Departure from v1's reuse rule: development includes v1's development years 1999-2016 (where value was "
+            "never computed); the verdict comes only from 2017-01-01 to 2026-06-30, which no plan has scored, and "
+            "the 1985-1998 subperiod, which no plan has used, must be positive on its own.",
+            "The inflation window ends 0.5 to 1.5 years before the price window (publication lag); declared, not "
+            "tuned.",
+            "The deflated Sharpe ratio counts every development trial in the shared daily-FX ledger (v1's 7) plus "
+            "this one, with the variance of the trial Sharpes floored at 1/(n-1), n the observations of this trial "
+            "(the deflated-promotion-gate convention). PBO is not applicable to a single predeclared configuration: "
+            "v1's PBO conditions are dropped, compensated by that programme-wide deflation.",
+            "Controls: the same ranking given to 200 distinct permutations of the ten currencies (same ranking "
+            "dynamics, about the same turnover, wrong currencies), and the signal shifted in time by at least 5.5 "
+            "years plus a holding period (gated: value claims timing). The shift quota is not a calibrated 5% test: "
+            "shifted copies are correlated with each other, which makes it slightly lenient under the null.",
+            "Each development subperiod (1985-04 to 1998-12, 1999-01 to 2016-12) must keep a positive net Sharpe, "
+            "and no rebalance inside a scored window may be traded flat for lack of inputs.",
             "Chosen knowing the published results (AMP 2013; Menkhoff, Sarno, Schmeling & Schrimpf 2017) and the "
             "broad FX moves of 2017-2025 (the 2021-2024 yen slump, the 2022 USD rally); every parameter comes from "
             "AMP 2013 or v1, none was tuned to them.",

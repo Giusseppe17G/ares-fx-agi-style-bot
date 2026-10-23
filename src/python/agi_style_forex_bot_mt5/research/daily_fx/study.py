@@ -17,11 +17,15 @@ a rate differential keeps its exposure when shifted, so for it the shift
 measures nothing and is only reported.
 
 A plan may also count the development trials of every earlier plan in the
-ledger (``program_trials``): the deflated Sharpe ratio is then taken over the
-whole research programme, with the variance of the trial Sharpes floored at
-the null sampling variance 1/(n - 1). A plan with a single configuration has
-no selection for the probability of backtest overfitting to measure, so it is
-recorded as not applicable. A cross-sectional signal is compared with the
+ledger (``program_trials``): the deflated Sharpe ratio is then taken over
+every daily-FX trial in the shared ledger, with the variance of the trial
+Sharpes floored at the null sampling variance 1/(n - 1) of the deflated
+trial. The ledger head and the trials used are recorded so the number can be
+reproduced. A plan with a single configuration has no selection for the
+probability of backtest overfitting to measure, so it is recorded as not
+applicable, and such a plan must count the programme's trials. A rebalance
+traded flat for lack of inputs inside a scored window fails the run's
+checks. A cross-sectional signal is compared with the
 same ranking given to permuted currencies instead of random signs, and a
 hypothesis may declare development subperiods, each of which must keep a
 positive Sharpe ratio.
@@ -241,6 +245,12 @@ class StudyPlan:
             raise ValueError("price_start must come before the development window")
         if self.program_trials is not None and self.program_trials < 0:
             raise ValueError("program_trials must be >= 0")
+        if sum(len(item.configs()) for item in self.hypotheses) == 1 and self.program_trials is None:
+            # Without PBO, a lone configuration must at least be deflated over the programme.
+            raise ValueError("a single-configuration plan must declare program_trials")
+        cross_sectional = any(item.primary.signal in CROSS_SECTIONAL_SIGNALS for item in self.hypotheses)
+        if cross_sectional and math.factorial(len(self.currencies) + 1) - 1 < self.random_replicas:
+            raise ValueError("too few currencies for distinct permuted controls")
 
     def check_inputs(self, panel: PricePanel, rates_sha256: str | None, inflation_sha256: str | None = None) -> None:
         """Fail closed when the data or the engine differ from what the plan froze."""
@@ -353,17 +363,25 @@ def _development_inputs(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame 
     return _Inputs(prices, rates, inflation)
 
 
-def _program_sharpes(plan: StudyPlan, plan_hash: str, ledger: TrialLedger) -> list[float]:
-    """Per-period Sharpe ratios of every other plan's development trials, when the plan counts them."""
+def _program_trials(plan: StudyPlan, plan_hash: str, ledger: TrialLedger) -> list[dict[str, Any]]:
+    """Every other plan's development trial with its per-period Sharpe, when the plan counts them."""
 
     if plan.program_trials is None:
         return []
-    metrics = [record["payload"]["metrics"] for record in ledger.records()
-               if record["kind"] == "development_trial" and record["plan_hash"] != plan_hash]
-    if len(metrics) < plan.program_trials:
-        raise ValueError(f"the ledger holds {len(metrics)} development trials of other plans; "
+    trials = [{"plan_hash": record["plan_hash"], "trial": record["payload"]["trial"],
+               "per_period_sharpe": float(record["payload"]["metrics"]["sharpe"])
+               / math.sqrt(float(record["payload"]["metrics"]["periods_per_year"]))}
+              for record in ledger.records()
+              if record["kind"] == "development_trial" and record["plan_hash"] != plan_hash]
+    if len(trials) < plan.program_trials:
+        raise ValueError(f"the ledger holds {len(trials)} development trials of other plans; "
                          f"the plan declares at least {plan.program_trials}")
-    return [float(item["sharpe"]) / math.sqrt(float(item["periods_per_year"])) for item in metrics]
+    return trials
+
+
+def _incomplete_in(result: BacktestResult, period: tuple[str, str]) -> int:
+    start, end = (pd.Timestamp(value, tz="UTC") for value in period)
+    return sum(1 for day in result.incomplete_decisions if start <= day <= end)
 
 
 def _permutation_seeds(count: int, replicas: int) -> list[int]:
@@ -400,7 +418,8 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
     if ledger.has("development_summary", plan_hash):
         raise ValueError("the development of this plan was already run; its trials are in the ledger")
     _refuse_seen_data(plan, ledger, [plan.development, plan.holdout])
-    program_sharpes = _program_sharpes(plan, plan_hash, ledger)
+    ledger_head = ledger.head()
+    program = _program_trials(plan, plan_hash, ledger)
     inputs = _development_inputs(plan, panel, rates, inflation)
     prices = inputs.prices
     if any(item.needs_rates for item in plan.hypotheses) and inputs.rates is None:
@@ -431,7 +450,7 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
     pbo = (probability_of_backtest_overfitting(matrix.to_numpy(), blocks=plan.pbo_blocks)
            if matrix.shape[1] >= 2 else None)
     spa = superior_predictive_ability(matrix.to_numpy(), bootstraps=plan.spa_bootstraps)
-    deflation_sharpes = [*program_sharpes, *trial_sharpes]
+    deflation_sharpes = [*(item["per_period_sharpe"] for item in program), *trial_sharpes]
     results, p_values = [], []
     for number, hypothesis in enumerate(plan.hypotheses):
         result = primaries[hypothesis.hypothesis_id]
@@ -486,6 +505,7 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
             "blocked_rebalances": result.blocked_rebalances,
             "mean_gross_exposure": float(result.positions.abs().sum(axis=1).mean()),
             "currency_share": _currency_share(result, plan.development),
+            "incomplete_rebalances": _incomplete_in(result, plan.development),
             "yearly_returns": _yearly(primary),
             "stress_windows": _stress(primary),
             "psr_vs_zero": psr_zero,
@@ -518,6 +538,7 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
             "no_dominant_currency": result["currency_share"] <= acceptance.max_currency_share,
             "positive_in_subperiods": all(value > acceptance.min_subperiod_sharpe
                                           for value in result["subperiod_sharpes"].values()),
+            "complete_inputs": result["incomplete_rebalances"] == 0,
         }.items()}
         result["checks"] = checks
         result["proceed_to_holdout"] = all(checks.values())
@@ -526,7 +547,9 @@ def run_development(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | No
                "data": {"source": panel.source, "sha256": panel.source_sha256, "rates_sha256": rates_sha256,
                         "first_day": str(matrix.index.min().date()), "last_day": str(matrix.index.max().date()),
                         "common_days": int(len(matrix))},
-               "trials": len(trial_sharpes), "program_trials": len(deflation_sharpes),
+               "trials": len(trial_sharpes), "deflation_trials": len(deflation_sharpes),
+               "programme": {"ledger_head_sha256": ledger_head, "trials": program} if plan.program_trials is not None
+               else None,
                "pbo": pbo.to_dict() if pbo is not None else None, "spa": spa.to_dict(), "hypotheses": results,
                "execution_authorized": False}
     ledger.append("development_summary", plan_hash, {
@@ -587,7 +610,8 @@ def run_holdout(plan: StudyPlan, panel: PricePanel, rates: pd.DataFrame | None, 
         stats = _stats(returns)
         skew, kurtosis = moments(returns.to_numpy())
         psr = probabilistic_sharpe_ratio(_sharpe_or_zero(returns), 0.0, len(returns), skew, kurtosis)
-        survives = {"holdout_sharpe": bool(stats["sharpe"] > acceptance.min_holdout_sharpe),
+        survives = {"holdout_inputs_complete": _incomplete_in(result, plan.holdout) == 0,
+                    "holdout_sharpe": bool(stats["sharpe"] > acceptance.min_holdout_sharpe),
                     "holdout_drawdown": bool(stats["max_drawdown"] < acceptance.max_holdout_drawdown),
                     "holdout_stressed_costs": bool(_stats(stressed)["sharpe"] > acceptance.min_holdout_stressed_sharpe)}
         promotes = {"holdout_hac_t_stat": bool(stats["hac_t_stat"] >= acceptance.min_holdout_hac_t),

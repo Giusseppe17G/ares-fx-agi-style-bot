@@ -58,7 +58,7 @@ def _plan(**overrides):
     values = dict(name="synthetic_value", currencies=CURRENCIES, development=("2001-07-01", "2008-12-31"),
                   holdout=("2009-01-01", "2011-06-30"), hypotheses=(hypothesis,), costs=ZERO,
                   data=DataBinding("synthetic", DIGEST, inflation_sha256=INFLATION_DIGEST), random_replicas=19,
-                  spa_bootstraps=200, acceptance=EASY)
+                  spa_bootstraps=200, acceptance=EASY, program_trials=0)
     values.update(overrides)
     return StudyPlan(**values)
 
@@ -94,6 +94,9 @@ def test_inflation_loader_reads_annual_percent_and_checks_anchor_values(tmp_path
         load_worldbank_inflation(_inflation_csv(tmp_path / "gap.csv", {("SWE", 1990): None}), CURRENCIES)
     with pytest.raises(ValueError, match="no inflation"):
         load_worldbank_inflation(_inflation_csv(tmp_path / "cpi.csv"), ("EUR",))
+    # A series that stops a year early would leave the book flat without a word.
+    with pytest.raises(ValueError, match="end in different years"):
+        load_worldbank_inflation(_inflation_csv(tmp_path / "short.csv", {("NZL", 2024): None}), CURRENCIES)
 
 
 def test_inflation_of_a_year_is_used_from_july_of_the_next_year_only():
@@ -245,6 +248,13 @@ def test_plan_refuses_unbound_inflation_other_inflation_and_another_start():
         _plan(hypotheses=(Hypothesis("H0", "control", replace(FAST, permute=True)),)).validate()
     with pytest.raises(ValueError, match="subperiod"):
         _plan(hypotheses=(Hypothesis("H1", "value", FAST, subperiods=(("2000-01-01", "2003-12-31"),)),)).validate()
+    # Without PBO, a lone configuration must be deflated over the programme.
+    with pytest.raises(ValueError, match="program_trials"):
+        _plan(program_trials=None).validate()
+    # Two currencies and USD allow only five permutations besides the identity.
+    with pytest.raises(ValueError, match="permuted controls"):
+        _plan(currencies=("AUD", "CAD"), hypotheses=(Hypothesis("H1", "value", replace(FAST, xs_top=1)),),
+              costs=CostModel({"AUD": 0.0, "CAD": 0.0})).validate()
     panel = _mean_reverting()
     ledger = TrialLedger("/nonexistent/never-written.jsonl")
     with pytest.raises(ValueError, match="inflation data"):
@@ -280,12 +290,21 @@ def test_deflation_counts_other_plans_trials_with_a_null_variance_floor(tmp_path
     _develop(_plan(name="earlier"), panel, ledger)
     with pytest.raises(ValueError, match="development trials of other plans"):
         _develop(_plan(name="later", program_trials=2), panel, ledger)
+    head = ledger.head()
+    earlier_trial = [record for record in ledger.records() if record["kind"] == "development_trial"][0]
     development = _develop(_plan(name="later", program_trials=1), panel, ledger)
     deflated = development["hypotheses"][0]["deflated_sharpe"]
-    assert deflated["trials"] == 2 and development["program_trials"] == 2
+    assert deflated["trials"] == 2 and development["deflation_trials"] == 2
     floor = 1.0 / (deflated["observations"] - 1)
     assert deflated["benchmark_sharpe"] >= expected_max_sharpe(2, floor) - 1e-15
-    # Without program trials a single trial is not deflated at all (v1 convention).
+    # The ledger head and the trials used are recorded, so the benchmark can be reproduced.
+    programme = development["programme"]
+    assert programme["ledger_head_sha256"] == head and len(programme["trials"]) == 1
+    used = programme["trials"][0]
+    metrics = earlier_trial["payload"]["metrics"]
+    assert used["plan_hash"] == earlier_trial["plan_hash"] and used["trial"] == "H1_VALUE:0"
+    assert used["per_period_sharpe"] == pytest.approx(metrics["sharpe"] / math.sqrt(metrics["periods_per_year"]))
+    # An empty programme leaves a single trial undeflated.
     alone = _develop(_plan(name="alone"), panel, TrialLedger(tmp_path / "alone.jsonl"))
     assert alone["hypotheses"][0]["deflated_sharpe"]["trials"] == 1
 
@@ -320,3 +339,12 @@ def test_runner_uses_the_inflation_file_for_the_value_plan(tmp_path, monkeypatch
     assert calls == {"fred": (CURRENCIES, REAL_VALUE_PRICE_START), "inflation": CURRENCIES}
     frozen = json.loads(plan_file.read_text(encoding="utf-8"))
     assert frozen["plan_hash"] == real_value_v2(DIGEST, INFLATION_DIGEST).plan_hash()
+
+
+def test_rebalances_traded_flat_for_lack_of_inputs_fail_the_window(tmp_path):
+    # Inflation up to 2005 is usable until 2007-06-30, inside the development window.
+    development = run_development(_plan(), _mean_reverting(seed=11), None, None, TrialLedger(tmp_path / "l.jsonl"),
+                                  inflation=_inflation(1990, 2005), inflation_sha256=INFLATION_DIGEST)
+    result = development["hypotheses"][0]
+    assert result["incomplete_rebalances"] > 0 and result["checks"]["complete_inputs"] is False
+    assert result["proceed_to_holdout"] is False

@@ -96,12 +96,12 @@ class PortfolioConfig:
             raise ValueError(f"signal must be one of {sorted(SIGNALS)}")
         if self.sizing not in SIZINGS:
             raise ValueError(f"sizing must be one of {sorted(SIZINGS)}")
+        if not self.lookbacks or any(int(value) < 2 for value in self.lookbacks):
+            raise ValueError("lookbacks must be integers >= 2")
         if self.signal == "xsvalue" and not (1 <= self.average_rows < self.lookbacks[0] and self.inflation_years >= 1):
             raise ValueError("xsvalue needs 1 <= average_rows < lookbacks[0] and inflation_years >= 1")
         if self.permute and self.signal != "xsvalue":
             raise ValueError("permute is a control of the xsvalue signal only")
-        if not self.lookbacks or any(int(value) < 2 for value in self.lookbacks):
-            raise ValueError("lookbacks must be integers >= 2")
         if self.vol_span < 5 or self.rebalance_days < 1 or self.execution_lag_days < 0 or self.shift_days < 0:
             raise ValueError("vol_span >= 5, rebalance_days >= 1, execution_lag_days >= 0 and shift_days >= 0 "
                              "are required")
@@ -166,6 +166,7 @@ class BacktestResult:
     take_profits: int
     blocked_rebalances: int
     config: PortfolioConfig = field(repr=False)
+    incomplete_decisions: tuple[pd.Timestamp, ...] = ()  # rebalances traded flat for lack of inputs
 
 
 def tsmom_signal(log_prices: pd.DataFrame, lookbacks: tuple[int, ...]) -> pd.DataFrame:
@@ -467,6 +468,7 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
     contrib = np.zeros((days, count))
     gross_out, net_out, cost_out, turn_out = (np.zeros(days) for _ in range(4))
     stops = take_profits = blocked = 0
+    incomplete: list[pd.Timestamp] = []
     start = first + config.execution_lag_days
     for t in range(start, days):
         # 1) Return of the day on yesterday's book.
@@ -502,6 +504,7 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
             if not (np.isfinite(wanted).all() and np.isfinite(stop_distance).all()):
                 # Incomplete inputs: fail closed to a flat book.
                 wanted, stop_distance = np.zeros(count), np.full(count, 1e-6)
+                incomplete.append(prices.index[decision])
             elif config.sizing == "equal_risk":
                 wanted = wanted * (limits.risk_per_position / stop_distance)
                 gross_wanted = float(np.sum(np.abs(wanted)))
@@ -543,6 +546,7 @@ def backtest(prices: pd.DataFrame, config: PortfolioConfig, costs: CostModel,
         turnover=pd.Series(turn_out[sl], index=index),
         contributions=pd.DataFrame(contrib[sl], index=index, columns=list(currencies)),
         stops=stops, take_profits=take_profits, blocked_rebalances=blocked, config=config,
+        incomplete_decisions=tuple(incomplete),
     )
 
 

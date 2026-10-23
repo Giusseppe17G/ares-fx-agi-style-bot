@@ -11,13 +11,30 @@ authorises execution (release-lock ADR). Decision record:
 - Environment: PENDING.
 
 Any change to the code, data, parameters or gates gives a different hash, and
-the runner refuses it. A new idea needs a new plan, scored only on data that
-no plan has scored.
+the runner refuses it.
+
+## Departure from v1's reuse rule (declared)
+
+v1's pre-registration said that any follow-up would be "a new plan scored on
+data no plan has seen (in practice: forward paper data)". v2 departs from that
+wording for its development phase:
+
+- **Development reuses v1's years.** The development window includes v1's
+  development years 1999-2016. v1's results for trend and carry on those years
+  are known; value was never computed there.
+- **Unseen data.** The verdict comes only from the holdout, 2017-01-01 to
+  2026-06-30, which no plan has scored. The first development subperiod,
+  1985-1998, has never been used by any plan, and it must keep a positive
+  Sharpe ratio on its own.
+- **v1's trials count.** The deflated Sharpe ratio counts v1's seven trials.
+- **Why not stricter.** Restricting development to 1985-1998 (13.75 years)
+  would need a net Sharpe ratio of about 0.85 to reach the deflated gate. No
+  published currency premium comes close to that.
 
 ## Question
 
 Inside the bot's own risk invariants, after realistic costs and counting
-every trial of the research programme, do the G10 currencies that are cheap
+every development trial in the shared daily-FX ledger, do the G10 currencies that are cheap
 in real terms over about five years outperform the expensive ones by enough
 to survive a deflated Sharpe ratio, permuted and time-shifted controls, a
 cost stress, a subperiod check and an untouched holdout?
@@ -48,7 +65,9 @@ cost stress, a subperiod check and an untouched holdout?
   The tolerance is 0.1 percentage point. This rejects a CPI-index vintage and
   the GDP-deflator file (US 1974 = 9.00).
 - **Inflation publication rule.** Inflation of year Y is used only from
-  1 July of Y+1. The last year in the file is 2024, so the signal is
+  1 July of Y+1. The inflation window therefore ends 0.5-1.5 years before the
+  price window. Asness, Moskowitz & Pedersen use the same period for both;
+  this lag is declared here, not tuned. The last year in the file is 2024, so the signal is
   complete up to 2026-06-30. After that the book trades flat at the next
   rebalance.
 - **Storage.** The data stay outside the repository (gitignored
@@ -100,6 +119,8 @@ USD), the sum of two terms with the sign reversed:
 - Ties go to the ISO code first in alphabetical order.
 - Every position is sized to exactly 0.5% of equity to its stop (equal
   risk), so the book holds 5 or 6 positions and 2.5-3.0% open risk.
+- The only exception is the gross-leverage cap of 3, which a very-low-volatility
+  currency could hit. That cannot happen in this universe.
 
 **Timing:**
 
@@ -152,13 +173,20 @@ USD), the sum of two terms with the sign reversed:
   (2,000 bootstraps).
 - **Permuted currencies:** 200 books that give the same ranking to a
   permutation of the ten currencies, USD included. Each permutation is
-  distinct and none is the identity. The books have the same turnover and
-  sizing but hold the wrong currencies.
+  distinct and none is the identity. The books have the same ranking dynamics
+  and sizing, and about the same turnover, but hold the wrong currencies. On
+  random walks this control was close to calibrated.
 - **Time-shifted signal:** 200 copies of the signal circularly shifted by
   distinct offsets of at least 1,435 + 21 + 1 rows in both directions (gated:
   value claims timing).
-- **Reported only:** the flipped signal, doubled costs, and the t of
-  non-overlapping 21-row returns.
+  - **Not a calibrated 5% test.** The shifted copies are correlated with each
+    other but not with the real book. On synthetic random walks the real book
+    beat every copy about 7.7% of the time, against a nominal 5%, so the
+    control is slightly lenient.
+  - It is kept as a gate. The binding gate is the deflated Sharpe ratio.
+- **Doubled costs:** a gate (see below).
+- **Reported only:** the flipped signal, and the t of non-overlapping 21-row
+  returns. If the 21-row t disagrees with the daily t, the write-up says so.
 
 ## Development gates (all must hold)
 
@@ -167,8 +195,8 @@ USD), the sum of two terms with the sign reversed:
 | Annualised net Sharpe | >= 0.3 |
 | Newey-West t-statistic of the mean | >= 2.0 |
 | Holm-adjusted p (1 - PSR vs 0), one hypothesis | <= 0.05 |
-| Deflated Sharpe ratio over the programme: v1's 7 trials from the ledger plus this one (8). Variance of the trial Sharpes floored at 1/(n-1); each trial on its own window | >= 0.95 |
-| PBO | not applicable: one predeclared configuration, no selection |
+| Deflated Sharpe ratio over every development trial in the shared daily-FX ledger (v1's 7) plus this one (8). Variance of the trial Sharpes floored at 1/(n-1); each trial on its own window | >= 0.95 |
+| PBO | not applicable: one predeclared configuration, no selection. v1's PBO conditions are dropped and compensated by the programme-wide deflation |
 | Hansen SPA_c p | <= 0.05 |
 | Share of permuted-currency books at least as good | <= 0.05 |
 | Share of time-shifted books at least as good | <= 0.05 |
@@ -176,24 +204,50 @@ USD), the sum of two terms with the sign reversed:
 | Maximum drawdown | < 12% |
 | Largest single-currency share of gross profit | <= 50% |
 | Net Sharpe in each subperiod (1985-04 to 1998-12, 1999-01 to 2016-12) | > 0 |
+| Rebalances inside the window traded flat for lack of inputs | 0 |
+
+**Variance floor convention.** In the floor 1/(n-1), n is the number of
+observations of v2's own trial (about 8,300). This is the convention of
+`2026-10-22-deflated-promotion-gate.md`.
+
+- It requires an observed t of about 3.1.
+- Averaging 1/(n-1) over v1's shorter trials (3,800-4,600 rows) would
+  require about 3.6.
+- The choice is declared here, before any result.
+
+**Reproducing the benchmark.** The run records:
+
+- the ledger head it started from;
+- every programme trial it counted.
+
+Reproducing the benchmark needs the shared ledger up to that head.
 
 ## Holdout verdicts
 
 - `REJECTED` unless the holdout Sharpe ratio and the Sharpe ratio with
   doubled costs are positive and the drawdown stays below 12%.
+- `REJECTED` also when a holdout rebalance is traded flat for lack of
+  inputs.
 - `PASSED_RESEARCH` if, in addition, the holdout Newey-West t is at least
   2.0. v1's condition "development PBO <= 0.10" is not applicable to a
-  single configuration and is replaced by the programme-wide deflated Sharpe
-  ratio of development.
+  single configuration. It is dropped, and the programme-wide deflation of
+  development compensates for it.
 - `WATCHLIST` otherwise.
 - Every verdict is **spot-only**. Before any paper design, a pass must be
   confirmed with the broker's real swaps (`--mode capture-swap-snapshot`).
 
 ## Power, written before any result
 
-Synthetic Student-t(5) daily returns with the same gates
+Synthetic Student-t(5) daily returns with the same statistical gates
 (`edge_statistics`, v1's seven trial Sharpe ratios from the ledger, 400
-draws per row):
+draws per row).
+
+- The controls, drawdown, currency-share and subperiod gates are not
+  simulated, so these are upper bounds.
+- An independent reviewer reproduced the table within Monte Carlo noise.
+- A dress rehearsal of the whole study on synthetic data of the real shape
+  (planted net Sharpe 0.55, t 3.0) passed every gate except the deflated
+  Sharpe ratio (0.93).
 
 | True net Sharpe | 0.0 | 0.2 | 0.3 | 0.4 | 0.5 | 0.6 | 0.8 |
 |---|---|---|---|---|---|---|---|
@@ -257,8 +311,9 @@ trials), and its holdout is never reused.
   The currency-share gate limits how much one of them can drive a pass.
 - **Few independent bets.** Value positions rotate slowly. If the 21-row t
   disagrees with the daily t, the write-up says so.
-- **Small absolute returns.** Under the invariants the book's volatility is
-  about 2-4% a year, so even a real premium earns little.
+- **Small absolute returns.** With equal-risk sizing at 0.5% per position,
+  the book's volatility is about 1-2% a year (1.4% on synthetic data with 10%
+  currency volatility). Even a real premium earns little in absolute terms.
 
 ## Results
 
