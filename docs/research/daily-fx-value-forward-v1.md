@@ -8,7 +8,7 @@ Research only; no outcome authorises execution (release-lock ADR). Decision reco
 - Frozen plan file: `docs/research/daily_fx_value_forward_v1/plan.json` (written by `forward_runner freeze`).
 - Plan hash: `1515edcdf902353a6d78be5a77c879e7a9f10662f9221bc242dd1f046414fcae`.
 - Engine hash (study engine, `forward.py`, `forward_runner.py`, `broker_swap_snapshot.py`, `core/instruments/registry.py`): `36e5d0d5ed91599478bffb7d34d6cb93984e68ab13bedd012c827019c5781c47`.
-- Code commit to run the tracker from: PENDING.
+- Code commit to run the tracker from: `b4d54be` (full hash `b4d54bec2073e8d7220fcbf3831e33cf2cd19094`).
 
 ## Question
 
