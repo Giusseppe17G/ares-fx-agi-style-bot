@@ -482,12 +482,17 @@ Copy-Item C:\ares-data\cpi\data\cpi.csv data\historical\worldbank\cpi.csv
 
    La huella debe ser `182BAA44C536079BEA07BB8700C37C85441C3D7D5F8E6DD68FB92FCB4A7815E8`.
 
-5. Descarga la inflacion de 2025 en adelante del Banco Mundial (es la unica
-   llamada a internet; repitela cada ano despues de julio, o deja que la
-   rutina semanal lo haga sola cuando haga falta):
+5. Descarga la inflacion de 2025 en adelante del Banco Mundial (repitela cada
+   ano despues de julio, o deja que la rutina semanal lo haga sola cuando haga
+   falta). El Banco Mundial publica el dato de EE. UU. meses despues que el
+   de los otros nueve paises. Mientras falte, se toma del indice oficial de
+   EE. UU. (BLS CPI-U, via FRED), y solo si coincide con el Banco Mundial en
+   todos los anos desde 2015. Si Windows da un error de conexion la primera
+   vez, abre antes en Edge `https://api.worldbank.org` y
+   `https://fred.stlouisfed.org` para que instale sus certificados:
 
 ```powershell
-.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.forward_runner fetch-inflation --output "data\historical\worldbank\inflation-$(Get-Date -Format yyyyMMdd).csv"
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.forward_inflation fetch-inflation --output "data\historical\worldbank\inflation-$(Get-Date -Format yyyyMMdd).csv"
 ```
 
 6. (Opcional) Avisos por Telegram al estilo de un canal de senales. En

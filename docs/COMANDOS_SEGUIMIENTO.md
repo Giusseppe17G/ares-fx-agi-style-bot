@@ -44,7 +44,7 @@ Copy-Item C:\ares-data\cpi\data\cpi.csv data\historical\worldbank\cpi.csv
 (Get-FileHash data\historical\worldbank\cpi.csv -Algorithm SHA256).Hash
 
 # Inflacion de 2025 en adelante (Banco Mundial; unica llamada a internet)
-.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.forward_runner fetch-inflation --output "data\historical\worldbank\inflation-$(Get-Date -Format yyyyMMdd).csv"
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.forward_inflation fetch-inflation --output "data\historical\worldbank\inflation-$(Get-Date -Format yyyyMMdd).csv"
 ```
 
 Telegram (opcional; token de `@BotFather` y chat id de tu canal, ver
@@ -123,7 +123,7 @@ La rutina de la opcion A descarga sola la inflacion nueva cuando hace falta.
 Con la opcion B:
 
 ```powershell
-.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.forward_runner fetch-inflation --output "data\historical\worldbank\inflation-$(Get-Date -Format yyyyMMdd).csv"
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.forward_inflation fetch-inflation --output "data\historical\worldbank\inflation-$(Get-Date -Format yyyyMMdd).csv"
 ```
 
 - [ ] El paso 3 semanal usa solo el archivo mas reciente; si
