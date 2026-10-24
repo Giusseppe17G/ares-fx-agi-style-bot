@@ -12,7 +12,8 @@ The steps, in order:
 2. Capture the broker's swap terms (``--mode capture-swap-snapshot``). A
    failure only lowers the broker-swap coverage, so the routine continues.
 3. Download the World Bank inflation when the year the signal now needs is
-   missing (``forward_runner fetch-inflation``).
+   missing (``forward_inflation fetch-inflation``). A US year the World Bank
+   has not published yet is taken from the checked BLS CPI-U.
 4. Run the tracker from the worktree pinned at the freeze commit, and keep
    its output under ``data/runtime/forward/runs``.
 5. Rebuild the paper trades from the sealed record (``forward_trades``).
@@ -259,7 +260,7 @@ def _run_steps(paths: RoutinePaths, python: str, runner: Runner, now: datetime, 
         supplement = latest_supplement(paths.worldbank)
         if year > INFLATION_BASE_LAST_YEAR and not _has_year(supplement, year):
             target = paths.worldbank / f"inflation-{stamp}.csv"
-            fetched = runner([python, "-m", "agi_style_forex_bot_mt5.research.daily_fx.forward_runner",
+            fetched = runner([python, "-m", "agi_style_forex_bot_mt5.research.daily_fx.forward_inflation",
                               "fetch-inflation", "--output", str(target)], paths.project, env)
             summary["steps"]["fetch_inflation"] = {"exit_code": fetched.returncode, "year_needed": year}
             if fetched.returncode != 0:
