@@ -97,7 +97,7 @@ Con MT5 abierto, desde la carpeta del proyecto:
 
 ```powershell
 # 1) Precios diarios de los 9 pares: la salida debe decir "files_created": 9
-.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode export-history --symbols AUDUSD,USDCAD,USDCHF,USDDKK,GBPUSD,USDJPY,USDNOK,NZDUSD,USDSEK --timeframes D1 --bars 6000 --output-dir data\historical\forward --config C:\ares-config\bot.ini
+.\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode export-history --symbols AUDUSD,USDCAD,USDCHF,USDDKK,GBPUSD,USDJPY,USDNOK,NZDUSD,USDSEK --timeframes D1 --bars 3000 --output-dir data\historical\forward --config C:\ares-config\bot.ini
 
 # 2) Swap real del broker
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode capture-swap-snapshot --broker-symbol-map data\runtime\symbol_map_forward.json --swap-snapshot-output "data\runtime\forward\swap_snapshot-$(Get-Date -Format yyyyMMdd-HHmmss).json" --config C:\ares-config\bot.ini

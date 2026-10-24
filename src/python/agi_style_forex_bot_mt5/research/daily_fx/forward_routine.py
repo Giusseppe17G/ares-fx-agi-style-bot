@@ -221,7 +221,7 @@ def _run_steps(paths: RoutinePaths, python: str, runner: Runner, now: datetime, 
         exit_code = 2
     if exit_code == 0 and not skip_mt5:
         export = runner([python, "-m", "agi_style_forex_bot_mt5.cli", "--mode", "export-history", "--symbols", SYMBOLS,
-                         "--timeframes", "D1", "--bars", "6000", "--output-dir", str(paths.prices),
+                         "--timeframes", "D1", "--bars", "3000", "--output-dir", str(paths.prices),
                          "--config", str(paths.config)], paths.project, env)
         exported = _last_json(export.stdout)
         summary["steps"]["export"] = {"exit_code": export.returncode, "files_created": exported.get("files_created")}
