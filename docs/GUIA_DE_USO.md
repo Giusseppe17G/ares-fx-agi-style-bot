@@ -483,14 +483,127 @@ Copy-Item C:\ares-data\cpi\data\cpi.csv data\historical\worldbank\cpi.csv
    La huella debe ser `182BAA44C536079BEA07BB8700C37C85441C3D7D5F8E6DD68FB92FCB4A7815E8`.
 
 5. Descarga la inflacion de 2025 en adelante del Banco Mundial (es la unica
-   llamada a internet; repitela cada ano despues de julio):
+   llamada a internet; repitela cada ano despues de julio, o deja que la
+   rutina semanal lo haga sola cuando haga falta):
 
 ```powershell
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.forward_runner fetch-inflation --output "data\historical\worldbank\inflation-$(Get-Date -Format yyyyMMdd).csv"
 ```
 
-**Cada semana (como minimo una vez cada 4 semanas), con MT5 abierto**, desde
-la carpeta del proyecto y con las dos lineas de la seccion 2 ya ejecutadas:
+6. (Opcional) Avisos por Telegram al estilo de un canal de senales. En
+   Telegram habla con `@BotFather`, crea un bot con `/newbot` y copia su token.
+   Crea un canal o grupo, anade el bot como administrador y escribe un mensaje.
+   Abre en el navegador `https://api.telegram.org/bot<token>/getUpdates`: el
+   numero de `chat.id` (en canales y supergrupos empieza por `-100`) es tu chat
+   id. Guardalos solo para tu usuario de Windows (nunca en el repositorio).
+   `setx` no cambia la consola actual: cierra la sesion de Windows y vuelve a
+   entrar (asi tambien la tarea programada ve las variables). Despues, desde
+   la carpeta del proyecto, envia un mensaje de prueba (codigo 0 si llego):
+
+```powershell
+setx TELEGRAM_BOT_TOKEN "<token de tu bot>"
+setx TELEGRAM_CHAT_ID "<tu chat id>"
+# despues de cerrar la sesion y volver a entrar:
+.\scripts\run_forward_tracking.ps1 -Config C:\ares-config\bot.ini -TestTelegram
+```
+
+7. (Recomendado) Programa la rutina para que corra sola cada lunes a las
+   10:00 (quita `-Telegram` si no usas el paso 6). Es el lunes y no el sabado
+   porque el seguimiento descarta siempre la ultima barra (puede estar a
+   medio formar): el lunes, con el mercado abierto, cuenta hasta el viernes y
+   el resumen de la semana llega ese dia. La tarea solo corre con tu sesion
+   de Windows iniciada, porque MT5 la necesita; si el PC estaba apagado, corre
+   en cuanto vuelva a estar disponible. Deja MT5 abierto con la cuenta demo:
+
+```powershell
+.\scripts\install_forward_tracking_task.ps1 -Config C:\ares-config\bot.ini -Telegram
+Start-ScheduledTask -TaskName AresForwardTracking
+```
+
+   Para quitarla: `.\scripts\install_forward_tracking_task.ps1 -Remove`.
+
+**Cada semana (como minimo una vez cada 4 semanas), con un solo comando** (es
+lo que hace la tarea del paso 7). Con MT5 abierto, desde la carpeta del
+proyecto:
+
+```powershell
+.\scripts\run_forward_tracking.ps1 -Config C:\ares-config\bot.ini -Telegram
+```
+
+La rutina hace, por orden:
+
+- exporta los 9 pares y se para si no salen los 9 archivos;
+- captura el swap del broker;
+- descarga la inflacion del Banco Mundial solo cuando hace falta un ano
+  nuevo;
+- corre el seguimiento desde la copia fija;
+- reconstruye las operaciones en papel y escribe los mensajes.
+
+Codigos:
+
+- 0: completado.
+- 2: parada o sin informe; la alerta dice que hacer. Tambien sale con 2 si
+  otra rutina sigue en marcha (solo corre una a la vez, para no estropear el
+  ledger).
+- 3: MT5 no disponible.
+- 4: completado, pero un mensaje de Telegram no salio. Se reintenta, en
+  orden, en la proxima rutina. Revisa el token, el chat id y que el bot siga
+  en el canal.
+
+Guarda la salida de cada paso en `data\runtime\forward\runs` y el registro
+en `data\logs\forward`. Todos los mensajes, con su estado, quedan en
+`data\runtime\forward\telegram_messages.txt` (tambien sin Telegram).
+
+Antes del primer dia que cuenta no hay nada que contar: el mensaje de inicio
+y la primera operacion llegan con la primera rutina que selle un dia desde
+el 2026-10-26 (el martes 2026-10-27 si la corres a mano, o la tarea del lunes
+2026-11-02, que trae tambien el resumen de la primera semana).
+
+Que mensajes llegan (todos dicen "papel"):
+
+- inicio del seguimiento, con las posiciones que ya estaban abiertas;
+- cada operacion abierta: par, compra o venta, entrada, stop loss, take profit
+  y riesgo hasta el stop;
+- cada operacion cerrada: salida, pips, motivo (stop loss, take profit o
+  rebalanceo), resultado y duracion;
+- un resumen por semana completa:
+  - resultado de la semana y acumulado;
+  - operaciones cerradas, ganadas y perdidas;
+  - porcentaje de acierto y factor de beneficio;
+  - caida maxima, posiciones abiertas, estado de la regla y cobertura del
+    swap real;
+- las revisiones anuales, el estado final y las alertas cuando algo falla.
+
+Ejemplo con datos sinteticos (no son resultados reales):
+
+```text
+🟢 COMPRA AUDUSD · papel
+Entrada: 0.51151
+Stop loss: 0.48119 · Take profit: 0.60247
+Riesgo hasta el stop: 0,50% del capital (máximo 0,50%)
+
+📊 Resumen semanal 22-03-2027 a 26-03-2027 · papel
+Semana: +0,08% · Acumulado: +0,03%
+Cerradas esta semana: 0 (✅ 0 · ❌ 0)
+Cerradas desde el inicio: 3 (✅ 3 · ❌ 0) · acierto 100%
+Caída máxima: 1,37%
+Regla: EN CURSO · próxima revisión 26-10-2027
+```
+
+Cada mensaje se envia una sola vez y en orden, con unos segundos entre
+mensajes (Telegram limita los envios). Si uno falla, la rutina para de enviar
+y los demas esperan a la proxima. Con Telegram apagado no se guarda nada en la
+cola: al encenderlo llegan todos los mensajes pendientes desde el inicio. El
+resultado de cada operacion es bruto (antes de costes y swap) y cuenta solo
+desde el 2026-10-26; si la operacion venia de antes, sus pips tambien cuentan
+desde ese dia. El resumen semanal es neto de los costes estimados del
+estudio. Antes las operaciones se reconstruyen desde el
+registro sellado y se comprueba que reproducen sus rentabilidades y los
+stops del motor; si no, llega la alerta `RECORD_MISMATCH` o `TRADES_MISMATCH`
+y no se describe nada.
+
+**A mano, paso a paso (si no usas la rutina).** Con MT5 abierto, desde la
+carpeta del proyecto y con las dos lineas de la seccion 2 ya ejecutadas:
 
 ```powershell
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.cli --mode export-history --symbols AUDUSD,USDCAD,USDCHF,USDDKK,GBPUSD,USDJPY,USDNOK,NZDUSD,USDSEK --timeframes D1 --bars 6000 --output-dir data\historical\forward --config C:\ares-config\bot.ini

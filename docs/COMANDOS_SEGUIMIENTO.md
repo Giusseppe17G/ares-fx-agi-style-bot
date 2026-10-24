@@ -2,7 +2,8 @@
 
 Lista corta para copiar y pegar en PowerShell. La explicacion completa esta
 en `docs/GUIA_DE_USO.md` (seccion 12); el plan congelado, en
-`docs/research/daily-fx-value-forward-v1.md`. Nada de esto envia ordenes.
+`docs/research/daily-fx-value-forward-v1.md`. Nada de esto envia ordenes: los
+mensajes de Telegram describen operaciones en papel.
 
 - Primer dia que cuenta: **2026-10-26**.
 - Codigo fijo del seguimiento: commit `a81a4ca03c892d07b6d065c155e7b727bf7371bd`.
@@ -46,12 +47,51 @@ Copy-Item C:\ares-data\cpi\data\cpi.csv data\historical\worldbank\cpi.csv
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.forward_runner fetch-inflation --output "data\historical\worldbank\inflation-$(Get-Date -Format yyyyMMdd).csv"
 ```
 
+Telegram (opcional; token de `@BotFather` y chat id de tu canal, ver
+`docs/GUIA_DE_USO.md` seccion 12, paso 6) y tarea semanal automatica (lunes
+10:00; quita `-Telegram` si no usas Telegram):
+
+```powershell
+setx TELEGRAM_BOT_TOKEN "<token de tu bot>"
+setx TELEGRAM_CHAT_ID "<tu chat id>"
+# Cierra la sesion de Windows, vuelve a entrar y ve a la carpeta del proyecto
+.\scripts\run_forward_tracking.ps1 -Config C:\ares-config\bot.ini -TestTelegram
+.\scripts\install_forward_tracking_task.ps1 -Config C:\ares-config\bot.ini -Telegram
+Start-ScheduledTask -TaskName AresForwardTracking
+```
+
 - [ ] La huella del `cpi.csv` coincide.
 - [ ] `fetch-inflation` termino con codigo 0 y el archivo trae los 10 paises.
-- [ ] La primera vez, el snapshot de swap del paso 2 dice
-      `"swap_mode_name": "POINTS"` en los 9 simbolos (si no, avisame).
+- [ ] La primera vez, el snapshot de swap dice `"swap_mode_name": "POINTS"`
+      en los 9 simbolos (`data\runtime\forward\swap_snapshot-*.json`; si no,
+      avisame).
+- [ ] Con Telegram, `-TestTelegram` termino con codigo 0 y el mensaje de
+      prueba llego al canal.
+- [ ] La prueba de la tarea termino con codigo 0 (mira
+      `data\logs\forward`). El mensaje de inicio llega con la primera
+      rutina que selle un dia desde el 2026-10-26.
 
 ## 2. Cada semana (como minimo una vez cada 4 semanas)
+
+### Opcion A (recomendada): la rutina en un solo comando
+
+La tarea programada la corre sola cada lunes (el lunes cuenta hasta el
+viernes; un sabado solo contaria hasta el jueves). Para correrla a mano, con
+MT5 abierto y desde la carpeta del proyecto:
+
+```powershell
+.\scripts\run_forward_tracking.ps1 -Config C:\ares-config\bot.ini -Telegram
+```
+
+- [ ] Codigo 0 (2 = parada, la alerta dice que hacer; 3 = MT5 no
+      disponible: abrelo y repite; 4 = un mensaje de Telegram no salio, se
+      reintenta la proxima vez).
+- [ ] Sin Telegram, lee los mensajes en
+      `data\runtime\forward\telegram_messages.txt`.
+- [ ] Una vez al mes, mira en `data\runtime\forward\runs` (el `run-*.json`
+      mas reciente) `rule.status` y `summary.broker_swap.coverage`.
+
+### Opcion B: a mano, paso a paso
 
 Con MT5 abierto, desde la carpeta del proyecto:
 
@@ -78,6 +118,9 @@ Pop-Location
       `summary.broker_swap.coverage` (debe acercarse a 1).
 
 ## 3. Cada ano, despues de julio
+
+La rutina de la opcion A descarga sola la inflacion nueva cuando hace falta.
+Con la opcion B:
 
 ```powershell
 .\.venv\Scripts\python.exe -m agi_style_forex_bot_mt5.research.daily_fx.forward_runner fetch-inflation --output "data\historical\worldbank\inflation-$(Get-Date -Format yyyyMMdd).csv"
@@ -106,6 +149,12 @@ Pop-Location
 | `PLAN_MISMATCH` / `ENGINE_CHANGED` | No estas en la copia fija: vuelve a crearla con el commit de arriba. |
 | `INFLATION_BASE_CHANGED` | El `cpi.csv` no es el fijado: repite su copia del paso 1. |
 | Codigo 3 en `fetch-inflation` | Sin conexion con el Banco Mundial: reintentalo mas tarde. |
+| `EXPORT_INCOMPLETE` (rutina) | MT5 no trajo los 9 pares: revisa la Observacion de mercado y repite. |
+| `MT5_UNAVAILABLE` (rutina, codigo 3) | MT5 cerrado o sin sesion: abrelo con la cuenta demo y repite. |
+| `ROUTINE_ALREADY_RUNNING` (rutina) | Ya hay otra rutina en marcha: espera a que termine. |
+| `WORKTREE_MISSING` (rutina) | Falta la copia fija `..\ares-forward-v1`: vuelve a crearla con el commit de arriba. |
+| `REPORT_FAILED` (rutina) | No se pudo escribir el informe: el seguimiento sigue valido; guarda la salida y avisame. |
+| `RECORD_MISMATCH` / `TRADES_MISMATCH` (rutina) | El informe no reproduce el registro o el motor: el seguimiento sigue valido, pero no borres nada y avisame. |
 
 ## 6. Nunca
 

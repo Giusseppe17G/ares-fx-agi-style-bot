@@ -161,6 +161,51 @@ class TelegramNotifier:
         except requests.RequestException as exc:
             return self._fail(telegram_message_id, redact_text(str(exc)), retry_after_seconds=60)
 
+    def send_text(self, *, idempotency_key: str, text: str,
+                  payload: Mapping[str, Any] | None = None) -> TelegramResult:
+        """Send a preformatted message once per ``idempotency_key`` through the durable outbox.
+
+        Nothing is queued while Telegram is disabled, so enabling it later sends
+        every message not sent yet. A key already sent is skipped, so a rerun
+        never repeats a message. A failed one is retried with the text stored
+        when it was first queued, so the outbox holds what was delivered.
+        """
+
+        if not self.enabled:
+            return TelegramResult(queued=False, sent=False, status="DISABLED")
+        message = redact_text(text)[:3900]
+        stored = self.database.telegram_queued(idempotency_key) if self.database is not None else None
+        if stored is not None:
+            if stored[0] == "SENT":
+                return TelegramResult(queued=True, sent=True, status="SKIPPED")
+            message = stored[1]
+        chat_id_redacted = redact_text(str(self.chat_id)) if self.chat_id else None
+        telegram_message_id: str | None = None
+        if self.database is not None:
+            telegram_message_id = self.database.enqueue_telegram_message(
+                event_id=idempotency_key,
+                idempotency_key=idempotency_key,
+                message=message,
+                chat_id_redacted=chat_id_redacted,
+                payload=payload or {},
+            )
+        if not self.bot_token or not self.chat_id:
+            return self._fail(telegram_message_id, "Telegram credentials missing", retry_after_seconds=300)
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        try:
+            response = self.sender(url, {"chat_id": self.chat_id, "text": message, "disable_web_page_preview": True},
+                                   self.timeout_seconds)
+        except requests.RequestException as exc:
+            return self._fail(telegram_message_id, redact_text(str(exc)), retry_after_seconds=60)
+        if response.status_code == 200:
+            if self.database is not None and telegram_message_id is not None:
+                self.database.record_delivery_attempt(telegram_message_id, status="SENT",
+                                                      http_status=response.status_code)
+            return TelegramResult(queued=telegram_message_id is not None, sent=True, status="SENT",
+                                  telegram_message_id=telegram_message_id)
+        return self._fail(telegram_message_id, f"Telegram HTTP {response.status_code}: {redact_text(response.text)}",
+                          http_status=response.status_code, retry_after_seconds=self._retry_after(response))
+
     def _fail(
         self,
         telegram_message_id: str | None,
