@@ -98,3 +98,13 @@ def test_the_command_reports_download_failures_and_never_overwrites(tmp_path, mo
     monkeypatch.setattr(forward_inflation.fetch_inflation, "__defaults__", (offline,))
     assert forward_inflation.main(["fetch-inflation", "--output", str(tmp_path / "b.csv")]) == 3
     assert "download failed" in capsys.readouterr().err
+
+
+def test_a_single_unpublished_month_is_filled_from_its_neighbours():
+    lines = _fred().splitlines()
+    one_gap = "\n".join(line if not line.startswith("2025-10-01") else "2025-10-01,." for line in lines) + "\n"
+    assert us_inflation_from_cpi(one_gap)[2025] == pytest.approx(2.5)
+    dropped = "\n".join(line for line in lines if not line.startswith("2025-10-01")) + "\n"
+    assert us_inflation_from_cpi(dropped)[2025] == pytest.approx(2.5)
+    two_gaps = "\n".join(line for line in lines if not line.startswith(("2025-10-01", "2025-11-01"))) + "\n"
+    assert 2025 not in us_inflation_from_cpi(two_gaps)
