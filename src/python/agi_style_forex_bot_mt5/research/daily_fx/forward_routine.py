@@ -56,6 +56,8 @@ import sys
 import time
 from typing import Any, Callable, Sequence
 
+import numpy as np
+
 from ...config import load_config
 from ...telemetry.database import TelemetryDatabase
 from ...telemetry.telegram_notifier import TelegramNotifier
@@ -71,6 +73,8 @@ PLAN_FILE = Path("docs/research/daily_fx_value_forward_v1/plan.json")
 INFLATION_BASE_LAST_YEAR = 2024
 PUBLICATION_MONTH = 7
 STALE_LOCK_SECONDS = 3 * 3600
+HISTORY_FROM = "2017-12-01"  # a month before the plan's price start
+BARS_MARGIN = 20
 
 
 @dataclass(frozen=True)
@@ -135,6 +139,17 @@ def _last_json(text: str) -> dict[str, Any]:
         return json.loads(text)
     except ValueError:
         return {}
+
+
+def export_bars(now: datetime) -> int:
+    """Daily bars reaching back past the plan's 2018-01-02 start, with a margin.
+
+    A fixed count would stop reaching 2018 as the years pass, and asking the
+    terminal for far more history than it holds writes no file.
+    """
+
+    weekdays = int(np.busday_count(HISTORY_FROM, now.date().isoformat()))
+    return weekdays + BARS_MARGIN
 
 
 def needed_inflation_year(now: datetime) -> int:
@@ -221,7 +236,7 @@ def _run_steps(paths: RoutinePaths, python: str, runner: Runner, now: datetime, 
         exit_code = 2
     if exit_code == 0 and not skip_mt5:
         export = runner([python, "-m", "agi_style_forex_bot_mt5.cli", "--mode", "export-history", "--symbols", SYMBOLS,
-                         "--timeframes", "D1", "--bars", "3000", "--output-dir", str(paths.prices),
+                         "--timeframes", "D1", "--bars", str(export_bars(now)), "--output-dir", str(paths.prices),
                          "--config", str(paths.config)], paths.project, env)
         exported = _last_json(export.stdout)
         summary["steps"]["export"] = {"exit_code": export.returncode, "files_created": exported.get("files_created")}
