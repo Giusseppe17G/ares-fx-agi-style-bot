@@ -62,6 +62,8 @@ ALERT_ACTIONS = {
     "SWAP_CAPTURE_FAILED": "No se pudo capturar el swap. La cobertura del swap real baja; revisa el mapa de símbolos.",
     "RECORD_MISMATCH": "El informe no reproduce el registro sellado. No borres nada y avisa.",
     "TRADES_MISMATCH": "Las operaciones del informe no cuadran con el motor. El registro sigue válido; avisa.",
+    "REPORT_FAILED": "No se pudo escribir el informe. El registro sigue válido; revisa la salida y avisa.",
+    "WORKTREE_MISSING": "No está la copia fija del código (..\\ares-forward-v1). Vuelve a crearla.",
 }
 
 
@@ -117,11 +119,18 @@ def open_message(trade: PaperTrade) -> Message:
 
 def close_message(trade: PaperTrade, forward_start: str) -> Message:
     days = (pd.Timestamp(trade.closed_on) - pd.Timestamp(trade.opened_on)).days
-    since = f" desde el inicio del seguimiento ({_day(forward_start)})" if trade.opened_before_start else ""
+    entry = f"Entrada {_price(trade.symbol, trade.open_price)} ({_day(trade.opened_on)})"
+    exit_ = f"Salida {_price(trade.symbol, trade.close_price)}"
+    if trade.start_price is not None:
+        since = f" desde el inicio del seguimiento ({_day(forward_start)})"
+        move = (f"{entry} · al inicio {_price(trade.symbol, trade.start_price)} → {exit_} "
+                f"({trade.pips:+.0f} pips desde el inicio)")
+    else:
+        since = ""
+        move = f"{entry} → {exit_} ({trade.pips:+.0f} pips)"
     lines = [
         f"{_icon(trade.pnl_percent)} CERRADA {_side(trade)} {trade.symbol} · {REASONS[trade.reason]} · {PAPER}",
-        f"Entrada {_price(trade.symbol, trade.open_price)} ({_day(trade.opened_on)}) → "
-        f"Salida {_price(trade.symbol, trade.close_price)} ({trade.pips:+.0f} pips)",
+        move,
         f"Resultado{since}: {_pct(trade.pnl_percent)} del capital (bruto, antes de costes)",
         f"Duración: {days} días",
         DISCLAIMER,
@@ -187,6 +196,7 @@ def weekly_messages(book: TradeBook) -> list[Message]:
             lines.append(f"Abiertas ({len(positions)}): " + (" · ".join(positions) if positions else "ninguna"))
             lines.append(_rule_line(book.rule))
         lines.append(f"Swap real del bróker cubierto: {_number(coverage, 0)}% de los días")
+        lines.append("Semana y acumulado: netos de costes estimados · operaciones: resultado bruto")
         lines.append(DISCLAIMER)
         iso = friday.isocalendar()
         messages.append(Message(f"forward:week:{iso[0]}-W{iso[1]:02d}", "week", week_end, 3, "\n".join(lines)))
@@ -234,6 +244,12 @@ def alert_message(code: str, detail: str = "", on: str | None = None) -> Message
     return Message(f"forward:alert:{code}:{day}", "alert", day, 9, text)
 
 
+def check_message(on: str) -> Message:
+    text = (f"✅ Prueba de Telegram del seguimiento en {PAPER}: el bot puede escribir en este chat.\n"
+            f"Los mensajes llegan después de cada rutina semanal.\n{DISCLAIMER}")
+    return Message(f"forward:test:{on}", "test", on, 0, text)
+
+
 def build_messages(book: TradeBook) -> list[Message]:
     """Every message the record supports, in date order (a rerun skips those already sent)."""
 
@@ -248,19 +264,31 @@ def build_messages(book: TradeBook) -> list[Message]:
 
 
 def deliver(messages: Sequence[Message], notifier: Any, preview: Path | None = None,
-            pause_seconds: float = 1.0, sleep: Callable[[float], None] = time.sleep) -> dict[str, int]:
-    """Queue and send each message once; append new ones to a local preview file."""
+            pause_seconds: float = 3.0, sleep: Callable[[float], None] = time.sleep) -> dict[str, int]:
+    """Send each message once, in order, and rewrite the local preview with every message.
 
-    counts = {"sent": 0, "skipped": 0, "disabled": 0, "failed": 0}
-    for message in messages:
+    The first failure stops the run: the rest wait for the next run, so the
+    channel never shows a close before its open or an old summary after a new
+    one. Sends are spaced out because Telegram groups and channels accept
+    about 20 messages a minute.
+    """
+
+    counts = {"sent": 0, "skipped": 0, "disabled": 0, "failed": 0, "deferred": 0}
+    statuses: dict[str, str] = {}
+    for position, message in enumerate(messages):
         result = notifier.send_text(idempotency_key=message.key, text=message.text,
                                     payload={"kind": message.kind, "on": message.on})
-        status = result.status.lower()
-        counts[status if status in counts else "failed"] += 1
-        if result.status != "SKIPPED" and preview is not None:
-            preview.parent.mkdir(parents=True, exist_ok=True)
-            with preview.open("a", encoding="utf-8", newline="\n") as handle:
-                handle.write(f"[{message.on}] {message.key} ({result.status})\n{message.text}\n\n")
-        if result.status == "SENT" and pause_seconds > 0:
-            sleep(pause_seconds)  # Telegram allows about one message per second per chat
+        status = result.status if result.status in {"SENT", "SKIPPED", "DISABLED"} else "FAILED"
+        statuses[message.key] = status
+        counts[status.lower()] += 1
+        if status == "FAILED":
+            counts["deferred"] = len(messages) - position - 1
+            break
+        if status == "SENT" and pause_seconds > 0:
+            sleep(pause_seconds)
+    if preview is not None:
+        preview.parent.mkdir(parents=True, exist_ok=True)
+        text = "".join(f"[{message.on}] {message.key} ({statuses.get(message.key, 'DEFERRED')})\n{message.text}\n\n"
+                       for message in messages)
+        preview.write_text(text, encoding="utf-8", newline="\n")
     return counts

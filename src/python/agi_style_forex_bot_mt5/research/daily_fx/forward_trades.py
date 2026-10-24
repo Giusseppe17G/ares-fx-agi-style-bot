@@ -25,7 +25,8 @@ trades, one per currency and direction:
   - ``REBALANCE``: the signal changed at a rebalance.
 - **Result.** The gross contribution of the position to equity (before costs
   and swap), counted only on forward days. Trades still open at the forward
-  start are flagged.
+  start are flagged, and their pips count from the last close before it, so
+  pips and result cover the same days.
 
 The derivation is checked too: its stop-loss and take-profit closes must
 equal the engine's counts, or it refuses (``TRADES_MISMATCH``).
@@ -77,6 +78,7 @@ class PaperTrade:
     reason: str | None = None
     pnl_percent: float = 0.0  # gross, % of equity, forward days only
     last_price: float | None = None
+    start_price: float | None = None  # last close before the forward start, if opened before it
 
     @property
     def pip_size(self) -> float:
@@ -84,11 +86,14 @@ class PaperTrade:
 
     @property
     def pips(self) -> float:
+        """Pips over the days the result counts (from ``start_price`` when opened before the start)."""
+
         price = self.close_price if self.close_price is not None else self.last_price
         if price is None:
             return 0.0
         sign = 1.0 if self.side == "BUY" else -1.0
-        return sign * (price - self.open_price) / self.pip_size
+        base = self.start_price if self.start_price is not None else self.open_price
+        return sign * (price - base) / self.pip_size
 
     def to_dict(self) -> dict[str, Any]:
         return {**asdict(self), "pips": self.pips}
@@ -177,6 +182,9 @@ def rebuild_trades(plan: ForwardPlan, prices_in: BrokerPrices, inflation_base: p
             price = float(prices.at[day, code])
             if trade is not None:
                 if day >= forward_start:
+                    if trade.opened_before_start and trade.start_price is None:
+                        before = float(prices[code].iloc[prices.index.get_loc(day) - 1])
+                        trade.start_price = _pair_price(before, usd_base)
                     trade.pnl_percent += 100.0 * float(contributions.at[day, code])
                 move = direction * (price / anchor - 1.0)
                 hit = "SL" if move <= -stop else "TP" if move >= limits.take_profit_multiple * stop else None

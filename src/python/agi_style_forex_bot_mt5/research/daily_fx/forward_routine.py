@@ -21,18 +21,26 @@ The steps, in order:
 6. Queue every message in the durable outbox. Each is sent once when
    Telegram is on (``--telegram`` or ``TELEGRAM_ENABLED=True``) and the
    ``TELEGRAM_BOT_TOKEN`` and ``TELEGRAM_CHAT_ID`` environment variables are
-   set, and is always written to ``data/runtime/forward/telegram_messages.txt``.
-   A message queued while Telegram is off is never sent later.
+   set. While Telegram is off nothing is queued, so turning it on later
+   sends every message not sent yet, in order. Every message is also written
+   to ``data/runtime/forward/telegram_messages.txt``.
+
+Only one routine runs at a time (``data/runtime/forward/routine.lock``), so
+two runs can never append to the ledger together.
 
 Exit codes:
 
 - 0: done.
-- 2: stopped (an incomplete export, a tracker refusal, an invalid
-  configuration). The alert is in the outbox.
+- 2: stopped or no report: an incomplete export, a tracker refusal, a report
+  that cannot describe the record, another routine running or an invalid
+  configuration. The alert says why.
 - 3: MT5 unavailable.
+- 4: done, but a Telegram message could not be sent; it is retried, in order,
+  on the next run.
 
-The configuration must keep ``DEMO_ONLY=True``. Nothing here reads an account
-or sends an order.
+``--test-telegram`` only sends a test message (exit 0 if it arrived, 4 if
+not). The configuration must keep ``DEMO_ONLY=True``. Nothing here reads an
+account or sends an order.
 """
 
 from __future__ import annotations
@@ -45,6 +53,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 from typing import Any, Callable, Sequence
 
 from ...config import load_config
@@ -53,7 +62,7 @@ from ...telemetry.telegram_notifier import TelegramNotifier
 from ..trial_registry import TrialLedger
 from .data import WORLD_BANK_COUNTRIES, load_worldbank_inflation
 from .forward import load_broker_daily, read_inflation_supplement
-from .forward_telegram import Message, alert_message, build_messages, deliver
+from .forward_telegram import Message, alert_message, build_messages, check_message, deliver
 from .forward_trades import ReportUnavailable, rebuild_trades
 from .plans import value_forward_v1
 
@@ -61,6 +70,7 @@ SYMBOLS = "AUDUSD,USDCAD,USDCHF,USDDKK,GBPUSD,USDJPY,USDNOK,NZDUSD,USDSEK"
 PLAN_FILE = Path("docs/research/daily_fx_value_forward_v1/plan.json")
 INFLATION_BASE_LAST_YEAR = 2024
 PUBLICATION_MONTH = 7
+STALE_LOCK_SECONDS = 3 * 3600
 
 
 @dataclass(frozen=True)
@@ -134,8 +144,10 @@ def needed_inflation_year(now: datetime) -> int:
 
 
 def latest_supplement(folder: Path) -> Path | None:
-    files = sorted(folder.glob("inflation-*.csv"))
-    return files[-1] if files else None
+    """The inflation download written last (by time, then name; manual and routine names differ)."""
+
+    files = list(folder.glob("inflation-*.csv"))
+    return max(files, key=lambda path: (path.stat().st_mtime, path.name)) if files else None
 
 
 def _has_year(path: Path | None, year: int) -> bool:
@@ -149,15 +161,50 @@ def _has_year(path: Path | None, year: int) -> bool:
     return year in table.index and not table.loc[year].isna().any()
 
 
+def _acquire(lock: Path) -> bool:
+    """Create the lock file, replacing one left by a run that died hours ago."""
+
+    for _ in range(2):
+        try:
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            return True
+        except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime < STALE_LOCK_SECONDS:
+                    return False
+                lock.unlink()
+            except FileNotFoundError:
+                continue
+    return False
+
+
+def _notifier(paths: RoutinePaths, telegram: bool) -> TelegramNotifier:
+    config = load_config(paths.config)
+    return TelegramNotifier.from_env(database=TelemetryDatabase(paths.outbox),
+                                     enabled=bool(telegram or config.telegram_enabled))
+
+
 def run_routine(paths: RoutinePaths, *, python: str = sys.executable, runner: Runner = subprocess_runner,
                 now: datetime | None = None, skip_mt5: bool = False, telegram: bool = False,
-                notifier: Any | None = None) -> dict[str, Any]:
+                notifier: Any | None = None, pause_seconds: float = 3.0) -> dict[str, Any]:
     """Run every step, deliver the messages and return the routine's summary (with ``exit_code``)."""
 
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    paths.runtime.mkdir(parents=True, exist_ok=True)
+    lock = paths.runtime / "routine.lock"
+    if not _acquire(lock):
+        return {"routine": "forward_value_v1", "started_at_utc": now.isoformat(), "alerts": [],
+                "error": "ROUTINE_ALREADY_RUNNING", "execution_authorized": False, "exit_code": 2}
+    try:
+        return _run_steps(paths, python, runner, now, skip_mt5, telegram, notifier, pause_seconds)
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def _run_steps(paths: RoutinePaths, python: str, runner: Runner, now: datetime, skip_mt5: bool,
+               telegram: bool, notifier: Any | None, pause_seconds: float) -> dict[str, Any]:
     stamp = now.strftime("%Y%m%d-%H%M%S")
     day = now.strftime("%Y-%m-%d")
-    paths.runtime.mkdir(parents=True, exist_ok=True)
     (paths.runtime / "runs").mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "PYTHONPATH": "src/python"}
     summary: dict[str, Any] = {"routine": "forward_value_v1", "started_at_utc": now.isoformat(), "steps": {},
@@ -169,7 +216,10 @@ def run_routine(paths: RoutinePaths, *, python: str = sys.executable, runner: Ru
         alerts.append(alert_message(code, detail, day))
         summary["alerts"].append(code)
 
-    if not skip_mt5:
+    if not (paths.worktree / PLAN_FILE).is_file():
+        alert("WORKTREE_MISSING", str(paths.worktree))
+        exit_code = 2
+    if exit_code == 0 and not skip_mt5:
         export = runner([python, "-m", "agi_style_forex_bot_mt5.cli", "--mode", "export-history", "--symbols", SYMBOLS,
                          "--timeframes", "D1", "--bars", "6000", "--output-dir", str(paths.prices),
                          "--config", str(paths.config)], paths.project, env)
@@ -219,26 +269,35 @@ def run_routine(paths: RoutinePaths, *, python: str = sys.executable, runner: Ru
         elif result.get("waiting_for_inputs_on"):
             alert("WAITING_FOR_INFLATION", f"rebalance of {result['waiting_for_inputs_on']}")
     messages: list[Message] = []
+    if (paths.worktree / PLAN_FILE).is_file():
+        try:
+            frozen = json.loads((paths.worktree / PLAN_FILE).read_text(encoding="utf-8"))
+            plan = value_forward_v1()
+            prices = load_broker_daily(paths.prices, plan.currencies, plan.price_start)
+            base, _ = load_worldbank_inflation(paths.worldbank / "cpi.csv", plan.currencies)
+            book = rebuild_trades(plan, prices, base, TrialLedger(paths.ledger), plan_hash=frozen["plan_hash"])
+            messages = build_messages(book)
+            summary["report"] = {"trades": len(book.trades), "closed": len(book.closed()),
+                                 "open": len(book.open()), "through_day": book.through_day,
+                                 "rule": book.rule.get("status")}
+        except ReportUnavailable as error:
+            summary["report"] = {"unavailable": error.code}
+            if error.code != "NO_RECORD":  # nothing sealed yet (before the first forward day)
+                alert(error.code, str(error))
+                exit_code = exit_code or 2
+        except Exception as error:  # the report never touches the ledger; say why it is missing
+            summary["report"] = {"unavailable": type(error).__name__}
+            alert("REPORT_FAILED", f"{type(error).__name__}: {error}")
+            exit_code = exit_code or 2
     try:
-        frozen = json.loads((paths.worktree / PLAN_FILE).read_text(encoding="utf-8"))
-        prices = load_broker_daily(paths.prices, value_forward_v1().currencies, value_forward_v1().price_start)
-        base, _ = load_worldbank_inflation(paths.worldbank / "cpi.csv", value_forward_v1().currencies)
-        book = rebuild_trades(value_forward_v1(), prices, base, TrialLedger(paths.ledger),
-                              plan_hash=frozen["plan_hash"])
-        messages = build_messages(book)
-        summary["report"] = {"trades": len(book.trades), "closed": len(book.closed()), "open": len(book.open()),
-                             "through_day": book.through_day, "rule": book.rule.get("status")}
-    except ReportUnavailable as error:
-        summary["report"] = {"unavailable": error.code}
-        if error.code != "NO_RECORD":
-            alert(error.code, str(error))
-    except (OSError, ValueError, KeyError) as error:
-        summary["report"] = {"unavailable": type(error).__name__}
-    if notifier is None:
-        config = load_config(paths.config)
-        notifier = TelegramNotifier.from_env(database=TelemetryDatabase(paths.outbox),
-                                             enabled=bool(telegram or config.telegram_enabled))
-    summary["telegram"] = deliver([*messages, *alerts], notifier, preview=paths.runtime / "telegram_messages.txt")
+        notifier = notifier if notifier is not None else _notifier(paths, telegram)
+        summary["telegram"] = deliver([*messages, *alerts], notifier,
+                                      preview=paths.runtime / "telegram_messages.txt", pause_seconds=pause_seconds)
+        if summary["telegram"]["failed"]:
+            exit_code = exit_code or 4
+    except Exception as error:  # the summary file below still records the run
+        summary["telegram"] = {"error": f"{type(error).__name__}: {error}"}
+        exit_code = exit_code or 4
     summary["exit_code"] = exit_code
     (paths.runtime / "runs" / f"routine-{stamp}.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
@@ -253,13 +312,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--skip-mt5", action="store_true", help="use the exports and snapshots already on disk")
     parser.add_argument("--telegram", action="store_true",
                         help="send the messages (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID from the environment)")
+    parser.add_argument("--test-telegram", action="store_true", help="only send a test message and exit")
     args = parser.parse_args(argv)
     project = args.project.resolve()
     worktree = (args.worktree or project.parent / "ares-forward-v1").resolve()
+    paths = RoutinePaths(project, worktree, args.config.resolve())
     try:
         load_config(args.config)  # refuses a missing file or DEMO_ONLY=False before any step
-        summary = run_routine(RoutinePaths(project, worktree, args.config.resolve()), skip_mt5=args.skip_mt5,
-                              telegram=args.telegram)
+        if args.test_telegram:
+            stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H%M%S")
+            result = _notifier(paths, True).send_text(idempotency_key=f"forward:test:{stamp}",
+                                                      text=check_message(stamp[:10]).text)
+            print(json.dumps({"routine": "forward_value_v1", "telegram_test": result.status,
+                              "error": result.error}))
+            return 0 if result.status == "SENT" else 4
+        summary = run_routine(paths, skip_mt5=args.skip_mt5, telegram=args.telegram)
     except (OSError, ValueError) as error:
         print(json.dumps({"routine": "forward_value_v1", "error": f"{type(error).__name__}: {error}"}), file=sys.stderr)
         return 2

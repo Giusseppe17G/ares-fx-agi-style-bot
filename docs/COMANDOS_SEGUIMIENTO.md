@@ -48,13 +48,14 @@ Copy-Item C:\ares-data\cpi\data\cpi.csv data\historical\worldbank\cpi.csv
 ```
 
 Telegram (opcional; token de `@BotFather` y chat id de tu canal, ver
-`docs/GUIA_DE_USO.md` seccion 12, paso 6) y tarea semanal automatica (sabado
+`docs/GUIA_DE_USO.md` seccion 12, paso 6) y tarea semanal automatica (lunes
 10:00; quita `-Telegram` si no usas Telegram):
 
 ```powershell
 setx TELEGRAM_BOT_TOKEN "<token de tu bot>"
 setx TELEGRAM_CHAT_ID "<tu chat id>"
-# Abre una consola nueva (setx no cambia la actual) y vuelve a la carpeta del proyecto
+# Cierra la sesion de Windows, vuelve a entrar y ve a la carpeta del proyecto
+.\scripts\run_forward_tracking.ps1 -Config C:\ares-config\bot.ini -TestTelegram
 .\scripts\install_forward_tracking_task.ps1 -Config C:\ares-config\bot.ini -Telegram
 Start-ScheduledTask -TaskName AresForwardTracking
 ```
@@ -64,22 +65,27 @@ Start-ScheduledTask -TaskName AresForwardTracking
 - [ ] La primera vez, el snapshot de swap dice `"swap_mode_name": "POINTS"`
       en los 9 simbolos (`data\runtime\forward\swap_snapshot-*.json`; si no,
       avisame).
+- [ ] Con Telegram, `-TestTelegram` termino con codigo 0 y el mensaje de
+      prueba llego al canal.
 - [ ] La prueba de la tarea termino con codigo 0 (mira
-      `data\logs\forward`) y, con Telegram, llego el mensaje de inicio.
+      `data\logs\forward`). El mensaje de inicio llega con la primera
+      rutina que selle un dia desde el 2026-10-26.
 
 ## 2. Cada semana (como minimo una vez cada 4 semanas)
 
 ### Opcion A (recomendada): la rutina en un solo comando
 
-La tarea programada la corre sola cada sabado. Para correrla a mano, con MT5
-abierto y desde la carpeta del proyecto:
+La tarea programada la corre sola cada lunes (el lunes cuenta hasta el
+viernes; un sabado solo contaria hasta el jueves). Para correrla a mano, con
+MT5 abierto y desde la carpeta del proyecto:
 
 ```powershell
 .\scripts\run_forward_tracking.ps1 -Config C:\ares-config\bot.ini -Telegram
 ```
 
 - [ ] Codigo 0 (2 = parada, la alerta dice que hacer; 3 = MT5 no
-      disponible: abrelo y repite).
+      disponible: abrelo y repite; 4 = un mensaje de Telegram no salio, se
+      reintenta la proxima vez).
 - [ ] Sin Telegram, lee los mensajes en
       `data\runtime\forward\telegram_messages.txt`.
 - [ ] Una vez al mes, mira en `data\runtime\forward\runs` (el `run-*.json`
@@ -145,6 +151,9 @@ Con la opcion B:
 | Codigo 3 en `fetch-inflation` | Sin conexion con el Banco Mundial: reintentalo mas tarde. |
 | `EXPORT_INCOMPLETE` (rutina) | MT5 no trajo los 9 pares: revisa la Observacion de mercado y repite. |
 | `MT5_UNAVAILABLE` (rutina, codigo 3) | MT5 cerrado o sin sesion: abrelo con la cuenta demo y repite. |
+| `ROUTINE_ALREADY_RUNNING` (rutina) | Ya hay otra rutina en marcha: espera a que termine. |
+| `WORKTREE_MISSING` (rutina) | Falta la copia fija `..\ares-forward-v1`: vuelve a crearla con el commit de arriba. |
+| `REPORT_FAILED` (rutina) | No se pudo escribir el informe: el seguimiento sigue valido; guarda la salida y avisame. |
 | `RECORD_MISMATCH` / `TRADES_MISMATCH` (rutina) | El informe no reproduce el registro o el motor: el seguimiento sigue valido, pero no borres nada y avisame. |
 
 ## 6. Nunca

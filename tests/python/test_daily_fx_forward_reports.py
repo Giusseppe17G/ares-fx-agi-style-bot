@@ -5,13 +5,15 @@ from datetime import datetime, timezone
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
+import time
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from agi_style_forex_bot_mt5.research.daily_fx import forward_runner
+from agi_style_forex_bot_mt5.research.daily_fx import forward_routine, forward_runner
 from agi_style_forex_bot_mt5.research.daily_fx.data import MT5_USD_PAIRS
 from agi_style_forex_bot_mt5.research.daily_fx.forward import load_broker_daily, run_forward
 from agi_style_forex_bot_mt5.research.daily_fx.forward_routine import (Completed, RoutinePaths,
@@ -135,6 +137,12 @@ def test_messages_read_like_a_trading_channel_and_always_say_paper(tmp_path):
     early = [trade for trade in book.closed() if trade.opened_before_start]
     assert early and all("desde el inicio del seguimiento (26-10-2026)" in message.text for message in closes
                          if message.key in {f"forward:close:{trade.trade_id}" for trade in early})
+    # Their pips count from the last close before the start, like their result.
+    for trade in early:
+        sign = 1.0 if trade.side == "BUY" else -1.0
+        assert trade.start_price is not None
+        assert trade.pips == pytest.approx(sign * (trade.close_price - trade.start_price) / trade.pip_size)
+    assert all(trade.start_price is None for trade in book.trades if not trade.opened_before_start)
     assert len({message.key for message in messages}) == len(messages)
 
 
@@ -147,7 +155,7 @@ class _Response:
         return {}
 
 
-def test_each_message_is_sent_once_and_a_failure_is_retried(tmp_path):
+def test_each_message_is_sent_once_in_order_and_a_failure_is_retried(tmp_path):
     book, _ = _book(tmp_path, end="2026-12-31")
     messages = build_messages(book)
     calls = []
@@ -158,24 +166,41 @@ def test_each_message_is_sent_once_and_a_failure_is_retried(tmp_path):
             return _Response(status)
         return send
 
+    def notifier(status, database):
+        return TelegramNotifier(database=database, enabled=True, bot_token="123:abc", chat_id="42",
+                                sender=sender(status))
+
     database = TelemetryDatabase(tmp_path / "outbox.sqlite3")
-    failing = TelegramNotifier(database=database, enabled=True, bot_token="123:abc", chat_id="42",
-                               sender=sender(500))
     preview = tmp_path / "preview.txt"
-    first = deliver(messages, failing, preview=preview, pause_seconds=0)
-    assert first["failed"] == len(messages) and first["sent"] == 0
-    working = TelegramNotifier(database=database, enabled=True, bot_token="123:abc", chat_id="42",
-                               sender=sender(200))
-    second = deliver(messages, working, preview=preview, pause_seconds=0)
-    assert second["sent"] == len(messages)
-    third = deliver(messages, working, preview=preview, pause_seconds=0)
-    assert third == {"sent": 0, "skipped": len(messages), "disabled": 0, "failed": 0}
-    assert len(calls) == 2 * len(messages)
-    assert "Resumen semanal" in preview.read_text(encoding="utf-8")
-    # Queued while disabled: kept in the outbox and never sent later as stale news.
-    quiet = TelegramNotifier(database=TelemetryDatabase(tmp_path / "quiet.sqlite3"), enabled=False)
+    # The first failure stops the run, so the channel never shows messages out of order.
+    first = deliver(messages, notifier(500, database), preview=preview, pause_seconds=0)
+    assert first == {"sent": 0, "skipped": 0, "disabled": 0, "failed": 1, "deferred": len(messages) - 1}
+    assert preview.read_text(encoding="utf-8").count("(DEFERRED)") == len(messages) - 1
+    # The retry sends the text stored when the message was first queued.
+    changed = [replace(messages[0], text=messages[0].text + "\nmodificado"), *messages[1:]]
+    pauses = []
+    second = deliver(changed, notifier(200, database), preview=preview, pause_seconds=3.0, sleep=pauses.append)
+    assert second["sent"] == len(messages) and calls[1] == messages[0].text and pauses == [3.0] * len(messages)
+    third = deliver(messages, notifier(200, database), preview=preview, pause_seconds=0)
+    assert third == {"sent": 0, "skipped": len(messages), "disabled": 0, "failed": 0, "deferred": 0}
+    assert len(calls) == 1 + len(messages)
+    text = preview.read_text(encoding="utf-8")
+    assert "Resumen semanal" in text and text.count("(SKIPPED)") == len(messages)
+
+
+def test_nothing_is_queued_while_telegram_is_off(tmp_path):
+    book, _ = _book(tmp_path, end="2026-12-31")
+    messages = build_messages(book)
+    database = TelemetryDatabase(tmp_path / "outbox.sqlite3")
+    quiet = TelegramNotifier(database=database, enabled=False)
     assert deliver(messages, quiet, pause_seconds=0)["disabled"] == len(messages)
-    assert deliver(messages, quiet, pause_seconds=0)["skipped"] == len(messages)
+    assert deliver(messages, quiet, pause_seconds=0)["disabled"] == len(messages)
+    # Turning Telegram on later sends every message not sent yet.
+    sent = []
+    loud = TelegramNotifier(database=database, enabled=True, bot_token="123:abc", chat_id="42",
+                            sender=lambda url, payload, timeout: sent.append(payload["text"]) or _Response(200))
+    assert deliver(messages, loud, pause_seconds=0)["sent"] == len(messages)
+    assert sent == [message.text for message in messages]
 
 
 def test_alerts_say_what_to_do():
@@ -256,10 +281,57 @@ def test_the_routine_runs_every_step_and_reports(tmp_path, monkeypatch):
     assert list((paths.runtime / "runs").glob("routine-*.json"))
     assert [call[call.index("--mode") + 1] if "--mode" in call else call[3] for call in fake.calls] == [
         "export-history", "capture-swap-snapshot", "fetch-inflation", "run"]
-    # The next week nothing already sent is repeated.
-    again = run_routine(paths, runner=_Fake(end="2027-04-30"), now=datetime(2027, 5, 1, tzinfo=timezone.utc),
-                        notifier=quiet)
-    assert again["exit_code"] == 0 and again["telegram"]["skipped"] >= summary["telegram"]["disabled"]
+    assert not (paths.runtime / "routine.lock").exists()
+    # The next week, with Telegram on, the backlog goes out once and in order.
+    sent = []
+    loud = TelegramNotifier(database=TelemetryDatabase(tmp_path / "outbox.sqlite3"), enabled=True,
+                            bot_token="123:abc", chat_id="42",
+                            sender=lambda url, payload, timeout: sent.append(payload["text"]) or _Response(200))
+    later = datetime(2027, 5, 1, tzinfo=timezone.utc)
+    again = run_routine(paths, runner=_Fake(end="2027-04-30"), now=later, notifier=loud, pause_seconds=0)
+    assert again["exit_code"] == 0 and again["telegram"]["sent"] == len(sent) > summary["telegram"]["disabled"]
+    once_more = run_routine(paths, runner=_Fake(end="2027-04-30"), now=later, notifier=loud, pause_seconds=0)
+    assert once_more["telegram"]["sent"] == 0 and once_more["telegram"]["skipped"] == len(sent)
+
+
+def test_the_routine_reports_failures_instead_of_hiding_them(tmp_path, monkeypatch):
+    paths = _setup(tmp_path, monkeypatch)
+    quiet = TelegramNotifier(database=TelemetryDatabase(tmp_path / "outbox.sqlite3"), enabled=False)
+    # A Telegram failure: the record is done, the messages wait for the next run (exit 4).
+    failing = TelegramNotifier(database=TelemetryDatabase(tmp_path / "outbox.sqlite3"), enabled=True,
+                               bot_token="123:abc", chat_id="42",
+                               sender=lambda url, payload, timeout: _Response(403))
+    summary = run_routine(paths, runner=_Fake(), now=NOW, notifier=failing)
+    assert summary["exit_code"] == 4 and summary["telegram"]["failed"] == 1 and summary["telegram"]["deferred"] > 0
+    # A report that cannot be written says so (exit 2) and never touches the ledger.
+    ledger = paths.ledger.read_bytes()
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(forward_routine, "rebuild_trades", broken)
+    failed = run_routine(paths, runner=_Fake(), now=NOW, notifier=quiet)
+    assert failed["exit_code"] == 2 and failed["alerts"] == ["REPORT_FAILED"]
+    assert "RuntimeError: disk full" in (paths.runtime / "telegram_messages.txt").read_text(encoding="utf-8")
+    assert paths.ledger.read_bytes() == ledger
+
+
+def test_only_one_routine_runs_at_a_time_and_the_worktree_must_exist(tmp_path, monkeypatch):
+    paths = _setup(tmp_path, monkeypatch)
+    quiet = TelegramNotifier(database=TelemetryDatabase(tmp_path / "outbox.sqlite3"), enabled=False)
+    lock = paths.runtime / "routine.lock"
+    lock.parent.mkdir(parents=True)
+    lock.write_text("")
+    fake = _Fake()
+    busy = run_routine(paths, runner=fake, now=NOW, notifier=quiet)
+    assert busy["exit_code"] == 2 and busy["error"] == "ROUTINE_ALREADY_RUNNING" and fake.calls == [] and lock.exists()
+    # A lock left by a run that died hours ago is replaced.
+    old = time.time() - 4 * 3600
+    os.utime(lock, (old, old))
+    assert run_routine(paths, runner=fake, now=NOW, notifier=quiet)["exit_code"] == 0 and not lock.exists()
+    moved = RoutinePaths(paths.project, tmp_path / "elsewhere", paths.config)
+    missing = run_routine(moved, runner=_Fake(), now=NOW, notifier=quiet)
+    assert missing["exit_code"] == 2 and missing["alerts"] == ["WORKTREE_MISSING"]
 
 
 def test_the_routine_stops_and_alerts_on_an_incomplete_export_or_a_refusal(tmp_path, monkeypatch):
@@ -270,10 +342,10 @@ def test_the_routine_stops_and_alerts_on_an_incomplete_export_or_a_refusal(tmp_p
     assert summary["exit_code"] == 2 and summary["alerts"] == ["EXPORT_INCOMPLETE"] and len(short.calls) == 1
     offline = run_routine(paths, runner=_Fake(export_code=3), now=NOW, notifier=quiet)
     assert offline["exit_code"] == 3 and offline["alerts"] == ["MT5_UNAVAILABLE"]
+    assert "MT5_UNAVAILABLE" in (paths.runtime / "telegram_messages.txt").read_text(encoding="utf-8")
     refused = run_routine(paths, runner=_Fake(refuse="FORWARD_HISTORY_CHANGED"), now=NOW, notifier=quiet)
     assert refused["exit_code"] == 2 and "FORWARD_HISTORY_CHANGED" in refused["alerts"]
-    text = (paths.runtime / "telegram_messages.txt").read_text(encoding="utf-8")
-    assert "EXPORT_INCOMPLETE" in text and "MT5_UNAVAILABLE" in text and "No borres nada" in text
+    assert "No borres nada" in (paths.runtime / "telegram_messages.txt").read_text(encoding="utf-8")
 
 
 def test_the_routine_waits_for_a_missing_inflation_year(tmp_path, monkeypatch):

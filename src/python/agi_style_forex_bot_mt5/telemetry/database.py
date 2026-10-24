@@ -464,13 +464,13 @@ class TelemetryDatabase:
         )
         self._conn.commit()
 
-    def telegram_status(self, idempotency_key: str) -> str | None:
-        """Outbox status of the message queued under ``idempotency_key`` (None if never queued)."""
+    def telegram_queued(self, idempotency_key: str) -> tuple[str, str] | None:
+        """Status and stored text of the message queued under ``idempotency_key`` (None if never queued)."""
 
         row = self._conn.execute(
-            "SELECT status FROM telegram_outbox WHERE idempotency_key = ?", (idempotency_key,)
+            "SELECT status, message_redacted FROM telegram_outbox WHERE idempotency_key = ?", (idempotency_key,)
         ).fetchone()
-        return None if row is None else str(row["status"])
+        return None if row is None else (str(row["status"]), str(row["message_redacted"]))
 
     def mark_telegram_status(
         self,

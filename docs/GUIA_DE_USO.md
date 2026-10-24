@@ -495,19 +495,25 @@ Copy-Item C:\ares-data\cpi\data\cpi.csv data\historical\worldbank\cpi.csv
    Crea un canal o grupo, anade el bot como administrador y escribe un mensaje.
    Abre en el navegador `https://api.telegram.org/bot<token>/getUpdates`: el
    numero de `chat.id` (en canales y supergrupos empieza por `-100`) es tu chat
-   id. Guardalos solo para tu usuario de Windows (nunca en el repositorio) y
-   abre una consola nueva, porque `setx` no cambia la actual:
+   id. Guardalos solo para tu usuario de Windows (nunca en el repositorio).
+   `setx` no cambia la consola actual: cierra la sesion de Windows y vuelve a
+   entrar (asi tambien la tarea programada ve las variables). Despues, desde
+   la carpeta del proyecto, envia un mensaje de prueba (codigo 0 si llego):
 
 ```powershell
 setx TELEGRAM_BOT_TOKEN "<token de tu bot>"
 setx TELEGRAM_CHAT_ID "<tu chat id>"
+# despues de cerrar la sesion y volver a entrar:
+.\scripts\run_forward_tracking.ps1 -Config C:\ares-config\bot.ini -TestTelegram
 ```
 
-7. (Recomendado) Programa la rutina para que corra sola cada sabado a las
-   10:00 (quita `-Telegram` si no usas el paso 6). La tarea solo corre con tu
-   sesion de Windows iniciada, porque MT5 la necesita; si el PC estaba apagado,
-   corre en cuanto vuelva a estar disponible. Deja MT5 abierto con la cuenta
-   demo:
+7. (Recomendado) Programa la rutina para que corra sola cada lunes a las
+   10:00 (quita `-Telegram` si no usas el paso 6). Es el lunes y no el sabado
+   porque el seguimiento descarta siempre la ultima barra (puede estar a
+   medio formar): el lunes, con el mercado abierto, cuenta hasta el viernes y
+   el resumen de la semana llega ese dia. La tarea solo corre con tu sesion
+   de Windows iniciada, porque MT5 la necesita; si el PC estaba apagado, corre
+   en cuanto vuelva a estar disponible. Deja MT5 abierto con la cuenta demo:
 
 ```powershell
 .\scripts\install_forward_tracking_task.ps1 -Config C:\ares-config\bot.ini -Telegram
@@ -533,10 +539,25 @@ La rutina hace, por orden:
 - corre el seguimiento desde la copia fija;
 - reconstruye las operaciones en papel y escribe los mensajes.
 
-Codigos: 0 completado, 2 parada (la alerta dice que hacer) y 3 MT5 no
-disponible. Guarda la salida de cada paso en `data\runtime\forward\runs`, el
-registro en `data\logs\forward` y todos los mensajes nuevos en
+Codigos:
+
+- 0: completado.
+- 2: parada o sin informe; la alerta dice que hacer. Tambien sale con 2 si
+  otra rutina sigue en marcha (solo corre una a la vez, para no estropear el
+  ledger).
+- 3: MT5 no disponible.
+- 4: completado, pero un mensaje de Telegram no salio. Se reintenta, en
+  orden, en la proxima rutina. Revisa el token, el chat id y que el bot siga
+  en el canal.
+
+Guarda la salida de cada paso en `data\runtime\forward\runs` y el registro
+en `data\logs\forward`. Todos los mensajes, con su estado, quedan en
 `data\runtime\forward\telegram_messages.txt` (tambien sin Telegram).
+
+Antes del primer dia que cuenta no hay nada que contar: el mensaje de inicio
+y la primera operacion llegan con la primera rutina que selle un dia desde
+el 2026-10-26 (el martes 2026-10-27 si la corres a mano, o la tarea del lunes
+2026-11-02, que trae tambien el resumen de la primera semana).
 
 Que mensajes llegan (todos dicen "papel"):
 
@@ -569,11 +590,14 @@ Caída máxima: 1,37%
 Regla: EN CURSO · próxima revisión 26-10-2027
 ```
 
-Cada mensaje se envia una sola vez. Si Telegram falla, se reintenta en la
-proxima rutina, y los mensajes creados con Telegram apagado no se envian
-despues. El resultado de cada operacion es bruto (antes de costes y swap) y
-cuenta solo desde el 2026-10-26; el resumen semanal es neto de los costes
-estimados del estudio. Antes las operaciones se reconstruyen desde el
+Cada mensaje se envia una sola vez y en orden, con unos segundos entre
+mensajes (Telegram limita los envios). Si uno falla, la rutina para de enviar
+y los demas esperan a la proxima. Con Telegram apagado no se guarda nada en la
+cola: al encenderlo llegan todos los mensajes pendientes desde el inicio. El
+resultado de cada operacion es bruto (antes de costes y swap) y cuenta solo
+desde el 2026-10-26; si la operacion venia de antes, sus pips tambien cuentan
+desde ese dia. El resumen semanal es neto de los costes estimados del
+estudio. Antes las operaciones se reconstruyen desde el
 registro sellado y se comprueba que reproducen sus rentabilidades y los
 stops del motor; si no, llega la alerta `RECORD_MISMATCH` o `TRADES_MISMATCH`
 y no se describe nada.

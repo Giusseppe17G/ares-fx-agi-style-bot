@@ -7,13 +7,16 @@ param(
     # Send the messages; TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID come from the environment.
     [switch]$Telegram,
     # Use the exports and swap snapshots already on disk (MT5 closed).
-    [switch]$SkipMt5
+    [switch]$SkipMt5,
+    # Only send a test message to check the Telegram setup.
+    [switch]$TestTelegram
 )
 
 # Weekly routine of the forward paper tracking (research only, no orders):
 # export the 9 pairs, capture the broker swap, download new inflation when due,
 # run the tracker from the frozen worktree and write the Telegram report.
-# Exit codes: 0 done, 2 stopped (the alert says why), 3 MT5 unavailable.
+# Exit codes: 0 done, 2 stopped (the alert says why), 3 MT5 unavailable,
+# 4 a Telegram message was not sent (retried on the next run).
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $repoRoot
@@ -30,7 +33,7 @@ if (-not (Test-Path -LiteralPath $Config -PathType Leaf)) {
 if (-not $Worktree) {
     $Worktree = Join-Path (Split-Path $repoRoot -Parent) "ares-forward-v1"
 }
-if (-not (Test-Path -LiteralPath $Worktree -PathType Container)) {
+if (-not $TestTelegram -and -not (Test-Path -LiteralPath $Worktree -PathType Container)) {
     Write-Host "Frozen worktree not found: $Worktree (see docs\COMANDOS_SEGUIMIENTO.md, step 1)."
     exit 2
 }
@@ -43,11 +46,12 @@ $env:PYTHONPATH = "src/python"
 $arguments = @(
     "-m", "agi_style_forex_bot_mt5.research.daily_fx.forward_routine",
     "--project", $repoRoot,
-    "--worktree", (Resolve-Path -LiteralPath $Worktree).ProviderPath,
+    "--worktree", $Worktree,
     "--config", (Resolve-Path -LiteralPath $Config).ProviderPath
 )
 if ($Telegram) { $arguments += "--telegram" }
 if ($SkipMt5) { $arguments += "--skip-mt5" }
+if ($TestTelegram) { $arguments += "--test-telegram" }
 
 # Python writes errors to stderr; keep them in the log instead of stopping here.
 $ErrorActionPreference = "Continue"

@@ -163,16 +163,22 @@ class TelegramNotifier:
 
     def send_text(self, *, idempotency_key: str, text: str,
                   payload: Mapping[str, Any] | None = None) -> TelegramResult:
-        """Queue and optionally send a preformatted message once per ``idempotency_key``.
+        """Send a preformatted message once per ``idempotency_key`` through the durable outbox.
 
-        A key already sent (or queued while Telegram was disabled) is skipped,
-        so a rerun never repeats a message; a failed one is retried.
+        Nothing is queued while Telegram is disabled, so enabling it later sends
+        every message not sent yet. A key already sent is skipped, so a rerun
+        never repeats a message. A failed one is retried with the text stored
+        when it was first queued, so the outbox holds what was delivered.
         """
 
+        if not self.enabled:
+            return TelegramResult(queued=False, sent=False, status="DISABLED")
         message = redact_text(text)[:3900]
-        previous = self.database.telegram_status(idempotency_key) if self.database is not None else None
-        if previous in {"SENT", "DISABLED"}:
-            return TelegramResult(queued=True, sent=previous == "SENT", status="SKIPPED")
+        stored = self.database.telegram_queued(idempotency_key) if self.database is not None else None
+        if stored is not None:
+            if stored[0] == "SENT":
+                return TelegramResult(queued=True, sent=True, status="SKIPPED")
+            message = stored[1]
         chat_id_redacted = redact_text(str(self.chat_id)) if self.chat_id else None
         telegram_message_id: str | None = None
         if self.database is not None:
@@ -183,11 +189,6 @@ class TelegramNotifier:
                 chat_id_redacted=chat_id_redacted,
                 payload=payload or {},
             )
-        if not self.enabled:
-            if self.database is not None and telegram_message_id is not None:
-                self.database.mark_telegram_status(telegram_message_id, status="DISABLED")
-            return TelegramResult(queued=telegram_message_id is not None, sent=False, status="DISABLED",
-                                  telegram_message_id=telegram_message_id)
         if not self.bot_token or not self.chat_id:
             return self._fail(telegram_message_id, "Telegram credentials missing", retry_after_seconds=300)
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"

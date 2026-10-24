@@ -32,11 +32,19 @@ losses. The ledger seals returns, closes and decisions, but no trades.
      own `PYTHONPATH`.
 
    It keeps every step's output under `data/runtime/forward/runs`.
-   `scripts/run_forward_tracking.ps1` wraps it.
-   `scripts/install_forward_tracking_task.ps1` registers a weekly Windows task
-   (Saturday by default). The task runs only while the operator is logged on,
-   because MT5 needs the desktop session. A missed run starts when the PC is
-   next available.
+   - Only one routine runs at a time (a lock file, replaced after three
+     hours), so two runs never append to the ledger together.
+   - A missing worktree, a report that cannot be written and an unsent
+     Telegram message each raise an alert and a non-zero exit code. None of
+     them is silent.
+   - `scripts/run_forward_tracking.ps1` wraps it.
+     `scripts/install_forward_tracking_task.ps1` registers a weekly Windows
+     task, on Monday by default. The tracker always drops the last bar (it
+     may be forming), so on Monday it counts up to Friday. On Saturday it
+     would stop on Thursday.
+   - The task runs only while the operator is logged on, because MT5 needs
+     the desktop session. A missed run starts when the PC is next
+     available.
 2. **Trades from the record, checked.** `forward_trades` re-runs the book on
    the same exports and the inflation years the ledger fixed.
    - Every sealed return must be reproduced within the tracker's tolerance.
@@ -52,7 +60,8 @@ losses. The ledger seals returns, closes and decisions, but no trades.
    - Stop loss and take-profit are the engine's levels, shown as MT5 pair
      prices.
    - A trade's result is its gross contribution to equity on forward days
-     only. Positions open before 2026-10-26 are flagged.
+     only. Positions open before 2026-10-26 are flagged, and their pips count
+     from the last close before that day, like their result.
    - The trades' results add up to the book's gross return; a test checks it.
 3. **Messages.** `forward_telegram` writes:
    - the start message, and each trade opened and closed;
@@ -68,12 +77,20 @@ losses. The ledger seals returns, closes and decisions, but no trades.
    estimated, it is not real money and not a recommendation.
 4. **Delivery once.** Each message has a stable key and goes through the
    existing durable outbox (`TelegramNotifier.send_text`).
-   - It is sent once, and a failed send is retried on the next run.
-   - A message queued while Telegram is off is never sent later as stale
-     news.
+   - It is sent once and in order, about 3 seconds apart (groups and
+     channels accept about 20 messages a minute).
+   - The first failure stops the run, and the rest wait for the next one.
+     The channel never shows a close before its open. A retry sends the
+     text stored when the message was first queued, so the outbox holds what
+     was delivered.
+   - Nothing is queued while Telegram is off. Turning it on later sends every
+     pending message from the start, so one run without `--telegram` cannot
+     suppress a message for good.
    - Text is redacted, and credentials come only from the environment.
-   - Every new message is also appended to
+   - Every message, with its status, is also written to
      `data/runtime/forward/telegram_messages.txt`.
+   - `--test-telegram` (`-TestTelegram`) sends one test message to check the
+     setup.
 
 ## Consequences
 
@@ -96,10 +113,14 @@ checks:
 - that a crash against a position closes it at its stop;
 - that loss halts keep a position's levels, as the engine does;
 - the `NO_RECORD`, `RECORD_MISMATCH` and `LEDGER_MISMATCH` refusals;
-- the message contents and that each message is sent once;
-- the retry after a failed send and the disabled-outbox behaviour;
+- the message contents, and pips from the start for older positions;
+- that each message is sent once, in order and spaced out;
+- that the first failure stops the run, the retry sends the stored text, and
+  nothing is queued while Telegram is off;
 - the routine's success, stop and waiting paths, with MT5 and the network
-  replaced by fakes.
+  replaced by fakes;
+- the lock, the missing worktree, the report failure and the Telegram
+  failure exit codes.
 
 The PowerShell scripts are thin wrappers and were not run in CI (no
 PowerShell there).
