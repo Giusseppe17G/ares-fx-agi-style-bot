@@ -17,7 +17,7 @@ from agi_style_forex_bot_mt5.research.daily_fx import forward_routine, forward_r
 from agi_style_forex_bot_mt5.research.daily_fx.data import MT5_USD_PAIRS
 from agi_style_forex_bot_mt5.research.daily_fx.forward import load_broker_daily, run_forward
 from agi_style_forex_bot_mt5.research.daily_fx.forward_routine import (Completed, RoutinePaths,
-    needed_inflation_year, run_routine)
+    export_bars, needed_inflation_year, run_routine)
 from agi_style_forex_bot_mt5.research.daily_fx.forward_telegram import (DISCLAIMER, alert_message, build_messages,
     deliver)
 from agi_style_forex_bot_mt5.research.daily_fx.forward_trades import ReportUnavailable, rebuild_trades
@@ -356,3 +356,10 @@ def test_the_routine_waits_for_a_missing_inflation_year(tmp_path, monkeypatch):
                         now=datetime(2027, 10, 2, tzinfo=timezone.utc), notifier=quiet)
     assert later["exit_code"] == 0
     assert later["alerts"] == ["INFLATION_FETCH_FAILED", "WAITING_FOR_INFLATION"]
+
+
+def test_the_export_always_reaches_back_past_2018():
+    for year in (2026, 2030, 2036):
+        bars = export_bars(datetime(year, 10, 27, tzinfo=timezone.utc))
+        weekdays = int(np.busday_count("2018-01-02", f"{year}-10-27"))
+        assert weekdays < bars < weekdays + 400
