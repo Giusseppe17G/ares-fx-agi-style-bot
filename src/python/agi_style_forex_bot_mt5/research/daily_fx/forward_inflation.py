@@ -10,7 +10,9 @@ is the annual-average change of the BLS CPI-U, which BLS publishes in January.
 This command writes the same file as ``forward_runner fetch-inflation``, with
 one difference: a US year the World Bank does not have yet is computed from
 FRED series ``CPIAUCNS``, the CPI-U not seasonally adjusted. The value is the
-change of the twelve-month average, and only complete years are used.
+change of the twelve-month average, and only complete years are used. A single
+month BLS did not publish (October 2025, during the federal shutdown) is
+filled linearly from its neighbours; two missing months in a row are not.
 
 The US value is used only after it is checked. For every year from 2015 that
 the World Bank has, the FRED value must match within ``MATCH_TOLERANCE``
@@ -61,10 +63,19 @@ def us_inflation_from_cpi(csv_text: str) -> dict[int, float]:
         raise ValueError("unexpected FRED CSV columns")
     dates = pd.to_datetime(frame.iloc[:, 0], errors="coerce")
     values = pd.to_numeric(frame.iloc[:, 1], errors="coerce")
-    monthly = pd.Series(values.to_numpy(), index=dates).dropna()
-    monthly = monthly[monthly.index.notna()]
-    counts = monthly.groupby(monthly.index.year).count()
-    means = monthly.groupby(monthly.index.year).mean()[counts == 12]
+    monthly = pd.Series(values.to_numpy(), index=dates)
+    monthly = monthly[monthly.index.notna()].dropna().sort_index()
+    if monthly.empty:
+        raise ValueError("the FRED CSV has no values")
+    # BLS did not publish some months (October 2025, during the federal shutdown).
+    # A single missing month inside a year is filled linearly from its neighbours.
+    months = pd.date_range(monthly.index[0], monthly.index[-1], freq="MS")
+    full = monthly.reindex(months)
+    gaps = full.isna()
+    single = gaps & ~gaps.shift(1, fill_value=False) & ~gaps.shift(-1, fill_value=False)
+    full = full.interpolate(limit=1, limit_area="inside").where(~gaps | single)
+    counts = full.groupby(full.index.year).count()
+    means = full.groupby(full.index.year).mean()[counts == 12]
     years = sorted(int(year) for year in means.index)
     return {year: float(100.0 * (means[year] / means[year - 1] - 1.0)) for year in years if year - 1 in means.index}
 
@@ -95,7 +106,8 @@ def fetch_inflation(output: str | Path, first_year: int, last_year: int,
     kept.sort(key=lambda row: (row[1], row[2]))
     if {row[1] for row in kept} != set(WORLD_BANK_COUNTRIES):
         missing = sorted(set(WORLD_BANK_COUNTRIES) - {row[1] for row in kept})
-        raise ValueError(f"no value at all for: {', '.join(missing)}")
+        raise ValueError(f"no value at all for: {', '.join(missing)} (latest BLS years: {sorted(us_bls)[-3:]}, "
+                         f"World Bank US years: {sorted(us_world_bank)[-3:]})")
     lines = ["Country,Country Code,Year,CPI"] + [f"{name.replace(',', ' ')},{iso3},{year},{value!r}"
                                                   for name, iso3, year, value in kept]
     text = "\n".join(lines) + "\n"
