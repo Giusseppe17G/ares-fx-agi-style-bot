@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "rea": {
+      "command": "bash",
+      "args": ["scripts/rea_mcp.sh"]
+    }
+  }
+}
