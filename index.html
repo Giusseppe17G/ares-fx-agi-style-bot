@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Llama Borracha · El juego de cartas para tomar</title>
+  <meta name="description" content="Llama la Juerga: el juego de cartas para tomar con retos, preguntas y reglas, inspirado en el Cusco. Envíos a todo el Perú.">
+  <meta name="theme-color" content="#140b24">
+  <link rel="icon" href="assets/landing/mascota.jpg">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            noche: { 900: '#0d0718', 800: '#140b24', 700: '#1e1236', 600: '#2a1a4a' },
+            chela: { 300: '#ffd27a', 400: '#f9b733', 500: '#f59e0b', 600: '#d97706', 700: '#a85a05' },
+            espuma: '#fff6e3',
+            inca: { 500: '#c0392b', 600: '#9e2a1f' },
+            oro: '#e8b54a',
+            andino: '#1fa39a',
+          },
+          fontFamily: {
+            display: ['"Luckiest Guy"', 'cursive'],
+            sans: ['Poppins', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    html { scroll-behavior: smooth; }
+    body { background: #140b24; }
+
+    /* Cenefa andina: greca escalonada (step-fret) inspirada en textiles cusqueños */
+    .greca {
+      height: 22px;
+      background-color: #9e2a1f;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='22' viewBox='0 0 44 22'%3E%3Cpath d='M0 18h8v-6h6V6h8v6h-4v4h8V6h-4V2h12v4h-4v10h10' fill='none' stroke='%23e8b54a' stroke-width='2.5'/%3E%3C/svg%3E");
+      background-repeat: repeat-x;
+      background-size: 44px 22px;
+      border-block: 3px solid #e8b54a;
+    }
+
+    /* Fondo de cerveza: degradado ámbar + burbujas */
+    .cerveza {
+      background:
+        radial-gradient(ellipse at 30% 20%, rgba(255, 230, 160, .35), transparent 55%),
+        linear-gradient(180deg, #f9b733 0%, #e58a0c 45%, #a85a05 100%);
+    }
+    .burbuja {
+      position: absolute;
+      bottom: -20px;
+      border-radius: 9999px;
+      border: 1.5px solid rgba(255, 246, 227, .65);
+      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.55), rgba(255,255,255,.05) 60%);
+      animation: subir linear infinite;
+      pointer-events: none;
+    }
+    @keyframes subir {
+      0%   { transform: translate(0, 0); opacity: 0; }
+      10%  { opacity: .9; }
+      50%  { transform: translate(8px, -50vh); }
+      100% { transform: translate(-6px, -105vh); opacity: 0; }
+    }
+
+    /* Espuma: borde ondulado */
+    .espuma-top {
+      height: 46px;
+      background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 46' preserveAspectRatio='none'%3E%3Cpath d='M0 46V22c10-14 20-14 30-4s20 12 30 0 20-16 30-4 20 12 30 2v30z' fill='%23fff6e3'/%3E%3C/svg%3E") repeat-x;
+      background-size: 240px 46px;
+    }
+
+    /* Estrellas del cielo andino */
+    .cielo {
+      background-image:
+        radial-gradient(1.5px 1.5px at 12% 18%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 28% 42%, #ffe9b8 50%, transparent 51%),
+        radial-gradient(1.5px 1.5px at 47% 12%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 63% 33%, #fff 50%, transparent 51%),
+        radial-gradient(2px 2px at 78% 15%, #ffe9b8 50%, transparent 51%),
+        radial-gradient(1px 1px at 88% 48%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 6% 60%, #fff 50%, transparent 51%),
+        radial-gradient(1.5px 1.5px at 38% 70%, #fff 50%, transparent 51%);
+    }
+
+    /* Cartas que se voltean */
+    .carta { perspective: 1000px; }
+    .carta-inner { transition: transform .6s cubic-bezier(.2,.8,.2,1); transform-style: preserve-3d; }
+    .carta.volteada .carta-inner { transform: rotateY(180deg); }
+    .carta-cara { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+    .carta-dorso { transform: rotateY(180deg); }
+
+    .glow-chela { box-shadow: 0 0 0 4px rgba(232,181,74,.25), 0 20px 60px -10px rgba(245,158,11,.55); }
+    .texto-borde { -webkit-text-stroke: 2px #4a2508; paint-order: stroke fill; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .burbuja { display: none; }
+      .carta-inner, #carrito, #overlay { transition: none !important; }
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+
+<body class="font-sans text-espuma antialiased overflow-x-hidden">
+
+  <!-- ===================== HEADER ===================== -->
+  <header class="sticky top-0 z-40 bg-noche-900/85 backdrop-blur border-b border-oro/20">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+      <a href="#inicio" class="shrink-0 rounded-lg bg-[#ecece8] px-2 py-1 ring-2 ring-oro/60 hover:ring-oro transition">
+        <img src="assets/landing/logo.png" alt="Llama Borracha" class="h-9 w-auto">
+      </a>
+
+      <nav class="hidden md:flex items-center gap-8 text-sm font-semibold">
+        <a href="#beneficios" class="hover:text-chela-400 transition">Beneficios</a>
+        <a href="#como-se-juega" class="hover:text-chela-400 transition">Cómo se juega</a>
+        <a href="#productos" class="hover:text-chela-400 transition">Tienda</a>
+        <a href="#testimonios" class="hover:text-chela-400 transition">Opiniones</a>
+      </nav>
+
+      <div class="flex items-center gap-2">
+        <button id="btn-carrito" type="button" aria-label="Abrir carrito" aria-controls="carrito" aria-expanded="false"
+          class="relative inline-flex items-center gap-2 rounded-full bg-chela-500 px-4 py-2 text-noche-900 font-bold hover:bg-chela-400 transition focus:outline-none focus-visible:ring-4 focus-visible:ring-oro/50">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6.2"/><circle cx="10" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/></svg>
+          <span class="hidden sm:inline">Carrito</span>
+          <span id="carrito-count" class="absolute -top-1.5 -right-1.5 min-w-[1.4rem] h-[1.4rem] px-1 rounded-full bg-inca-500 text-espuma text-xs font-bold grid place-items-center ring-2 ring-noche-900 scale-0 transition-transform">0</span>
+        </button>
+        <button id="btn-menu" type="button" class="md:hidden p-2 rounded-lg hover:bg-white/10" aria-label="Abrir menú" aria-expanded="false" aria-controls="menu-movil">
+          <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+      </div>
+    </div>
+    <nav id="menu-movil" class="md:hidden hidden border-t border-oro/20 bg-noche-900 px-4 py-3 space-y-1 text-base font-semibold">
+      <a href="#beneficios" class="block rounded-lg px-3 py-2 hover:bg-white/10">Beneficios</a>
+      <a href="#como-se-juega" class="block rounded-lg px-3 py-2 hover:bg-white/10">Cómo se juega</a>
+      <a href="#productos" class="block rounded-lg px-3 py-2 hover:bg-white/10">Tienda</a>
+      <a href="#testimonios" class="block rounded-lg px-3 py-2 hover:bg-white/10">Opiniones</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ===================== HERO ===================== -->
+    <section id="inicio" class="relative overflow-hidden bg-gradient-to-b from-noche-900 via-noche-800 to-noche-700 cielo">
+      <!-- Apus: silueta de montañas cusqueñas -->
+      <svg class="absolute bottom-0 left-0 w-full h-48 sm:h-64 text-noche-600/80" viewBox="0 0 1440 260" preserveAspectRatio="none" aria-hidden="true">
+        <path fill="currentColor" d="M0 260V170l90-60 70 40 110-110 90 80 60-40 120 120 80-60 110 90 120-150 100 100 70-40 130 110 90-70 110 60 90-30v170z"/>
+        <path fill="#2a1a4a" opacity=".6" d="M0 260v-50l140-40 130 50 160-90 120 70 150-40 140 60 180-80 140 70 140-40 140 50v140z"/>
+      </svg>
+      <div id="burbujas-hero" class="absolute inset-0 overflow-hidden" aria-hidden="true"></div>
+
+      <div class="relative mx-auto max-w-7xl px-4 sm:px-6 pt-14 pb-28 sm:pt-20 sm:pb-36 grid lg:grid-cols-2 gap-12 items-center">
+        <div class="text-center lg:text-left">
+          <p class="inline-flex items-center gap-2 rounded-full border border-oro/40 bg-oro/10 px-4 py-1.5 text-sm font-semibold text-oro">
+            <span aria-hidden="true">✦</span> Hecho con orgullo en el Cusco
+          </p>
+          <h1 class="mt-6 font-display text-5xl sm:text-6xl lg:text-7xl leading-[.95] tracking-wide">
+            <span class="block text-espuma">Llama la</span>
+            <span class="block bg-gradient-to-b from-chela-300 to-chela-600 bg-clip-text text-transparent drop-shadow-[0_4px_0_#4a2508]">Juerga</span>
+          </h1>
+          <p class="mt-6 max-w-xl mx-auto lg:mx-0 text-lg text-espuma/80">
+            El juego de cartas para tomar más bravo de los Andes. Retos, preguntas picantes y reglas locas
+            para que tu previa suba más alto que Machu Picchu.
+          </p>
+          <div class="mt-9 flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+            <a href="#productos" class="group inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-b from-chela-400 to-chela-600 px-10 py-4 font-display text-2xl tracking-wider text-noche-900 glow-chela hover:scale-[1.03] active:scale-95 transition">
+              COMPRAR
+              <svg class="h-6 w-6 group-hover:translate-x-1 transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </a>
+            <a href="#como-se-juega" class="inline-flex items-center justify-center rounded-full border-2 border-espuma/30 px-8 py-4 font-semibold hover:border-chela-400 hover:text-chela-300 transition">
+              Ver cómo se juega
+            </a>
+          </div>
+          <dl class="mt-10 grid grid-cols-3 gap-4 max-w-md mx-auto lg:mx-0 text-center">
+            <div><dt class="sr-only">Cartas</dt><dd class="font-display text-3xl text-chela-400">110</dd><p class="text-xs text-espuma/60">cartas</p></div>
+            <div><dt class="sr-only">Jugadores</dt><dd class="font-display text-3xl text-chela-400">2–12</dd><p class="text-xs text-espuma/60">jugadores</p></div>
+            <div><dt class="sr-only">Calificación</dt><dd class="font-display text-3xl text-chela-400">4.9★</dd><p class="text-xs text-espuma/60">valoración</p></div>
+          </dl>
+        </div>
+
+        <!-- Vaso de chela con la mascota -->
+        <div class="relative mx-auto w-72 sm:w-96">
+          <div class="absolute -inset-6 rounded-full bg-chela-500/20 blur-3xl" aria-hidden="true"></div>
+          <div class="relative aspect-square rounded-full p-2 bg-gradient-to-br from-oro via-inca-500 to-oro shadow-2xl">
+            <div class="relative h-full w-full rounded-full overflow-hidden cerveza">
+              <div id="burbujas-vaso" class="absolute inset-0" aria-hidden="true"></div>
+              <img src="assets/landing/llama-juerga.png" alt="La Llama Borracha con lentes de estrella y espantasuegras"
+                class="relative h-full w-full object-contain p-6 drop-shadow-[0_10px_20px_rgba(74,37,8,.5)] motion-safe:animate-[bob_4s_ease-in-out_infinite]">
+            </div>
+          </div>
+          <div class="absolute -bottom-4 -right-2 sm:right-4 rotate-6 rounded-2xl bg-inca-500 px-4 py-2 font-display text-xl tracking-wide ring-4 ring-oro shadow-xl">
+            ¡Salud, causa!
+          </div>
+        </div>
+      </div>
+      <div class="absolute bottom-0 inset-x-0 greca" aria-hidden="true"></div>
+    </section>
+
+    <!-- ===================== BENEFICIOS ===================== -->
+    <section id="beneficios" class="relative bg-noche-800 py-20 sm:py-24">
+      <div class="mx-auto max-w-7xl px-4 sm:px-6">
+        <div class="text-center max-w-2xl mx-auto">
+          <p class="font-semibold uppercase tracking-[.25em] text-sm text-andino">Por qué Llama Borracha</p>
+          <h2 class="mt-3 font-display text-4xl sm:text-5xl tracking-wide">La previa nunca fue tan andina</h2>
+        </div>
+
+        <div class="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <article class="group rounded-3xl border border-oro/15 bg-noche-700/60 p-7 hover:-translate-y-1 hover:border-chela-500/60 transition">
+            <div class="h-14 w-14 rounded-2xl bg-chela-500/15 grid place-items-center text-chela-400 group-hover:bg-chela-500 group-hover:text-noche-900 transition">
+              <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="12" height="16" rx="2"/><path d="M8 21h10a2 2 0 0 0 2-2V7"/><path d="M8 8h4M8 12h4"/></svg>
+            </div>
+            <h3 class="mt-5 text-xl font-bold">+100 cartas únicas</h3>
+            <p class="mt-2 text-espuma/70">Retos, preguntas, reglas y brindis que nunca se repiten igual. Cada ronda es otra historia.</p>
+          </article>
+          <article class="group rounded-3xl border border-oro/15 bg-noche-700/60 p-7 hover:-translate-y-1 hover:border-chela-500/60 transition">
+            <div class="h-14 w-14 rounded-2xl bg-chela-500/15 grid place-items-center text-chela-400 group-hover:bg-chela-500 group-hover:text-noche-900 transition">
+              <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.2c3 .3 5 2.6 5 5.8"/></svg>
+            </div>
+            <h3 class="mt-5 text-xl font-bold">De 2 a 12 jugadores</h3>
+            <p class="mt-2 text-espuma/70">Para la previa con tu pata o la juerga con toda la promo. Se aprende en un minuto.</p>
+          </article>
+          <article class="group rounded-3xl border border-oro/15 bg-noche-700/60 p-7 hover:-translate-y-1 hover:border-chela-500/60 transition">
+            <div class="h-14 w-14 rounded-2xl bg-chela-500/15 grid place-items-center text-chela-400 group-hover:bg-chela-500 group-hover:text-noche-900 transition">
+              <!-- Chakana -->
+              <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 2h6v3h3v4h4v6h-4v4h-3v3H9v-3H6v-4H2V9h4V5h3z"/><circle cx="12" cy="12" r="2.5"/></svg>
+            </div>
+            <h3 class="mt-5 text-xl font-bold">Arte cusqueño</h3>
+            <p class="mt-2 text-espuma/70">Ilustraciones originales con grecas andinas, chakanas y nuestra llama más juerguera.</p>
+          </article>
+          <article class="group rounded-3xl border border-oro/15 bg-noche-700/60 p-7 hover:-translate-y-1 hover:border-chela-500/60 transition">
+            <div class="h-14 w-14 rounded-2xl bg-chela-500/15 grid place-items-center text-chela-400 group-hover:bg-chela-500 group-hover:text-noche-900 transition">
+              <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s6 6.4 6 11a6 6 0 0 1-12 0c0-4.6 6-11 6-11z"/><path d="M9.5 14.5a2.5 2.5 0 0 0 2.5 2.5"/></svg>
+            </div>
+            <h3 class="mt-5 text-xl font-bold">A prueba de chela</h3>
+            <p class="mt-2 text-espuma/70">Cartas plastificadas y caja rígida. Un vaso derramado no arruina la noche.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== CÓMO SE JUEGA (cartas interactivas) ===================== -->
+    <section id="como-se-juega" class="relative overflow-hidden cerveza py-20 sm:py-24 text-noche-900">
+      <div class="absolute top-0 inset-x-0 espuma-top -translate-y-px rotate-180" aria-hidden="true"></div>
+      <div id="burbujas-juego" class="absolute inset-0 overflow-hidden" aria-hidden="true"></div>
+      <div class="relative mx-auto max-w-7xl px-4 sm:px-6 pt-6">
+        <div class="text-center max-w-2xl mx-auto">
+          <h2 class="font-display text-4xl sm:text-5xl tracking-wide text-espuma texto-borde">Saca una carta… si te atreves</h2>
+          <p class="mt-4 text-lg font-medium text-noche-900/80">Toca cada carta para ver un ejemplo. Hay cuatro tipos y todas terminan igual: con un brindis.</p>
+        </div>
+
+        <div class="mt-12 grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6" id="cartas-demo">
+          <!-- Las cartas se generan en app.js -->
+        </div>
+      </div>
+    </section>
+
+    <div class="greca" aria-hidden="true"></div>
+
+    <!-- ===================== PRODUCTOS ===================== -->
+    <section id="productos" class="bg-noche-800 py-20 sm:py-24">
+      <div class="mx-auto max-w-7xl px-4 sm:px-6">
+        <div class="text-center max-w-2xl mx-auto">
+          <p class="font-semibold uppercase tracking-[.25em] text-sm text-andino">La tienda</p>
+          <h2 class="mt-3 font-display text-4xl sm:text-5xl tracking-wide">Llévate la juerga a casa</h2>
+        </div>
+
+        <!-- Producto destacado -->
+        <article class="mt-14 grid lg:grid-cols-2 gap-10 items-center rounded-[2rem] border border-oro/25 bg-gradient-to-br from-noche-700 to-noche-900 p-6 sm:p-10 shadow-2xl">
+          <div class="relative">
+            <span class="absolute top-4 left-4 z-10 rounded-full bg-inca-500 px-3 py-1 text-xs font-bold uppercase tracking-wider ring-2 ring-oro">Más vendido</span>
+            <img src="assets/landing/cat-juerga.jpg" alt="Caja del juego Llama la Juerga" class="w-full rounded-3xl shadow-xl ring-1 ring-white/10 aspect-[495/277] object-cover">
+          </div>
+          <div>
+            <div class="flex items-center gap-1 text-chela-400" aria-label="4.9 de 5 estrellas">
+              ★★★★★ <span class="ml-2 text-sm text-espuma/70">(312 opiniones)</span>
+            </div>
+            <h3 class="mt-3 font-display text-4xl tracking-wide">Llama la Juerga</h3>
+            <p class="mt-3 text-espuma/75">El juego original: 110 cartas de retos, preguntas, reglas y brindis, caja rígida ilustrada y reglamento con variantes para grupos grandes.</p>
+
+            <fieldset class="mt-6">
+              <legend class="text-sm font-semibold text-espuma/80">Edición</legend>
+              <div class="mt-2 grid grid-cols-2 gap-3" id="ediciones">
+                <label class="cursor-pointer">
+                  <input type="radio" name="edicion" value="juego-clasico" class="peer sr-only" checked>
+                  <span class="block rounded-2xl border-2 border-white/15 p-4 peer-checked:border-chela-500 peer-checked:bg-chela-500/10 peer-focus-visible:ring-4 peer-focus-visible:ring-oro/40 transition">
+                    <span class="block font-bold">Clásica</span>
+                    <span class="block text-sm text-espuma/60">110 cartas</span>
+                    <span class="mt-1 block font-display text-xl text-chela-400">S/ 59.90</span>
+                  </span>
+                </label>
+                <label class="cursor-pointer">
+                  <input type="radio" name="edicion" value="juego-picante" class="peer sr-only">
+                  <span class="block rounded-2xl border-2 border-white/15 p-4 peer-checked:border-chela-500 peer-checked:bg-chela-500/10 peer-focus-visible:ring-4 peer-focus-visible:ring-oro/40 transition">
+                    <span class="block font-bold">Picante +18 🌶️</span>
+                    <span class="block text-sm text-espuma/60">150 cartas</span>
+                    <span class="mt-1 block font-display text-xl text-chela-400">S/ 74.90</span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
+            <div class="mt-6 flex flex-wrap items-center gap-4">
+              <div class="inline-flex items-center rounded-full border-2 border-white/15">
+                <button type="button" id="cant-menos" class="h-12 w-12 text-2xl font-bold hover:text-chela-400" aria-label="Quitar uno">−</button>
+                <output id="cant-valor" class="w-10 text-center text-lg font-bold" aria-live="polite">1</output>
+                <button type="button" id="cant-mas" class="h-12 w-12 text-2xl font-bold hover:text-chela-400" aria-label="Agregar uno">+</button>
+              </div>
+              <button type="button" id="agregar-destacado"
+                class="flex-1 min-w-[12rem] rounded-full bg-gradient-to-b from-chela-400 to-chela-600 px-8 py-3.5 font-display text-xl tracking-wider text-noche-900 glow-chela hover:brightness-110 active:scale-95 transition">
+                AGREGAR AL CARRITO
+              </button>
+            </div>
+            <ul class="mt-6 space-y-2 text-sm text-espuma/70">
+              <li class="flex gap-2"><span class="text-andino">✔</span> Envío gratis desde S/ 120 a todo el Perú</li>
+              <li class="flex gap-2"><span class="text-andino">✔</span> Entrega en 24 h en Cusco y Lima</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- Más productos -->
+        <div class="mt-10 grid gap-6 md:grid-cols-3" id="grid-productos">
+          <!-- Se generan en app.js -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== TESTIMONIOS ===================== -->
+    <section id="testimonios" class="relative bg-noche-900 py-20 sm:py-24 cielo">
+      <div class="mx-auto max-w-7xl px-4 sm:px-6">
+        <div class="text-center max-w-2xl mx-auto">
+          <p class="font-semibold uppercase tracking-[.25em] text-sm text-andino">Lo que dice la mancha</p>
+          <h2 class="mt-3 font-display text-4xl sm:text-5xl tracking-wide">Juergas aprobadas</h2>
+        </div>
+        <div class="mt-14 grid gap-6 md:grid-cols-3">
+          <figure class="rounded-3xl bg-noche-700/70 border border-oro/15 p-7">
+            <div class="text-chela-400" aria-label="5 estrellas">★★★★★</div>
+            <blockquote class="mt-4 text-espuma/85">“Lo sacamos en el cumple y nadie quiso parar. Las cartas de reglas son lo máximo, terminamos todos hablando como llamas.”</blockquote>
+            <figcaption class="mt-6 flex items-center gap-3">
+              <span class="h-11 w-11 rounded-full bg-inca-500 grid place-items-center font-bold">VQ</span>
+              <span><span class="block font-semibold">Valeria Q.</span><span class="block text-sm text-espuma/60">Cusco</span></span>
+            </figcaption>
+          </figure>
+          <figure class="rounded-3xl bg-noche-700/70 border border-oro/15 p-7">
+            <div class="text-chela-400" aria-label="5 estrellas">★★★★★</div>
+            <blockquote class="mt-4 text-espuma/85">“Llegó al día siguiente y la caja está bacán. El diseño con las grecas incas le da un toque que ningún otro juego tiene.”</blockquote>
+            <figcaption class="mt-6 flex items-center gap-3">
+              <span class="h-11 w-11 rounded-full bg-andino grid place-items-center font-bold">DM</span>
+              <span><span class="block font-semibold">Diego M.</span><span class="block text-sm text-espuma/60">Lima</span></span>
+            </figcaption>
+          </figure>
+          <figure class="rounded-3xl bg-noche-700/70 border border-oro/15 p-7">
+            <div class="text-chela-400" aria-label="5 estrellas">★★★★★</div>
+            <blockquote class="mt-4 text-espuma/85">“Compré el juego y el polo de la llama. Ya es tradición en cada previa del grupo, hasta los que no toman se ríen un montón.”</blockquote>
+            <figcaption class="mt-6 flex items-center gap-3">
+              <span class="h-11 w-11 rounded-full bg-chela-600 grid place-items-center font-bold">RC</span>
+              <span><span class="block font-semibold">Renato C.</span><span class="block text-sm text-espuma/60">Arequipa</span></span>
+            </figcaption>
+          </figure>
+        </div>
+        <p class="mt-6 text-center text-xs text-espuma/40">Testimonios de ejemplo para la maqueta. Reemplazar por reseñas reales antes de publicar.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== FOOTER ===================== -->
+  <div class="greca" aria-hidden="true"></div>
+  <footer class="bg-noche-900 pt-14 pb-8">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 grid gap-10 md:grid-cols-4">
+      <div class="md:col-span-2">
+        <div class="flex items-center gap-4">
+          <img src="assets/landing/mascota.jpg" alt="" class="h-16 w-16 rounded-full ring-4 ring-oro object-cover">
+          <span class="inline-block rounded-lg bg-[#ecece8] px-2 py-1"><img src="assets/landing/logo.png" alt="Llama Borracha" class="h-10 w-auto"></span>
+        </div>
+        <p class="mt-5 max-w-sm text-espuma/65">Juegos de cartas para tomar, hechos en el Cusco para todo el Perú. Arma la juerga, nosotros ponemos las reglas.</p>
+      </div>
+      <nav aria-label="Tienda">
+        <h3 class="font-display text-lg tracking-wide text-chela-400">Tienda</h3>
+        <ul class="mt-4 space-y-2 text-espuma/70">
+          <li><a href="#productos" class="hover:text-chela-300">Juegos de cartas</a></li>
+          <li><a href="#productos" class="hover:text-chela-300">Merch oficial</a></li>
+          <li><a href="#productos" class="hover:text-chela-300">Otros productos</a></li>
+        </ul>
+      </nav>
+      <nav aria-label="Ayuda">
+        <h3 class="font-display text-lg tracking-wide text-chela-400">Ayuda</h3>
+        <ul class="mt-4 space-y-2 text-espuma/70">
+          <li><a href="#" class="hover:text-chela-300">Envíos y entregas</a></li>
+          <li><a href="#" class="hover:text-chela-300">Cambios y devoluciones</a></li>
+          <li><a href="#" class="hover:text-chela-300">Libro de reclamaciones</a></li>
+        </ul>
+      </nav>
+    </div>
+
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 mt-12 pt-8 border-t border-white/10 flex flex-col lg:flex-row items-center justify-between gap-6">
+      <div class="flex items-center gap-2 text-sm text-espuma/70">
+        <svg class="h-5 w-5 text-andino" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+        Pago 100% seguro · Conexión cifrada SSL
+      </div>
+      <ul class="flex flex-wrap justify-center gap-2" aria-label="Medios de pago aceptados">
+        <li class="h-9 px-3 rounded-md bg-white grid place-items-center font-black italic text-[#1a1f71] tracking-tight">VISA</li>
+        <li class="h-9 px-3 rounded-md bg-white flex items-center gap-0.5" aria-label="Mastercard"><span class="h-5 w-5 rounded-full bg-[#eb001b]"></span><span class="-ml-2.5 h-5 w-5 rounded-full bg-[#f79e1b] mix-blend-multiply"></span><span class="ml-1 text-xs font-bold text-noche-900">mastercard</span></li>
+        <li class="h-9 px-3 rounded-md bg-[#742284] grid place-items-center font-bold text-white">yape</li>
+        <li class="h-9 px-3 rounded-md bg-[#00c1d4] grid place-items-center font-bold text-white">plin</li>
+        <li class="h-9 px-3 rounded-md bg-[#fdd100] grid place-items-center text-xs font-bold text-noche-900">PagoEfectivo</li>
+      </ul>
+    </div>
+    <p class="mx-auto max-w-7xl px-4 sm:px-6 mt-8 text-center text-xs text-espuma/45">
+      © <span id="anio"></span> Llama Borracha. Venta exclusiva a mayores de 18 años. Toma con responsabilidad: si vas a tomar, no manejes.
+    </p>
+  </footer>
+
+  <!-- ===================== CARRITO (panel lateral) ===================== -->
+  <div id="overlay" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-300"></div>
+  <aside id="carrito" role="dialog" aria-modal="true" aria-labelledby="carrito-titulo" aria-hidden="true" inert
+    class="fixed top-0 right-0 z-50 h-full w-full max-w-md bg-noche-800 border-l border-oro/30 shadow-2xl translate-x-full transition-transform duration-300 ease-out flex flex-col">
+    <div class="greca shrink-0" aria-hidden="true"></div>
+    <div class="flex items-center justify-between px-6 py-5 border-b border-white/10">
+      <h2 id="carrito-titulo" class="font-display text-2xl tracking-wide">Tu carrito</h2>
+      <button type="button" id="cerrar-carrito" class="p-2 rounded-full hover:bg-white/10" aria-label="Cerrar carrito">
+        <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+
+    <div class="px-6 pt-4">
+      <p id="envio-msg" class="text-sm text-espuma/80"></p>
+      <div class="mt-2 h-3 rounded-full bg-noche-900 overflow-hidden ring-1 ring-white/10">
+        <div id="envio-barra" class="h-full cerveza rounded-full transition-all duration-500" style="width:0%"></div>
+      </div>
+    </div>
+
+    <ul id="carrito-items" class="flex-1 overflow-y-auto px-6 py-4 space-y-4"></ul>
+
+    <div id="carrito-vacio" class="hidden flex-1 flex-col items-center justify-center text-center px-8">
+      <img src="assets/landing/mascota.jpg" alt="" class="h-28 w-28 rounded-full ring-4 ring-oro/50 object-cover opacity-90">
+      <p class="mt-5 font-display text-xl tracking-wide">Tu vaso está vacío</p>
+      <p class="mt-1 text-espuma/60">Agrega un juego y que empiece la juerga.</p>
+    </div>
+
+    <div class="border-t border-white/10 px-6 py-5 space-y-3 bg-noche-900/60">
+      <div class="flex justify-between text-espuma/75"><span>Subtotal</span><span id="carrito-subtotal">S/ 0.00</span></div>
+      <div class="flex justify-between text-espuma/75"><span>Envío</span><span id="carrito-envio">—</span></div>
+      <div class="flex justify-between text-xl font-bold"><span>Total</span><span id="carrito-total" class="text-chela-400">S/ 0.00</span></div>
+      <button type="button" id="btn-pagar" class="w-full rounded-full bg-gradient-to-b from-chela-400 to-chela-600 py-4 font-display text-xl tracking-wider text-noche-900 glow-chela hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none transition">
+        IR A PAGAR
+      </button>
+      <p class="text-center text-xs text-espuma/50">🔒 Pago seguro · Checkout simulado (demo)</p>
+    </div>
+  </aside>
+
+  <!-- Toast -->
+  <div id="toast" role="status" aria-live="polite"
+    class="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 translate-y-24 opacity-0 rounded-full bg-espuma px-5 py-3 font-semibold text-noche-900 shadow-2xl ring-4 ring-chela-500 transition-all duration-300"></div>
+
+  <style>@keyframes bob { 0%,100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-10px) rotate(2deg); } }</style>
+  <script src="app.js" defer></script>
+</body>
+</html>
