@@ -18,8 +18,10 @@ send. Each new position is checked as follows:
 - its lot comes from ``PositionSizer`` (``Capital × Riesgo% / riesgo por
   lote``, rounded down to the broker's step) at the paper trade's risk,
   capped at ``MAX_RISK_PER_TRADE_PCT``;
-- the risk to the stop of every open position of this book, plus the new
-  one, stays within ``MAX_OPEN_RISK_PCT`` of equity;
+- the risk to the stop of every open position on the account (this book's,
+  manual ones and other robots'), plus the new one, stays within
+  ``MAX_OPEN_RISK_PCT`` of equity; a position without a stop blocks new
+  entries, because its risk cannot be measured;
 - the account holds at most ``MAX_OPEN_TRADES`` positions;
 - no new position opens while the floating loss reaches
   ``MAX_FLOATING_DRAWDOWN_PCT`` of balance, or the loss since the first run
@@ -125,8 +127,8 @@ def _snapshot(symbol: str, info: Any, tick: Any) -> MarketSnapshot:
 
 
 def _position_risk(position: Any, info: Any) -> float:
-    if not position.sl:
-        return float("inf")  # a position of this book without a stop is never acceptable
+    if not position.sl or info is None:
+        return float("inf")  # a risk that cannot be measured is never accepted
     ticks = abs(float(position.price_open) - float(position.sl)) / float(info.trade_tick_size)
     return ticks * float(info.trade_tick_value) * float(position.volume)
 
@@ -311,8 +313,9 @@ class ValueDemoExecutor:
         if not sizing.valid:
             skip(f"LOT_INVALID: {sizing.reason}")
             return
+        # Every position on the account counts, not only this book's; one without a stop blocks new entries.
         open_risk = sum(_position_risk(position, self.client.symbol_info(position.symbol))
-                        for position in self._own_positions())
+                        for position in all_positions)
         if open_risk + sizing.risk_amount > equity * self.config.max_open_risk_pct / 100.0:
             skip("MAX_OPEN_RISK")
             return

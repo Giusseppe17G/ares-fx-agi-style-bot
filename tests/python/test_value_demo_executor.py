@@ -206,3 +206,12 @@ def test_messages_describe_each_demo_order(tmp_path):
     assert any("en espera" in text for text in texts) and all("Cuenta demo" in text for text in texts)
     blocked = executor(tmp_path / "r", FakeMT5(trade_mode=2)).run([trade()])
     assert "REAL_ACCOUNT_BLOCKED" in demo_messages(blocked, "2026-10-30")[0].text
+
+
+def test_positions_opened_by_hand_count_toward_the_open_risk_limit(tmp_path):
+    client = FakeMT5()
+    client.positions[1] = SimpleNamespace(ticket=1, symbol="EURUSD", type=0, volume=0.24, price_open=1.1,
+                                          sl=1.08, tp=1.2, magic=0, profit=0.0)  # about 4.8% at risk, by hand
+    assert executor(tmp_path, client).run([trade()]).skipped[0]["reason"] == "MAX_OPEN_RISK"
+    client.positions[1].sl = 0.0  # a manual position without a stop: its risk cannot be measured
+    assert executor(tmp_path / "b", client).run([trade()]).skipped[0]["reason"] == "MAX_OPEN_RISK"
