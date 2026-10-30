@@ -363,3 +363,24 @@ def test_the_export_always_reaches_back_past_2018():
         bars = export_bars(datetime(year, 10, 27, tzinfo=timezone.utc))
         weekdays = int(np.busday_count("2018-01-02", f"{year}-10-27"))
         assert weekdays < bars < weekdays + 400
+
+
+def test_the_routine_mirrors_the_book_on_a_demo_account_only_when_enabled(tmp_path, monkeypatch):
+    from test_value_demo_executor import LOGIN, FakeMT5
+
+    paths = _setup(tmp_path, monkeypatch)
+    quiet = TelegramNotifier(database=TelemetryDatabase(tmp_path / "outbox.sqlite3"), enabled=False)
+    paths.config.write_text("MT5_SERVER_TIME=UTC\n")
+    client = FakeMT5()
+    off = run_routine(paths, runner=_Fake(), now=NOW, notifier=quiet, demo_client=client)
+    assert "demo" not in off["steps"] and client.sent == [] and off["execution_authorized"] is False
+    paths.config.write_text(f"DEMO_EXECUTION_ENABLED=True\nALLOWED_ACCOUNT_LOGINS={LOGIN}\n")
+    real = FakeMT5(trade_mode=2)
+    blocked = run_routine(paths, runner=_Fake(), now=NOW, notifier=quiet, demo_client=real)
+    assert blocked["steps"]["demo"]["code"] == "REAL_ACCOUNT_BLOCKED" and real.sent == []
+    assert blocked["exit_code"] == 2
+    demo = run_routine(paths, runner=_Fake(), now=NOW, notifier=quiet, demo_client=client)
+    step = demo["steps"]["demo"]
+    assert step["released"] and demo["execution_authorized"] is True
+    assert len(step["opened"]) + len(step["skipped"]) + len(step["failed"]) >= 1
+    assert all(order["sl"] and order["tp"] for order in client.sent if order["action"] == 1 and "position" not in order)

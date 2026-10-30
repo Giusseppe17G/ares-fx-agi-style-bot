@@ -14329,7 +14329,7 @@
   "full_pipeline_verified": false,
   "native_runtime_executed": false,
   "python_source_sha256": {
-    "agi_style_forex_bot_mt5.config.BotConfig.validate_safety": "cf93fa3a8b89c86e468203251669d3f62df4ae154fa916f22dba721600177fb8",
+    "agi_style_forex_bot_mt5.config.BotConfig.validate_safety": "e0bac8e43c853be6ba1bffcc93e6f0667e4fc2100dfb67752c34e022703d2783",
     "agi_style_forex_bot_mt5.contracts.MarketSnapshot.validate": "e10f78e6839a76838c0762e5d4c7e3763abe78adf78b749763c1eb81c7c45a1c",
     "agi_style_forex_bot_mt5.contracts.TradeSignal.validate_against_snapshot": "e07d2cf55f8b8af1980b9cf2d29d684a958aea6b29cf9e01bc4596df1af420e7",
     "agi_style_forex_bot_mt5.risk.portfolio_guard.PortfolioGuard": "bd09a44df9fa8e47a2b664133f55215acbc864b7a79902460dcb5c860068c629",

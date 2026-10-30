@@ -236,6 +236,46 @@ def rule_messages(book: TradeBook) -> list[Message]:
     return messages
 
 
+DEMO = "⚙️ DEMO MT5"
+DEMO_NOTE = "Cuenta demo: dinero virtual. Copia automática del libro en papel."
+
+
+def demo_messages(run: Any, day: str) -> list[Message]:
+    """One message per order the demo executor sent, and one per refusal or failure."""
+
+    messages: list[Message] = []
+    for item in run.opened:
+        icon = "🟢" if item["side"] == "BUY" else "🔴"
+        text = (f"{icon} {DEMO} · ABIERTA {'COMPRA' if item['side'] == 'BUY' else 'VENTA'} {item['symbol']}\n"
+                f"Lote {item['lot']} · Entrada {item['price']}\n"
+                f"Stop loss {item['sl']} · Take profit {item['tp']}\n"
+                f"Riesgo {_number(item['risk_percent'])}% ({_number(item['risk_amount'])} de la cuenta)\n{DEMO_NOTE}")
+        messages.append(Message(f"forward:demo:open:{item['trade_id']}:{item['ticket']}", "demo", day, 6, text))
+    for item in run.closed:
+        text = f"✖️ {DEMO} · CERRADA {item['trade_id']} (ticket {item['ticket']}) · por {item['by']}\n{DEMO_NOTE}"
+        messages.append(Message(f"forward:demo:close:{item['trade_id']}:{item['ticket']}", "demo", day, 6, text))
+    for item in run.modified:
+        text = (f"↕️ {DEMO} · {item['trade_id']}: nuevo stop loss {item['sl']} · take profit {item['tp']}\n"
+                f"{DEMO_NOTE}")
+        messages.append(Message(f"forward:demo:sltp:{item['trade_id']}:{item['sl']}:{item['tp']}", "demo", day, 6,
+                                text))
+    problems = run.failed + [item for item in run.skipped if not str(item.get("reason", "")).startswith(
+        ("LEVELS_INVALID", "SPREAD_TOO_WIDE"))]
+    if not run.released:
+        problems = [{"trade_id": "-", "reason": f"{run.code}: {run.detail}"}]
+    for item in problems:
+        text = (f"⚠️ {DEMO}: {item.get('trade_id', item.get('ticket', '-'))} no ejecutada\n"
+                f"Motivo: {item.get('reason', '')}\n{DEMO_NOTE}")
+        messages.append(Message(f"forward:demo:problem:{item.get('trade_id', item.get('ticket'))}:"
+                                f"{str(item.get('reason', ''))[:40]}:{day}", "demo", day, 7, text))
+    for item in run.skipped:
+        if str(item.get("reason", "")).startswith(("LEVELS_INVALID", "SPREAD_TOO_WIDE")):
+            text = (f"⏸️ {DEMO}: {item['trade_id']} en espera\nMotivo: {item['reason']}\n"
+                    f"Se reintenta en la próxima rutina.\n{DEMO_NOTE}")
+            messages.append(Message(f"forward:demo:wait:{item['trade_id']}:{day}", "demo", day, 7, text))
+    return messages
+
+
 def alert_message(code: str, detail: str = "", on: str | None = None) -> Message:
     day = on or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     action = ALERT_ACTIONS.get(code, "Revisa la salida de la rutina.")

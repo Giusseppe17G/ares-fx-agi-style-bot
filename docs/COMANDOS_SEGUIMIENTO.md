@@ -163,3 +163,25 @@ Con la opcion B:
 - Usar otro `cpi.csv` o cambiar a mano los archivos de inflacion ya usados.
 - Usar una cuenta real: el seguimiento es solo en papel y un `CONFIRMED` no
   activa nada.
+
+## 7. Demo automatica en MT5 (opcional)
+
+El bot puede copiar el libro en papel en tu cuenta **demo**: abre y cierra
+las ordenes con su stop loss, su take profit y el lote calculado segun tu
+capital. La cuenta real queda siempre bloqueada. Decision:
+`docs/decisions/2026-10-30-demo-execution-value-book.md`.
+
+1. En MT5, activa el boton **Algo Trading**: debe quedar en verde.
+2. Anade estas dos lineas a `C:\ares-config\bot.ini`, cambiando el numero por
+   el login de tu cuenta demo. El bot comprueba que la cuenta sea demo; con una
+   cuenta real se niega.
+
+```powershell
+Add-Content C:\ares-config\bot.ini "DEMO_EXECUTION_ENABLED=True"
+Add-Content C:\ares-config\bot.ini "ALLOWED_ACCOUNT_LOGINS=<login de tu demo>"
+```
+
+3. Corre la rutina. Cada orden enviada o rechazada llega a Telegram como
+   "DEMO MT5", y queda registrada en `data\runtime\forward\demo`.
+
+Para apagarla, cambia la linea a `DEMO_EXECUTION_ENABLED=False`.
