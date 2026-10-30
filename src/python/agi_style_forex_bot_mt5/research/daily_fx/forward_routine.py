@@ -65,7 +65,7 @@ from ...telemetry.telegram_notifier import TelegramNotifier
 from ..trial_registry import TrialLedger
 from .data import WORLD_BANK_COUNTRIES, load_worldbank_inflation
 from .forward import load_broker_daily, read_inflation_supplement
-from .forward_telegram import Message, alert_message, build_messages, check_message, deliver
+from .forward_telegram import Message, alert_message, build_messages, check_message, deliver, demo_messages
 from .forward_trades import ReportUnavailable, rebuild_trades
 from .plans import value_forward_v1
 
@@ -200,9 +200,35 @@ def _notifier(paths: RoutinePaths, telegram: bool) -> TelegramNotifier:
                                      enabled=bool(telegram or config.telegram_enabled))
 
 
+def _demo_execution(paths: RoutinePaths, book: Any, client: Any | None) -> Any:
+    """Mirror the paper book on the demo account when DEMO_EXECUTION_ENABLED=True (None otherwise)."""
+
+    from ...execution.value_demo_executor import DemoJournal, ValueDemoExecutor, load_symbol_map
+
+    if not paths.config.is_file():  # main() already refuses a missing configuration
+        return None
+    config = load_config(paths.config)
+    if not config.demo_execution_enabled:
+        return None
+    owned = client is None
+    if owned:
+        import MetaTrader5 as client  # only on the operator's Windows machine
+
+        if not client.initialize():
+            raise RuntimeError(f"MT5 initialize failed: {client.last_error()}")
+    try:
+        executor = ValueDemoExecutor(config, client, DemoJournal(paths.runtime / "demo"),
+                                     load_symbol_map(paths.symbol_map))
+        return executor.run(book.trades)
+    finally:
+        if owned:
+            client.shutdown()
+
+
 def run_routine(paths: RoutinePaths, *, python: str = sys.executable, runner: Runner = subprocess_runner,
                 now: datetime | None = None, skip_mt5: bool = False, telegram: bool = False,
-                notifier: Any | None = None, pause_seconds: float = 3.0) -> dict[str, Any]:
+                notifier: Any | None = None, pause_seconds: float = 3.0,
+                demo_client: Any | None = None) -> dict[str, Any]:
     """Run every step, deliver the messages and return the routine's summary (with ``exit_code``)."""
 
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -212,13 +238,14 @@ def run_routine(paths: RoutinePaths, *, python: str = sys.executable, runner: Ru
         return {"routine": "forward_value_v1", "started_at_utc": now.isoformat(), "alerts": [],
                 "error": "ROUTINE_ALREADY_RUNNING", "execution_authorized": False, "exit_code": 2}
     try:
-        return _run_steps(paths, python, runner, now, skip_mt5, telegram, notifier, pause_seconds)
+        return _run_steps(paths, python, runner, now, skip_mt5, telegram, notifier, pause_seconds, demo_client)
     finally:
         lock.unlink(missing_ok=True)
 
 
 def _run_steps(paths: RoutinePaths, python: str, runner: Runner, now: datetime, skip_mt5: bool,
-               telegram: bool, notifier: Any | None, pause_seconds: float) -> dict[str, Any]:
+               telegram: bool, notifier: Any | None, pause_seconds: float,
+               demo_client: Any | None = None) -> dict[str, Any]:
     stamp = now.strftime("%Y%m%d-%H%M%S")
     day = now.strftime("%Y-%m-%d")
     (paths.runtime / "runs").mkdir(parents=True, exist_ok=True)
@@ -285,6 +312,7 @@ def _run_steps(paths: RoutinePaths, python: str, runner: Runner, now: datetime, 
         elif result.get("waiting_for_inputs_on"):
             alert("WAITING_FOR_INFLATION", f"rebalance of {result['waiting_for_inputs_on']}")
     messages: list[Message] = []
+    book = None
     if (paths.worktree / PLAN_FILE).is_file():
         try:
             frozen = json.loads((paths.worktree / PLAN_FILE).read_text(encoding="utf-8"))
@@ -304,6 +332,18 @@ def _run_steps(paths: RoutinePaths, python: str, runner: Runner, now: datetime, 
         except Exception as error:  # the report never touches the ledger; say why it is missing
             summary["report"] = {"unavailable": type(error).__name__}
             alert("REPORT_FAILED", f"{type(error).__name__}: {error}")
+            exit_code = exit_code or 2
+    if book is not None and exit_code == 0 and not skip_mt5:
+        try:
+            demo = _demo_execution(paths, book, demo_client)
+            if demo is not None:
+                summary["steps"]["demo"] = demo.to_dict()
+                summary["execution_authorized"] = demo.released
+                messages += demo_messages(demo, day)
+                if demo.failed or (not demo.released and demo.code != "DEMO_EXECUTION_DISABLED"):
+                    exit_code = exit_code or 2
+        except Exception as error:  # nothing is retried blindly; the journal holds what was sent
+            alert("DEMO_EXECUTION_FAILED", f"{type(error).__name__}: {error}")
             exit_code = exit_code or 2
     try:
         notifier = notifier if notifier is not None else _notifier(paths, telegram)

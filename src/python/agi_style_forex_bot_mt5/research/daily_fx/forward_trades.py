@@ -79,6 +79,10 @@ class PaperTrade:
     pnl_percent: float = 0.0  # gross, % of equity, forward days only
     last_price: float | None = None
     start_price: float | None = None  # last close before the forward start, if opened before it
+    # Levels and risk after the latest re-anchor (the engine's live levels); None until set.
+    current_stop_loss: float | None = None
+    current_take_profit: float | None = None
+    current_risk_percent: float | None = None
 
     @property
     def pip_size(self) -> float:
@@ -197,6 +201,10 @@ def rebuild_trades(plan: ForwardPlan, prices_in: BrokerPrices, inflation_base: p
                     trade = None
                 elif rebalance and resized[row, column]:
                     anchor, stop = price, float(stops[day][code])
+                    trade.current_stop_loss = _pair_price(anchor * (1.0 - direction * stop), usd_base)
+                    trade.current_take_profit = _pair_price(
+                        anchor * (1.0 + direction * limits.take_profit_multiple * stop), usd_base)
+                    trade.current_risk_percent = 100.0 * abs(float(positions.at[day, code])) * stop
             sign = float(np.sign(positions.at[day, code]))
             if trade is None and sign != 0.0 and day in stops:
                 direction, anchor, stop = sign, price, float(stops[day][code])
@@ -208,6 +216,8 @@ def rebuild_trades(plan: ForwardPlan, prices_in: BrokerPrices, inflation_base: p
                     opened_on=str(day.date()), open_price=_pair_price(price, usd_base), stop_loss=stop_price,
                     take_profit=target_price, risk_percent=100.0 * abs(float(positions.at[day, code])) * stop,
                     opened_before_start=day < forward_start)
+                trade.current_stop_loss, trade.current_take_profit = stop_price, target_price
+                trade.current_risk_percent = trade.risk_percent
         if trade is not None:
             trade.last_price = _pair_price(float(prices.iloc[-1][code]), usd_base)
             trades.append(trade)

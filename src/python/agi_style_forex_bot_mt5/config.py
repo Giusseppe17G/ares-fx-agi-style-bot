@@ -59,6 +59,8 @@ class BotConfig:
     demo_only: bool = True
     live_trading_approved: bool = False
     allowed_account_logins: tuple[int, ...] = ()
+    # Demo-only broker execution of the forward value book (decision 2026-10-30); off unless set.
+    demo_execution_enabled: bool = False
     max_open_trades: int = 10
     max_open_risk_pct: float = 5.0
     max_risk_per_trade_pct: float = 0.5
@@ -120,7 +122,8 @@ class BotConfig:
     def validate_safety(self) -> None:
         """Raise ValueError when config weakens mandatory safety defaults."""
 
-        for name in ("demo_only", "live_trading_approved", "require_sl", "require_tp", "paper_allow_disabled_ml"):
+        for name in ("demo_only", "live_trading_approved", "require_sl", "require_tp", "paper_allow_disabled_ml",
+                     "demo_execution_enabled"):
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f"{name} must be an explicit boolean")
         for name, ceiling in (
@@ -215,6 +218,7 @@ def load_config(path: str | Path | None = None) -> BotConfig:
         demo_only=_config_bool(values, "DEMO_ONLY", True),
         live_trading_approved=_config_bool(values, "LIVE_TRADING_APPROVED", False),
         allowed_account_logins=allowed_logins,
+        demo_execution_enabled=_config_bool(values, "DEMO_EXECUTION_ENABLED", False),
         max_open_trades=int(values.get("MAX_OPEN_TRADES", 10)),
         max_open_risk_pct=float(values.get("MAX_OPEN_RISK_PCT", 5.0)),
         max_risk_per_trade_pct=float(values.get("MAX_RISK_PER_TRADE_PCT", 0.5)),
